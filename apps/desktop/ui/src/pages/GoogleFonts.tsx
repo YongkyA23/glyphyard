@@ -17,9 +17,16 @@ const generic = (c: string) => ({ Serif: 'serif', Monospace: 'monospace', Handwr
 const PAGE = 30
 const CACHE_MS = 5 * 60 * 1000
 type Loaded = { items: GoogleFont[]; total: number; at: number }
-// Pages already fetched per search + category, kept across visits so going back is instant.
-// ponytail: unbounded map of small objects; a handful of queries per session is fine.
+// Pages already fetched per search + category + page, kept across visits so going back is instant.
+// ponytail: unbounded map of small objects; a handful of pages per session is fine.
 const cache = new Map<string, Loaded>()
+
+/** Page numbers to show: first, last, and two around the current one, with gaps as null. */
+function pageList(current: number, last: number): (number | null)[] {
+  const keep = new Set([1, last, current - 1, current, current + 1].filter((p) => p >= 1 && p <= last))
+  const sorted = [...keep].sort((a, b) => a - b)
+  return sorted.flatMap((p, i) => (i > 0 && p - sorted[i - 1] > 1 ? [null, p] : [p]))
+}
 
 /** True once the element has come near the viewport (it never goes back to false). */
 function useSeen<T extends Element>(margin = '200px') {
@@ -40,17 +47,15 @@ export function GoogleFonts() {
   const [params] = useSearchParams()
   const [search, setSearch] = useState(params.get('q') ?? '')
   const [cat, setCat] = useState('All')
+  const [page, setPage] = useState(1)
   const category = CATS.find(([l]) => l === cat)?.[1]
-  const key = `${search.trim().toLowerCase()}|${category ?? ''}`
+  const key = `${search.trim().toLowerCase()}|${category ?? ''}|${page}`
   const [data, setData] = useState<Loaded | null>(() => cache.get(key) ?? null)
-  const [loadingMore, setLoadingMore] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const req = useRef(0)
+  const top = useRef<HTMLDivElement>(null)
 
-  const store = useCallback((k: string, d: Loaded) => (cache.set(k, d), setData(d)), [])
-
-  // First page for this search + category (debounced while typing); cached results show at once.
+  // The current page (debounced while typing); cached pages show at once.
   useEffect(() => {
     const hit = cache.get(key)
     if (hit && Date.now() - hit.at < CACHE_MS) {
@@ -58,35 +63,30 @@ export function GoogleFonts() {
       return
     }
     setData(null)
-    const id = ++req.current
+    let stale = false
     const t = setTimeout(() => {
-      api.googleCatalog(search.trim() || undefined, category, 0, PAGE).then(
-        (p) => id === req.current && (store(key, { ...p, at: Date.now() }), setError(null)),
-        (e) => id === req.current && setError(errMsg(e)),
+      api.googleCatalog(search.trim() || undefined, category, (page - 1) * PAGE, PAGE).then(
+        (p) => {
+          if (stale) return
+          const d = { ...p, at: Date.now() }
+          cache.set(key, d)
+          setData(d)
+          setError(null)
+        },
+        (e) => !stale && setError(errMsg(e)),
       )
     }, search ? 250 : 0)
-    return () => clearTimeout(t)
-  }, [key, search, category, store])
+    return () => {
+      stale = true
+      clearTimeout(t)
+    }
+  }, [key, search, category, page])
 
-  const hasMore = !!data && data.items.length < data.total
-  const loadMore = useCallback(() => {
-    if (!data || !hasMore || loadingMore) return
-    const id = req.current
-    setLoadingMore(true)
-    api.googleCatalog(search.trim() || undefined, category, data.items.length, PAGE)
-      .then((p) => id === req.current && store(key, { items: [...data.items, ...p.items], total: p.total, at: data.at }), (e) => toast(errMsg(e)))
-      .finally(() => setLoadingMore(false))
-  }, [data, hasMore, loadingMore, search, category, key, store, toast])
-
-  // Infinite scroll: load the next page when the sentinel below the grid gets close.
-  const sentinel = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const el = sentinel.current
-    if (!el || !hasMore) return
-    const io = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && loadMore(), { rootMargin: '600px' })
-    io.observe(el)
-    return () => io.disconnect()
-  }, [hasMore, loadMore])
+  const pages = data ? Math.max(1, Math.ceil(data.total / PAGE)) : 1
+  const go = useCallback((p: number) => {
+    setPage(p)
+    top.current?.scrollIntoView({ block: 'start' })
+  }, [])
 
   async function toggle(f: GoogleFont) {
     setBusy(f.family)
@@ -104,7 +104,7 @@ export function GoogleFonts() {
   }
 
   return (
-    <div className="page" style={{ gap: 16 }}>
+    <div className="page" style={{ gap: 16 }} ref={top}>
       <div className="row-between">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <h1 className="h-page">Google Fonts</h1>
@@ -112,27 +112,44 @@ export function GoogleFonts() {
         </div>
         <label htmlFor="gsearch" className="sr-only">Search Google Fonts</label>
         <input
-          id="gsearch" type="search" className="input" style={{ flex: '0 1 320px' }} value={search} onChange={(e) => setSearch(e.target.value)}
+          id="gsearch" type="search" className="input" style={{ flex: '0 1 320px' }} value={search}
+          onChange={(e) => (setSearch(e.target.value), setPage(1))}
           placeholder={data && !search && cat === 'All' ? `Search ${data.total.toLocaleString()} families` : 'Search families'}
         />
       </div>
       <div className="chips">
-        {CATS.map(([label]) => <Chip key={label} pressed={cat === label} onClick={() => setCat(label)}>{label}</Chip>)}
+        {CATS.map(([label]) => <Chip key={label} pressed={cat === label} onClick={() => (setCat(label), setPage(1))}>{label}</Chip>)}
       </div>
       {error && <p role="alert" style={{ margin: 0, color: 'var(--bad)' }}>{error}</p>}
       {data?.total === 0 && <p className="faint">No families match.</p>}
       <div className="gf-grid">
         {data === null && !error && Array.from({ length: 9 }, (_, i) => <CardSkeleton key={i} />)}
         {data?.items.map((f, i) => (
-          <GoogleCard key={f.family} f={f} stagger={i % PAGE} busy={busy === f.family} onToggle={() => toggle(f)} />
+          <GoogleCard key={f.family} f={f} stagger={i} busy={busy === f.family} onToggle={() => toggle(f)} />
         ))}
-        {loadingMore && Array.from({ length: 3 }, (_, i) => <CardSkeleton key={`more-${i}`} />)}
       </div>
-      <div ref={sentinel} aria-hidden="true" style={{ height: 1 }} />
       {data && data.total > 0 && (
-        <p className="faint" role="status" style={{ margin: 0, fontSize: 12, textAlign: 'center' }}>
-          {hasMore ? `Showing ${data.items.length} of ${data.total.toLocaleString()}` : `All ${data.total.toLocaleString()} shown`}
-        </p>
+        <nav aria-label="Pages" className="pager">
+          <span className="faint" role="status" style={{ fontSize: 12 }}>
+            {((page - 1) * PAGE + 1).toLocaleString()}–{Math.min(page * PAGE, data.total).toLocaleString()} of {data.total.toLocaleString()}
+          </span>
+          {pages > 1 && (
+            <span className="pager-buttons">
+              <button type="button" className="btn small" disabled={page === 1} onClick={() => go(page - 1)}>‹ Prev</button>
+              {pageList(page, pages).map((p, i) =>
+                p === null ? (
+                  <span key={`gap-${i}`} className="faint" aria-hidden="true">…</span>
+                ) : (
+                  <button
+                    key={p} type="button" className={p === page ? 'btn small primary' : 'btn small'} aria-current={p === page ? 'page' : undefined}
+                    aria-label={`Page ${p}`} onClick={() => go(p)}
+                  >{p}</button>
+                ),
+              )}
+              <button type="button" className="btn small" disabled={page === pages} onClick={() => go(page + 1)}>Next ›</button>
+            </span>
+          )}
+        </nav>
       )}
     </div>
   )

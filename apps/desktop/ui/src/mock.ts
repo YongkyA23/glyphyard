@@ -139,6 +139,11 @@ const adobe: AdobeRow[] = [
   { app: 'illustrator', label: 'Illustrator', versions: ['2026'], installed: false, paired: false },
   { app: 'indesign', label: 'InDesign', versions: ['2026'], installed: false, paired: false },
 ]
+// Extra rows so the Google Fonts pager has several pages in the browser mock.
+const mockFiller: GoogleFont[] = Array.from({ length: 80 }, (_, i) => ({
+  family: `Mock Family ${String(i + 1).padStart(2, '0')}`, category: ['Serif', 'Sans Serif', 'Display'][i % 3], styles: 1 + (i % 9), variable: i % 4 === 0, installed: false,
+}))
+
 const google: GoogleFont[] = [
   { family: 'Lora', category: 'Serif', styles: 8, variable: true, installed: false },
   { family: 'Bricolage Grotesque', category: 'Sans Serif', styles: 1, variable: true, installed: false },
@@ -364,7 +369,9 @@ const handlers: Record<string, (a: Args) => unknown> = {
   },
   google_catalog: ({ search, category, offset = 0, limit = 30 }) => {
     const q = search?.trim().toLowerCase()
-    const all = google.filter((g) => (!q || g.family.toLowerCase().includes(q)) && (!category || g.category === category))
+    const all = [...google, ...mockFiller]
+      .filter((g) => (!q || g.family.toLowerCase().includes(q)) && (!category || g.category === category))
+      .sort((a, b) => a.family.toLowerCase().localeCompare(b.family.toLowerCase()))
     return { items: all.slice(offset, offset + limit), total: all.length }
   },
   google_install: ({ family }) => {

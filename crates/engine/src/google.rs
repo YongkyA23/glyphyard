@@ -79,9 +79,6 @@ pub(crate) struct Meta {
     fonts: Map<String, Value>,
     #[serde(default)]
     axes: Vec<Value>,
-    /// Google's popularity rank (1 = most popular); 0 when missing.
-    #[serde(default)]
-    popularity: u32,
 }
 
 /// How long the downloaded catalog is reused before asking Google again.
@@ -111,7 +108,7 @@ impl Engine {
     }
 
     /// Memory, then the disk copy if it is younger than a day, then the network (cached to disk),
-    /// then any disk copy when offline. Sorted by popularity once, here.
+    /// then any disk copy when offline. Sorted A–Z once, here.
     fn catalog(&self) -> Result<Arc<Vec<Meta>>> {
         let mut cached = self.google_catalog.lock().unwrap();
         if let Some(c) = cached.as_ref() {
@@ -132,7 +129,7 @@ impl Engine {
             },
         };
         let mut list = parse_catalog(&text)?;
-        list.sort_by_key(|m| (m.popularity == 0, m.popularity));
+        list.sort_by_cached_key(|m| m.family.to_lowercase());
         let list = Arc::new(list);
         *cached = Some(list.clone());
         Ok(list)
@@ -146,7 +143,7 @@ impl Engine {
         list.map(|l| l.iter().map(|m| m.family.to_lowercase().replace(' ', "")).collect()).unwrap_or_default()
     }
 
-    /// One page of the catalog (most popular first), filtered by search text and category.
+    /// One page of the catalog (A–Z), filtered by search text and category.
     pub fn google_catalog(&self, search: Option<&str>, category: Option<&str>, offset: usize, limit: usize) -> Result<GooglePage> {
         let needle = search.map(|s| s.trim().to_lowercase()).unwrap_or_default();
         let base = self.google_dir();
