@@ -1,10 +1,11 @@
-//! `.typeshelf` backups: a zip holding one JSON export of collections, tags, licenses, project sets
-//! and app settings. No font files, no identity or connection secrets.
+//! `.typeshelf` backups: a zip holding one JSON export of collections, tags, pins, licenses,
+//! project sets and app settings. No font files, no identity or connection secrets. Also the
+//! collections-only JSON of `export_collections` / `import_collections`.
 
-use crate::{store, AppSettings, BackupInfo, Engine, EngineError, Result};
-use rusqlite::{params, Connection};
+use crate::{store, AppSettings, BackupInfo, CollectionsExport, CollectionsImport, Engine, EngineError, Result};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::Path;
 
@@ -16,6 +17,9 @@ pub(crate) struct Export {
     version: u32,
     collections: Vec<ExportCollection>,
     tags: Vec<(String, String)>,
+    /// Pinned family keys (missing in backups made before pins).
+    #[serde(default)]
+    pins: Vec<String>,
     licenses: Vec<ExportLicense>,
     project_sets: Vec<ExportSet>,
     settings: Option<AppSettings>,
@@ -67,6 +71,8 @@ fn export(conn: &Connection) -> rusqlite::Result<Export> {
     }
     let mut stmt = conn.prepare("SELECT family_key, tag FROM family_tags ORDER BY family_key, tag")?;
     let tags = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+    let mut stmt = conn.prepare("SELECT family_key FROM pins ORDER BY family_key")?;
+    let pins = stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
     let mut stmt = conn.prepare("SELECT family_key, label, file_path, note FROM licenses ORDER BY family_key")?;
     let licenses = stmt
         .query_map([], |r| Ok(ExportLicense { family_key: r.get(0)?, label: r.get(1)?, file: r.get(2)?, note: r.get(3)? }))?
@@ -78,7 +84,7 @@ fn export(conn: &Connection) -> rusqlite::Result<Export> {
     for s in &mut project_sets {
         s.family_keys = strings(conn, "SELECT family_key FROM project_set_items WHERE set_id = ?1 ORDER BY family_key", s.id)?;
     }
-    Ok(Export { version: 1, collections, tags, licenses, project_sets, settings: store::get(conn, "app")? })
+    Ok(Export { version: 1, collections, tags, pins, licenses, project_sets, settings: store::get(conn, "app")? })
 }
 
 impl Engine {
@@ -92,7 +98,7 @@ impl Engine {
         Ok(BackupInfo { path: path.as_ref().to_string_lossy().into_owned(), at: store::now() })
     }
 
-    /// Replaces collections, tags, licenses, project sets and settings; undoable from history.
+    /// Replaces collections, tags, pins, licenses, project sets and settings; undoable from history.
     pub fn backup_restore(&self, path: impl AsRef<Path>) -> Result<BackupInfo> {
         let file = std::fs::File::open(path.as_ref())?;
         let mut zip = zip::ZipArchive::new(file).map_err(zip_err)?;
@@ -122,7 +128,7 @@ impl Engine {
         };
         tx.execute_batch(
             "PRAGMA defer_foreign_keys = ON;
-             DELETE FROM collection_items; DELETE FROM collections; DELETE FROM family_tags;
+             DELETE FROM collection_items; DELETE FROM collections; DELETE FROM family_tags; DELETE FROM pins;
              DELETE FROM licenses; DELETE FROM project_set_items; DELETE FROM project_sets;",
         )?;
         for c in &e.collections {
@@ -142,6 +148,9 @@ impl Engine {
         )?;
         for (k, t) in &e.tags {
             tx.execute("INSERT OR IGNORE INTO family_tags (family_key, tag) VALUES (?1, ?2)", params![k, t])?;
+        }
+        for k in &e.pins {
+            tx.execute("INSERT OR IGNORE INTO pins (family_key) VALUES (?1)", [k])?;
         }
         for l in &e.licenses {
             tx.execute(
@@ -164,6 +173,139 @@ impl Engine {
         tx.commit()?;
         Ok(())
     }
+
+    /// Writes every collection except Recent, nested, with each family's key and name.
+    pub fn export_collections(&self, dest: impl AsRef<Path>) -> Result<CollectionsExport> {
+        let file = {
+            let db = self.db();
+            let mut stmt = db.prepare("SELECT id, name, parent_id FROM collections WHERE builtin IS NOT 'recent' ORDER BY id")?;
+            let rows: Vec<(i64, String, Option<i64>)> =
+                stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
+            let mut stmt = db.prepare("SELECT family_key, MIN(family) FROM faces GROUP BY family_key")?;
+            let names: HashMap<String, String> =
+                stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+            fn node(db: &Connection, rows: &[(i64, String, Option<i64>)], names: &HashMap<String, String>, id: i64, name: &str) -> rusqlite::Result<CollectionNode> {
+                let families = strings(db, "SELECT family_key FROM collection_items WHERE collection_id = ?1 ORDER BY added_at", id)?
+                    .into_iter()
+                    .map(|key| {
+                        // A family no longer in the library keeps the name part of its key.
+                        let family = names.get(&key).cloned().unwrap_or_else(|| key.split('|').next().unwrap_or_default().into());
+                        FamilyRef { key, family }
+                    })
+                    .collect();
+                let children = rows
+                    .iter()
+                    .filter(|r| r.2 == Some(id))
+                    .map(|r| node(db, rows, names, r.0, &r.1))
+                    .collect::<rusqlite::Result<_>>()?;
+                Ok(CollectionNode { name: name.into(), families, children })
+            }
+            let collections = rows
+                .iter()
+                .filter(|r| r.2.is_none_or(|p| !rows.iter().any(|o| o.0 == p)))
+                .map(|r| node(&db, &rows, &names, r.0, &r.1))
+                .collect::<rusqlite::Result<_>>()?;
+            CollectionsFile { version: 1, collections }
+        };
+        std::fs::write(dest.as_ref(), serde_json::to_vec_pretty(&file)?)?;
+        Ok(CollectionsExport { collections: file.collections.iter().map(CollectionNode::count).sum() })
+    }
+
+    /// Merges a file from `export_collections`: a collection with the same name under the same
+    /// parent is reused, families match by key, then by family name.
+    pub fn import_collections(&self, path: impl AsRef<Path>) -> Result<CollectionsImport> {
+        let json = std::fs::read(path.as_ref())?;
+        let file: CollectionsFile =
+            serde_json::from_slice(&json).map_err(|e| EngineError::new("invalid", format!("not a collections file: {e}")))?;
+        let mut db = self.db();
+        let tx = db.transaction()?;
+        let mut keys = HashSet::new();
+        let mut by_name = HashMap::new();
+        {
+            let mut stmt = tx.prepare("SELECT family_key, family FROM faces ORDER BY family_key")?;
+            for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+                let (key, family) = row?;
+                by_name.entry(family.to_lowercase()).or_insert_with(|| key.clone());
+                keys.insert(key);
+            }
+        }
+        let mut res = CollectionsImport { collections: 0, families: 0, missing: 0 };
+        fn merge(
+            tx: &Connection,
+            node: &CollectionNode,
+            parent: Option<i64>,
+            find: &dyn Fn(&FamilyRef) -> Option<String>,
+            res: &mut CollectionsImport,
+        ) -> rusqlite::Result<()> {
+            let existing: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM collections WHERE name = ?1 COLLATE NOCASE AND parent_id IS ?2 ORDER BY id LIMIT 1",
+                    params![node.name, parent],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let id = match existing {
+                Some(id) => id,
+                None => {
+                    tx.execute("INSERT INTO collections (name, parent_id) VALUES (?1, ?2)", params![node.name, parent])?;
+                    tx.last_insert_rowid()
+                }
+            };
+            res.collections += 1;
+            for f in &node.families {
+                match find(f) {
+                    Some(key) => {
+                        tx.execute(
+                            "INSERT OR IGNORE INTO collection_items (collection_id, family_key, added_at) VALUES (?1, ?2, ?3)",
+                            params![id, key, store::now()],
+                        )?;
+                        res.families += 1;
+                    }
+                    None => res.missing += 1,
+                }
+            }
+            node.children.iter().try_for_each(|c| merge(tx, c, Some(id), find, res))
+        }
+        let find = |f: &FamilyRef| -> Option<String> {
+            Some(f.key.clone()).filter(|k| keys.contains(k)).or_else(|| by_name.get(&f.family.trim().to_lowercase()).cloned())
+        };
+        for node in &file.collections {
+            if node.name.trim().is_empty() {
+                continue;
+            }
+            merge(&tx, node, None, &find, &mut res)?;
+        }
+        tx.commit()?;
+        Ok(res)
+    }
+}
+
+/// The `export_collections` file.
+#[derive(Debug, Serialize, Deserialize)]
+struct CollectionsFile {
+    version: u32,
+    collections: Vec<CollectionNode>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CollectionNode {
+    name: String,
+    #[serde(default)]
+    families: Vec<FamilyRef>,
+    #[serde(default)]
+    children: Vec<CollectionNode>,
+}
+
+impl CollectionNode {
+    fn count(&self) -> u32 {
+        1 + self.children.iter().map(CollectionNode::count).sum::<u32>()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FamilyRef {
+    key: String,
+    family: String,
 }
 
 fn zip_err(e: zip::result::ZipError) -> EngineError {

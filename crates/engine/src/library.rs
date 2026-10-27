@@ -2,16 +2,18 @@
 
 use crate::activation::{parse_source_opt, set_keys, version_key};
 use crate::scan::{family_key, numbered};
+use crate::search::{self, Term};
 use crate::{
     not_found, store, ActivationResult, ActiveState, Axis, Builtin, Category, Collection, Engine, EngineError, ExportResult, Face,
-    Family, FamilyDetail, FamilyFilter, FamilyPage, FamilyQuery, FileRow, FileStatus, LibraryCounts, License, LicenseInfo,
-    ProjectSet, Result, SortBy, TagCount,
+    Family, FamilyDetail, FamilyFilter, FamilyPage, FamilyQuery, FileRow, FileStatus, FontDetails, GlyphMap, LibraryCounts, License,
+    LicenseInfo, ProjectSet, Result, SortBy, TagCount,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
-use typeshelf_core::Metrics;
+use typeshelf_core::glyphs::{covers, glyph_map, Coverage};
+use typeshelf_core::{font_details, Metrics};
 use typeshelf_protocol::Source;
 
 /// One face of one file copy.
@@ -97,6 +99,26 @@ fn rep_rank(weight: f32, italic: bool) -> (bool, u32) {
     (italic, (weight - 400.0).abs() as u32)
 }
 
+/// The face that stands for its family (category, glyph search, details).
+fn rep<'a>(rows: &[&'a Row]) -> Option<&'a Row> {
+    rows.iter().copied().min_by_key(|r| rep_rank(r.weight, r.italic))
+}
+
+fn pins(conn: &Connection) -> rusqlite::Result<HashSet<String>> {
+    let mut stmt = conn.prepare_cached("SELECT family_key FROM pins")?;
+    let rows = stmt.query_map([], |r| r.get(0))?;
+    rows.collect()
+}
+
+/// Whether face (`hash`, `idx`) maps every one of `chars`.
+fn face_covers(conn: &Connection, hash: &str, idx: i64, chars: &[u32]) -> rusqlite::Result<bool> {
+    let json: String = conn
+        .prepare_cached("SELECT coverage_json FROM faces WHERE hash = ?1 AND idx = ?2")?
+        .query_row(params![hash, idx], |r| r.get(0))?;
+    let cov: Coverage = serde_json::from_str(&json).unwrap_or_default();
+    Ok(chars.iter().all(|c| covers(&cov, *c)))
+}
+
 /// Tags per family key, sorted.
 // ponytail: reads every tag row; fine for thousands of tags.
 fn tags_of(conn: &Connection) -> rusqlite::Result<HashMap<String, Vec<String>>> {
@@ -180,8 +202,9 @@ fn build_family(key: &str, rows: &[&Row], license: License) -> Family {
         admin_set: faces.iter().any(|f| f.source == Some(Source::Admin)),
         has_duplicates: hashes_by_ps.values().any(|h| h.len() > 1) || paths_by_hash.values().any(|p| p.len() > 1),
         system: rows.iter().all(|r| r.system),
-        category: rows.iter().min_by_key(|r| rep_rank(r.weight, r.italic)).and_then(|r| r.category),
+        category: rep(rows).and_then(|r| r.category),
         tags: Vec::new(), // filled by the caller, which has the tag table loaded
+        pinned: false,    // same
         faces,
     }
 }
@@ -190,6 +213,28 @@ fn matches_search(f: &Family, needle: &str) -> bool {
     f.family.to_lowercase().contains(needle)
         || f.foundry.to_lowercase().contains(needle)
         || f.faces.iter().any(|x| x.ps_name.to_lowercase().contains(needle) || x.full_name.to_lowercase().contains(needle))
+}
+
+/// One SuperSearch token; `Chars` is checked by the caller against the coverage.
+// ponytail: weight compares each face's default weight, not a variable font's wght range.
+fn term_matches(t: &Term, f: &Family, rows: &[&Row]) -> bool {
+    match t {
+        Term::Tag(tag) => f.tags.iter().any(|x| x.to_lowercase() == *tag),
+        Term::Foundry(v) => f.foundry.to_lowercase().contains(v.as_str()),
+        Term::Designer(v) => rows.iter().any(|r| r.designer.to_lowercase().contains(v.as_str())),
+        Term::Category(c) => f.category == Some(*c),
+        Term::License(l) => f.license == *l,
+        Term::Weight(lo, hi) => f.faces.iter().any(|x| x.weight >= *lo && x.weight <= *hi),
+        Term::WeightAbove(w) => f.faces.iter().any(|x| x.weight > *w),
+        Term::WeightBelow(w) => f.faces.iter().any(|x| x.weight < *w),
+        Term::Italic => f.faces.iter().any(|x| x.italic),
+        Term::Variable => f.is_variable,
+        Term::Active => f.active_state != ActiveState::None,
+        Term::Inactive => f.active_state == ActiveState::None,
+        Term::Pinned => f.pinned,
+        Term::System => rows.iter().any(|r| r.system),
+        Term::Chars(_) => true,
+    }
 }
 
 /// The shape of a family's representative face, for [`distance`].
@@ -304,7 +349,18 @@ impl Engine {
             Some(t) => Some(keys_where(&db, "SELECT family_key FROM family_tags WHERE tag = ?1", t)?),
             None => None,
         };
-        let needle = q.search.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_lowercase);
+        let search = search::parse(q.search.as_deref().unwrap_or(""));
+        let wants_system = search.terms.contains(&Term::System);
+        let chars: Vec<u32> = search
+            .terms
+            .iter()
+            .filter_map(|t| if let Term::Chars(c) = t { Some(c.as_str()) } else { None })
+            .chain(q.chars.as_deref())
+            .flat_map(str::chars)
+            .filter(|c| !c.is_whitespace())
+            .map(u32::from)
+            .collect();
+        let pins = pins(&db)?;
         let hidden = hidden_dirs(&db)?;
         let in_hidden = |p: &str| hidden.iter().any(|h| Path::new(p).starts_with(h));
         let show_hidden = q.include_hidden || q.keys.is_some() || q.path.as_deref().is_some_and(in_hidden);
@@ -326,8 +382,9 @@ impl Engine {
             }
             let mut fam = build_family(key, &rows, licenses.get(key).copied().unwrap_or(License::Unknown));
             fam.tags = tags_by_key.get(key).cloned().unwrap_or_default();
+            fam.pinned = pins.contains(key);
             // System-only families stay out of the library lists unless asked for (or collected/tagged/picked).
-            if fam.system && q.filter != FamilyFilter::System && collection.is_none() && tagged.is_none() && q.keys.is_none() {
+            if fam.system && q.filter != FamilyFilter::System && collection.is_none() && tagged.is_none() && q.keys.is_none() && !wants_system {
                 continue;
             }
             let keep = match q.filter {
@@ -342,8 +399,18 @@ impl Engine {
             if !keep
                 || q.license.is_some_and(|l| l != fam.license)
                 || q.category.is_some_and(|c| fam.category != Some(c))
-                || needle.as_deref().is_some_and(|n| !matches_search(&fam, n)) {
+                || search.text.as_deref().is_some_and(|n| !matches_search(&fam, n))
+                || !search.terms.iter().all(|t| term_matches(t, &fam, &rows))
+            {
                 continue;
+            }
+            if !chars.is_empty() {
+                // ponytail: one indexed lookup + JSON parse per family that got this far; cache
+                // parsed coverage if glyph search over huge libraries feels slow.
+                let Some(r) = rep(&rows) else { continue };
+                if !face_covers(&db, &r.hash, r.idx, &chars)? {
+                    continue;
+                }
             }
             let added = rows.iter().map(|r| r.added_at.as_str()).max().unwrap_or("");
             out.push((fam, added));
@@ -363,6 +430,7 @@ impl Engine {
                 });
             }
         }
+        out.sort_by_key(|(f, _)| !f.pinned); // stable: pinned first, each part keeps its order
         Ok(out.into_iter().map(|(f, _)| f).collect())
     }
 
@@ -437,6 +505,15 @@ impl Engine {
         let info = license_info(&db, key)?;
         let mut family = build_family(key, &rows, info.label);
         family.tags = tags_of(&db)?.remove(key).unwrap_or_default();
+        family.pinned = pins(&db)?.contains(key);
+        let details = rep(&rows)
+            .and_then(|r| {
+                rows.iter()
+                    .filter(|o| o.hash == r.hash)
+                    .find_map(|o| std::fs::read(&o.path).ok())
+                    .and_then(|bytes| font_details(&bytes, r.idx as u32))
+            })
+            .unwrap_or_else(|| FontDetails { glyph_count: rows[0].glyph_count, ..Default::default() });
         let axes: Vec<Axis> = rows
             .iter()
             .find(|r| r.is_variable)
@@ -458,8 +535,45 @@ impl Engine {
             designer: rows.iter().map(|r| r.designer.as_str()).find(|d| !d.is_empty()).unwrap_or("").into(),
             files,
             license_info: info,
+            details,
             family,
         })
+    }
+
+    /// The cmap of one face (`index` within a TTC), grouped by Unicode block. Read from the first
+    /// readable copy of the file.
+    pub fn face_glyphs(&self, hash: &str, index: u32) -> Result<GlyphMap> {
+        let paths: Vec<PathBuf> = {
+            let db = self.db();
+            let mut stmt = db.prepare(
+                "SELECT fo.path, fi.rel_path FROM files fi JOIN folders fo ON fo.id = fi.folder_id WHERE fi.hash = ?1 ORDER BY fi.id",
+            )?;
+            let rows = stmt.query_map([hash], |r| Ok(Path::new(&r.get::<_, String>(0)?).join(r.get::<_, String>(1)?)))?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        paths
+            .iter()
+            .find_map(|p| std::fs::read(p).ok())
+            .and_then(|bytes| glyph_map(&bytes, index))
+            .ok_or_else(|| not_found("font file"))
+    }
+
+    /// Pins or unpins families; pinned families sort first in every list.
+    pub fn set_pinned(&self, keys: &[String], pinned: bool) -> Result<()> {
+        {
+            let mut db = self.db();
+            let tx = db.transaction()?;
+            for k in keys {
+                if pinned {
+                    tx.execute("INSERT OR IGNORE INTO pins (family_key) VALUES (?1)", [k])?;
+                } else {
+                    tx.execute("DELETE FROM pins WHERE family_key = ?1", [k])?;
+                }
+            }
+            tx.commit()?;
+        }
+        self.library_changed("scan");
+        Ok(())
     }
 
     /// Faces for the quick-activate popup, at most 20.
@@ -649,7 +763,7 @@ impl Engine {
             for (old, new) in moves.into_iter().filter(|(o, n)| o != n) {
                 let left: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM faces WHERE family_key = ?1)", [&old], |r| r.get(0))?;
                 if !left {
-                    for table in ["collection_items", "family_tags", "licenses", "project_set_items"] {
+                    for table in ["collection_items", "family_tags", "licenses", "project_set_items", "pins"] {
                         tx.execute(&format!("UPDATE OR IGNORE {table} SET family_key = ?2 WHERE family_key = ?1"), params![old, new])?;
                     }
                 }

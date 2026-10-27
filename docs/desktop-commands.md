@@ -16,11 +16,21 @@ type Family = { key: string; family: string; foundry: string; styles: number; is
   activeState: "all" | "some" | "none"; adminSet: boolean; hasDuplicates: boolean; system: boolean;
   category: FontCategory | null;  // from the upright regular face: post/PANOSE/OS/2 family class, then name words
   tags: string[];
+  pinned: boolean;  // set_pinned; pinned families sort first in every order
   faces: Face[] };
 type Axis = { tag: string; min: number; default: number; max: number };
 type FileRow = { path: string; version: string; status: "active" | "older_version" | "alternate" | "grouped" | "inactive" | "system" };
 type FamilyDetail = Family & { axes: Axis[]; features: string[]; glyphCount: number; designer: string;
-  files: FileRow[]; licenseInfo: { label: License; file: string | null; note: string } };
+  files: FileRow[]; licenseInfo: { label: License; file: string | null; note: string };
+  details: FontDetails };
+// Read from the representative face's file (upright, weight nearest 400) when the detail is opened;
+// all null / "" when no copy is readable. Blank name-table strings are null.
+type FontDetails = { copyright: string | null; trademark: string | null; manufacturer: string | null; designer: string | null;
+  description: string | null; license: string | null; licenseUrl: string | null; vendorUrl: string | null;
+  designerUrl: string | null; version: string | null; uniqueId: string | null;
+  format: string;  // "TrueType" | "OpenType (CFF)" | "OpenType (CFF2)", "… Collection" for TTC/OTC, "Variable …" with fvar
+  upm: number | null; glyphCount: number };
+type GlyphBlock = { name: string; start: number; end: number; chars: number[] };  // Unicode block + codepoints the face maps
 type Folder = { id: number; path: string; status: "watching" | "offline" | "scanning"; fontCount: number; offlineSince: string | null };
 type DeleteResult = { trashed: number; failed: string[] };  // failed: "path: reason"
 type Collection = { id: number; name: string; parentId: number | null; count: number; builtin: "favorites" | "recent" | null };
@@ -40,7 +50,7 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `get_app_state` | → `AppState` |
 | `complete_onboarding` | `{ name }` → `AppState` (registers with the server; rejects `{code:"offline"}` without a connection) |
 | `change_name` | `{ name }` → `{ name, nextNameChange }`; rejects `{code:"name_locked", nextNameChange}` or `{code:"offline"}` |
-| `list_families` | `{ query: { search?, filter?: "all"\|"active"\|"inactive"\|"admin"\|"unknown_license"\|"duplicates"\|"system", collectionId?, folderId?, path?, keys?, tag?, license?, category?: FontCategory, sort?: "name"\|"name_desc"\|"date"\|"foundry"\|"random", seed?: number, includeHidden?: boolean } }` → `Family[]`. `path`: a folder or subfolder (from `folder_tree`); `keys`: only these families. System-only families appear only with `filter: "system"`, `keys` or in a collection/tag. `sort: "random"` + `seed`: the same seed gives the same order, so pages line up. Families whose every file is in a hidden folder are left out unless `includeHidden`, `keys`, or `path` is inside a hidden folder. Lists that can grow use `family_page` |
+| `list_families` | `{ query: { search?, filter?: "all"\|"active"\|"inactive"\|"admin"\|"unknown_license"\|"duplicates"\|"system", collectionId?, folderId?, path?, keys?, tag?, license?, category?: FontCategory, sort?: "name"\|"name_desc"\|"date"\|"foundry"\|"random", seed?: number, includeHidden?: boolean, chars?: string } }` → `Family[]`. `chars`: glyph search, only families whose representative face (the one `category` comes from) maps every character (whitespace ignored). `search` is SuperSearch: whitespace-separated tokens that AND together — `tag:<name>` (exact, any case), `foundry:<text>`, `designer:<text>` (substring), `category:<FontCategory>`, `license:<License>`, `weight:<n>` / `weight:>n` / `weight:<n` / `weight:n-m` (any face's weight), `italic`, `variable`, `active`, `inactive`, `pinned`, `system` (families with a copy in an OS font folder, system-only ones included), `char:<chars>` / `glyph:<chars>` (same as `chars`); quotes allow spaces (`foundry:"Monotype Imaging"`); keys are case-insensitive; unknown keys and bad values are plain words. The plain words, joined by single spaces, match family / foundry / PostScript / full name as one phrase, as before. Pinned families come first in every `sort`. `path`: a folder or subfolder (from `folder_tree`); `keys`: only these families. System-only families appear only with `filter: "system"`, `keys` or in a collection/tag. `sort: "random"` + `seed`: the same seed gives the same order, so pages line up. Families whose every file is in a hidden folder are left out unless `includeHidden`, `keys`, or `path` is inside a hidden folder. Lists that can grow use `family_page` |
 | `family_page` | `{ query, offset, limit }` (limit ≤ 200) → `{ items: Family[], total }` |
 | `library_counts` | → `{ library, active, system, licenses: { [License]: number } }` (hidden folders left out, like `list_families`) |
 | `similar_families` | `{ key, limit }` (limit ≤ 50) → `Family[]`, most similar first, without `key` itself; system fonts included. Distance over category, weight, italic, width class, x-height, cap height, average width and PANOSE serif/proportion/contrast |
@@ -48,6 +58,8 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `delete_fonts` | `{ hashes }` → `DeleteResult`: turns them off, then moves every copy in the user's folders and the Imported/Google folders to the Recycle Bin / Trash (never OS font folders or the shared library) |
 | `import_paths` | `{ paths: string[] }` → `{ imported, skipped, folder }`: copies dropped font files / folders (recursive, font extensions only; a folder keeps its name as a subfolder) into the app-managed "Imported fonts" folder (shown in `folder_tree`), skipping files whose bytes are already in the library and never overwriting (`name (2).ttf`); then scans |
 | `get_faces` | `{ hashes }` → `Face[]` |
+| `face_glyphs` | `{ hash, index? }` (face in a TTC, default 0) → `{ total, blocks: GlyphBlock[] }`: the face's cmap read from the file (control characters left out), grouped by Unicode block in codepoint order; codepoints outside the built-in table of ~130 common blocks come last as `"Other"`. Rejects `{code:"not_found"}` when no copy is readable |
+| `set_pinned` | `{ keys, pinned }` → void; emits `library-changed` |
 | `folder_tree` | → `FolderNode[]` = `{ path, name, fontCount, activeCount, autoActivate, hidden, children: FolderNode[] }`, one root per watched folder (app-managed ones included: Imported fonts, Google Fonts, Shared library) |
 | `set_folder_active` | `{ path, active, confirmUnknownLicense? }` → `ActivationResult[]` (every font in the folder and below) |
 | `set_folder_hidden` | `{ path, hidden }` → `FolderNode[]` (the new tree); a hidden folder hides its subfolders too |
@@ -60,6 +72,8 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `add_to_collection` / `remove_from_collection` | `{ id, familyKeys }` → `Collection[]` |
 | `set_collection_active` | `{ id, active, confirmUnknownLicense? }` → `ActivationResult[]`: every family in the collection and its sub-collections (a font with another version already on is left alone); same unknown-license rejection as `set_active` |
 | `export_collection` | `{ id, dest }` → `{ files, path }`: a .zip at `dest` with one copy of each font file in the collection and its sub-collections (OS font folders left out) |
+| `export_collections` | `{ dest }` → `{ collections }`: a JSON file `{ version: 1, collections: [{ name, families: [{ key, family }], children: [...] }] }` with every collection except Recent (Favorites included), nested; `collections` counts the nested ones too |
+| `import_collections` | `{ path }` → `{ collections, families, missing }`: merges such a file — a collection with the same name (any case) under the same parent is reused, otherwise created; each family entry matches by key, then by family name (any case); `missing` counts entries with no match. Rejects `{code:"invalid"}` for a file that is not one |
 | `list_tags` | → `{ name, count }[]`; `set_tags {familyKey, tags}` → `string[]` |
 | `set_license` | `{ familyKey, label, file?, note? }` → `FamilyDetail["licenseInfo"]` |
 | `list_project_sets` / `save_project_set {id?, name, note, familyKeys}` / `delete_project_set {id}` | → `ProjectSet[]` |
@@ -71,8 +85,8 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `pdf_fonts` | `{ path }` → `{ psName, display, pages: number, status: "active"\|"inactive"\|"version"\|"missing", detail, hash: string\|null, google: boolean }[]` |
 | `google_catalog` | `{ search?, category? }` → `{ family, category, styles, variable, installed }[]` |
 | `google_install` / `google_remove` | `{ family }` → `{ family, installed }` |
-| `backup_create {path}` / `backup_restore {path}` | → `{ path, at }` |
-| `get_settings` / `update_settings {patch}` | → `{ startAtLogin, startHidden, autoUpdate, deactivateOnQuit, quickShortcut, theme: "system"\|"light"\|"dark", sampleText }` |
+| `backup_create {path}` / `backup_restore {path}` | → `{ path, at }`; a backup holds collections, tags, pins, licenses, project sets and settings |
+| `get_settings` / `update_settings {patch}` | → `{ startAtLogin, startHidden, autoUpdate, deactivateOnQuit, quickShortcut, theme: "system"\|"light"\|"dark", sampleText, sampleTexts: string[] }` (`sampleText`: the current text; `sampleTexts`: presets for the sample picker, 5 by default) |
 | `get_connection` / `test_connection {serverUrl, installKey}` / `save_connection {serverUrl, installKey}` / `reset_connection` | → `Connection` (`test_connection` → `{ ok, error }`) |
 | `quick_search` | `{ query }` → `Face[]` (max 20) |
 | `show_in_folder` | `{ path }` → void |
@@ -81,6 +95,7 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `adobe_pair_respond` | `{ requestId, allow }` → void |
 | `indesign_running` | → boolean: InDesign is open (it only sees font changes after a restart) |
 | `pick_folder` / `pick_file {filters}` / `pick_save_file {defaultName, filters}` | → `string \| null` (native dialogs) |
+| `pick_files` | `{ filters }` → `string[] \| null` (native multi-select open dialog) |
 
 ## Events (backend → UI, `listen(name, cb)`)
 | Event | Payload |

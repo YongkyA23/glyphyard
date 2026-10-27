@@ -956,3 +956,136 @@ fn collection_activate_and_export() {
     assert_eq!(names, vec!["arial.ttf", "consola.ttf"]);
     assert_eq!(fx.engine.export_collection(9999, &dest.to_string_lossy()).unwrap_err().code, "not_found");
 }
+
+#[test]
+fn glyph_search_and_supersearch() {
+    let fx = fixture!();
+    if !put_mixed(&fx) {
+        return;
+    }
+    let names = |q: FamilyQuery| -> Vec<String> { fx.engine.list_families(&q).unwrap().into_iter().map(|f| f.family).collect() };
+    let chars = |c: &str| names(FamilyQuery { chars: Some(c.into()), ..Default::default() });
+    let search = |s: &str| names(FamilyQuery { search: Some(s.into()), ..Default::default() });
+    let all = names(FamilyQuery::default());
+    assert_eq!(chars("A é\n"), all, "whitespace ignored, Latin everywhere");
+    assert!(chars("中").is_empty());
+    let hebrew = chars("א");
+    assert!(hebrew.contains(&"Arial".into()) && !hebrew.contains(&"Consolas".into()));
+    assert_eq!(search("char:א"), hebrew);
+    assert_eq!(search("glyph:中"), Vec::<String>::new());
+
+    let arial = fx.family("Arial");
+    fx.engine.set_tags(&arial.key, &["Client".into()]).unwrap();
+    fx.engine.set_license(&arial.key, License::Licensed, None, None).unwrap();
+    assert_eq!(search("arial"), vec!["Arial"], "plain words as before");
+    assert_eq!(search("tag:client"), vec!["Arial"]);
+    assert_eq!(search("license:licensed"), vec!["Arial"]);
+    assert_eq!(search("category:mono"), vec!["Consolas"]);
+    assert_eq!(search(r#"foundry:"tmc" category:serif"#), vec!["Times New Roman"]);
+    assert_eq!(search("times category:sans"), Vec::<String>::new(), "tokens AND with words");
+    assert_eq!(search("weight:400"), all);
+    assert!(search("weight:>600").is_empty() && search("italic").is_empty() && search("active").is_empty());
+    assert_eq!(search("inactive"), all);
+    fx.engine.set_active(&fx.hashes("Arial"), true, false).unwrap();
+    assert_eq!(search("active"), vec!["Arial"]);
+    assert_eq!(search("nosuchkey:x"), Vec::<String>::new(), "unknown keys are plain words");
+}
+
+#[test]
+fn pinned_families_sort_first_and_survive_backup() {
+    let fx = fixture!();
+    if !put_mixed(&fx) {
+        return;
+    }
+    let consolas = fx.family("Consolas").key;
+    fx.engine.set_pinned(std::slice::from_ref(&consolas), true).unwrap();
+    assert!(fx.family("Consolas").pinned && !fx.family("Arial").pinned);
+    for sort in [SortBy::Name, SortBy::NameDesc, SortBy::Date, SortBy::Foundry, SortBy::Random] {
+        let q = FamilyQuery { sort, seed: Some(3.0), ..Default::default() };
+        assert_eq!(fx.engine.list_families(&q).unwrap()[0].key, consolas);
+    }
+    let q = FamilyQuery { search: Some("pinned".into()), ..Default::default() };
+    assert_eq!(fx.engine.list_families(&q).unwrap().len(), 1);
+    assert!(fx.engine.get_family(&consolas).unwrap().family.pinned);
+
+    let file = fx.data.join("pins.typeshelf");
+    fx.engine.backup_create(&file).unwrap();
+    fx.engine.set_pinned(std::slice::from_ref(&consolas), false).unwrap();
+    assert!(!fx.family("Consolas").pinned);
+    fx.engine.backup_restore(&file).unwrap();
+    assert!(fx.family("Consolas").pinned);
+}
+
+#[test]
+fn details_and_glyphs_from_the_file() {
+    let fx = fixture!();
+    fx.put("arial.ttf", &system_font("arial.ttf").unwrap());
+    fx.engine.add_folder(&fx.root).unwrap();
+    let arial = fx.family("Arial");
+    let d = fx.engine.get_family(&arial.key).unwrap().details;
+    assert!(d.copyright.as_deref().is_some_and(|c| !c.is_empty()));
+    assert_eq!((d.format.as_str(), d.upm), ("TrueType", Some(2048)));
+    assert!(d.glyph_count > 1000);
+    let json = serde_json::to_value(fx.engine.get_family(&arial.key).unwrap()).unwrap();
+    assert!(json["details"].get("licenseUrl").is_some() && json["details"].get("glyphCount").is_some());
+
+    let map = fx.engine.face_glyphs(&arial.faces[0].hash, 0).unwrap();
+    assert_eq!(map.blocks[0].name, "Basic Latin");
+    assert!(map.blocks[0].chars.contains(&('A' as u32)));
+    assert!(map.total > 1000);
+    assert_eq!(fx.engine.face_glyphs("nope", 0).unwrap_err().code, "not_found");
+}
+
+#[test]
+fn collections_export_import_round_trip() {
+    let fx = fixture!();
+    if !put_mixed(&fx) {
+        return;
+    }
+    let cols = fx.engine.create_collection("Parent", None).unwrap();
+    let parent = cols.iter().find(|c| c.name == "Parent").unwrap().id;
+    let cols = fx.engine.create_collection("Child", Some(parent)).unwrap();
+    let child = cols.iter().find(|c| c.name == "Child").unwrap().id;
+    fx.engine.add_to_collection(parent, &[fx.family("Arial").key]).unwrap();
+    fx.engine.add_to_collection(child, &[fx.family("Consolas").key]).unwrap();
+    let file = fx.data.join("collections.json");
+    // Parent, Child and the built-in Favorites (Recent is left out).
+    assert_eq!(fx.engine.export_collections(&file).unwrap().collections, 3);
+
+    fx.engine.delete_collection(parent).unwrap();
+    let res = fx.engine.import_collections(&file).unwrap();
+    assert_eq!((res.collections, res.families, res.missing), (3, 2, 0));
+    let count = |name: &str| fx.engine.list_collections().unwrap().into_iter().filter(|c| c.name == name).collect::<Vec<_>>();
+    let parent = count("Parent");
+    assert_eq!((parent.len(), parent[0].count), (1, 1));
+    assert_eq!(count("Child")[0].parent_id, Some(parent[0].id));
+    // Importing again merges instead of duplicating.
+    fx.engine.import_collections(&file).unwrap();
+    assert_eq!((count("Parent").len(), count("Child").len(), count("Favorites").len()), (1, 1, 1));
+
+    // Unknown keys fall back to the family name; no match at all counts as missing.
+    let other = fx.data.join("other.json");
+    std::fs::write(
+        &other,
+        r#"{ "version": 1, "collections": [ { "name": "Picked", "families": [
+            { "key": "gone|x", "family": "times new roman" }, { "key": "gone|y", "family": "Nope" } ] } ] }"#,
+    )
+    .unwrap();
+    let res = fx.engine.import_collections(&other).unwrap();
+    assert_eq!((res.collections, res.families, res.missing), (1, 1, 1));
+    let q = FamilyQuery { collection_id: Some(count("Picked")[0].id), ..Default::default() };
+    assert_eq!(fx.engine.list_families(&q).unwrap()[0].family, "Times New Roman");
+    std::fs::write(&other, "nope").unwrap();
+    assert_eq!(fx.engine.import_collections(&other).unwrap_err().code, "invalid");
+}
+
+#[test]
+fn sample_text_presets_default_for_old_settings() {
+    let fx = fixture!();
+    assert_eq!(fx.engine.get_settings().unwrap().sample_texts.len(), 5);
+    store::set(&fx.engine.db(), "app", &serde_json::json!({ "theme": "dark", "sampleText": "old" })).unwrap();
+    let s = fx.engine.get_settings().unwrap();
+    assert_eq!((s.theme, s.sample_text.as_str(), s.sample_texts.len()), (Theme::Dark, "old", 5));
+    let s = fx.engine.update_settings(serde_json::json!({ "sampleTexts": ["One"] })).unwrap();
+    assert_eq!(s.sample_texts, vec!["One"]);
+}

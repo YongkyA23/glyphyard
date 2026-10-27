@@ -22,11 +22,11 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
     tauri::generate_handler![
         get_app_state, complete_onboarding, change_name,
         list_families, family_page, library_counts, get_faces, get_family, set_active, similar_families,
-        set_family_name, delete_fonts, import_paths,
+        set_family_name, delete_fonts, import_paths, face_glyphs, set_pinned,
         folder_tree, set_folder_active, set_folder_auto, set_folder_hidden, delete_folder,
         list_folders, add_folder, remove_folder, locate_folder,
         list_collections, create_collection, rename_collection, delete_collection, add_to_collection, remove_from_collection,
-        set_collection_active, export_collection,
+        set_collection_active, export_collection, export_collections, import_collections,
         list_tags, set_tags, set_license,
         list_project_sets, save_project_set, delete_project_set, toggle_project_set,
         organize_plan, organize_apply, list_history, undo_history,
@@ -37,7 +37,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         get_connection, test_connection, save_connection, reset_connection,
         quick_search, show_in_folder,
         adobe_status, adobe_install, adobe_remove, adobe_pair_respond, indesign_running,
-        pick_folder, pick_file, pick_save_file,
+        pick_folder, pick_file, pick_files, pick_save_file,
     ]
 }
 
@@ -142,6 +142,16 @@ pub async fn import_paths(ctx: St<'_>, paths: Vec<String>) -> R<ImportResult> {
 }
 
 #[tauri::command]
+pub async fn face_glyphs(ctx: St<'_>, hash: String, index: Option<u32>) -> R<GlyphMap> {
+    ctx.run(move |e| e.face_glyphs(&hash, index.unwrap_or(0))).await
+}
+
+#[tauri::command]
+pub async fn set_pinned(ctx: St<'_>, keys: Vec<String>, pinned: bool) -> R<()> {
+    ctx.run(move |e| e.set_pinned(&keys, pinned)).await
+}
+
+#[tauri::command]
 pub async fn quick_search(ctx: St<'_>, query: String) -> R<Vec<Face>> {
     ctx.run(move |e| e.quick_search(&query)).await
 }
@@ -218,6 +228,16 @@ pub async fn set_collection_active(ctx: St<'_>, id: i64, active: bool, confirm_u
 #[tauri::command]
 pub async fn export_collection(ctx: St<'_>, id: i64, dest: String) -> R<ExportResult> {
     ctx.run(move |e| e.export_collection(id, &dest)).await
+}
+
+#[tauri::command]
+pub async fn export_collections(ctx: St<'_>, dest: String) -> R<CollectionsExport> {
+    ctx.run(move |e| e.export_collections(&dest)).await
+}
+
+#[tauri::command]
+pub async fn import_collections(ctx: St<'_>, path: String) -> R<CollectionsImport> {
+    ctx.run(move |e| e.import_collections(&path)).await
 }
 
 #[tauri::command]
@@ -482,6 +502,19 @@ pub async fn pick_file(app: AppHandle, filters: Option<Vec<FileFilter>>) -> R<Op
         let _ = tx.send(p);
     });
     Ok(rx.await.ok().flatten().and_then(|p| p.into_path().ok()).map(|p| p.display().to_string()))
+}
+
+#[tauri::command]
+pub async fn pick_files(app: AppHandle, filters: Option<Vec<FileFilter>>) -> R<Option<Vec<String>>> {
+    let (tx, rx) = oneshot::channel();
+    file_dialog(&app, filters).pick_files(move |p| {
+        let _ = tx.send(p);
+    });
+    Ok(rx
+        .await
+        .ok()
+        .flatten()
+        .map(|ps| ps.into_iter().filter_map(|p| p.into_path().ok()).map(|p| p.display().to_string()).collect()))
 }
 
 #[tauri::command]

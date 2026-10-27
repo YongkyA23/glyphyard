@@ -107,6 +107,13 @@ CREATE TABLE hidden_folders (path TEXT PRIMARY KEY);
 CREATE TABLE family_overrides (hash TEXT PRIMARY KEY, family TEXT NOT NULL);
 UPDATE files SET mtime = -1;
 "#,
+    // 4: character coverage for glyph search (JSON `[[start, end], ...]`, filled by a forced
+    // re-read) and pinned families.
+    r#"
+ALTER TABLE faces ADD COLUMN coverage_json TEXT NOT NULL DEFAULT '[]';
+CREATE TABLE pins (family_key TEXT PRIMARY KEY);
+UPDATE files SET mtime = -1;
+"#,
 ];
 
 pub(crate) fn open(path: &Path) -> rusqlite::Result<Connection> {

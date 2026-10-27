@@ -11,6 +11,7 @@ mod library;
 mod organize;
 mod pdf;
 mod scan;
+mod search;
 mod settings;
 mod store;
 mod types;

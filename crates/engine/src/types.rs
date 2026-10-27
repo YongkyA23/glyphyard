@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 pub use typeshelf_core::organize::Change;
-pub use typeshelf_core::{Axis, Category};
+pub use typeshelf_core::{Axis, Category, FontDetails, GlyphBlock, GlyphMap};
 pub use typeshelf_protocol::Source;
 
 /// Rejection sent to the UI as `{ code, message, ...extra }`.
@@ -131,6 +131,8 @@ pub struct Family {
     /// From the upright, regular-weight face when there is one.
     pub category: Option<Category>,
     pub tags: Vec<String>,
+    /// Pinned with `set_pinned`; sorts first in every order.
+    pub pinned: bool,
     pub faces: Vec<Face>,
 }
 
@@ -171,6 +173,8 @@ pub struct FamilyDetail {
     pub designer: String,
     pub files: Vec<FileRow>,
     pub license_info: LicenseInfo,
+    /// Name table and file facts of the representative face, read from the file.
+    pub details: FontDetails,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -219,6 +223,8 @@ pub struct FamilyQuery {
     pub seed: Option<f64>,
     /// Also families whose every file is in a hidden folder (implied when `path` is inside one).
     pub include_hidden: bool,
+    /// Glyph search: the representative face maps every character (whitespace ignored).
+    pub chars: Option<String>,
 }
 
 /// One page of `list_families`.
@@ -258,6 +264,21 @@ pub struct FolderNode {
 pub struct ExportResult {
     pub files: u32,
     pub path: String,
+}
+
+/// `export_collections`: collections written (nested ones included).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CollectionsExport {
+    pub collections: u32,
+}
+
+/// `import_collections`: collections merged or created, family entries matched, and entries with
+/// no matching family in the library.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CollectionsImport {
+    pub collections: u32,
+    pub families: u32,
+    pub missing: u32,
 }
 
 /// `import_paths`: font files copied into "Imported fonts" and those already in the library.
@@ -455,8 +476,9 @@ pub enum Theme {
     Dark,
 }
 
+/// Stored settings missing a field (written by an older version) take its default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
     pub start_at_login: bool,
     pub start_hidden: bool,
@@ -464,7 +486,10 @@ pub struct AppSettings {
     pub deactivate_on_quit: bool,
     pub quick_shortcut: String,
     pub theme: Theme,
+    /// The current sample text.
     pub sample_text: String,
+    /// Presets for the sample picker.
+    pub sample_texts: Vec<String>,
 }
 
 impl Default for AppSettings {
@@ -477,6 +502,15 @@ impl Default for AppSettings {
             quick_shortcut: "CmdOrCtrl+Alt+Space".into(),
             theme: Theme::System,
             sample_text: "The quick brown fox jumps over the lazy dog".into(),
+            sample_texts: [
+                "The quick brown fox jumps over the lazy dog",
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz",
+                "0123456789 !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~",
+                "Hamburgefonstiv",
+                "Type sets the tone before a single word is read. A good face stays out of the way and keeps its shape at every size.",
+            ]
+            .map(String::from)
+            .to_vec(),
         }
     }
 }

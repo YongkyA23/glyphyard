@@ -8,7 +8,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use typeshelf_core::organize::is_junk_path;
-use typeshelf_core::{file_hash, parse_faces, FaceInfo};
+use typeshelf_core::{file_hash, glyphs, parse_faces, FaceInfo};
 use walkdir::WalkDir;
 
 pub(crate) const FONT_EXTS: [&str; 6] = ["ttf", "otf", "ttc", "otc", "woff", "woff2"];
@@ -107,25 +107,26 @@ pub(crate) fn prune_faces(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-/// Inserts or refreshes the faces of one file; a family override (`set_family_name`) wins over the
-/// parsed family name.
-fn insert_faces(conn: &Connection, hash: &str, faces: &[FaceInfo]) -> rusqlite::Result<()> {
+/// Inserts or refreshes the faces of one file (`coverage`: JSON per face); a family override
+/// (`set_family_name`) wins over the parsed family name.
+fn insert_faces(conn: &Connection, hash: &str, faces: &[FaceInfo], coverage: &[String]) -> rusqlite::Result<()> {
     let over: Option<String> = conn
         .prepare_cached("SELECT family FROM family_overrides WHERE hash = ?1")?
         .query_row([hash], |r| r.get(0))
         .optional()?;
     let mut stmt = conn.prepare_cached(
         "INSERT INTO faces (hash, idx, family_key, ps_name, family, style, full_name, version, foundry,
-         designer, weight, italic, is_variable, axes_json, features_json, glyph_count, category, metrics_json, real_family)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+         designer, weight, italic, is_variable, axes_json, features_json, glyph_count, category, metrics_json, real_family,
+         coverage_json)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
          ON CONFLICT (hash, idx) DO UPDATE SET family_key = excluded.family_key, ps_name = excluded.ps_name,
            family = excluded.family, style = excluded.style, full_name = excluded.full_name, version = excluded.version,
            foundry = excluded.foundry, designer = excluded.designer, weight = excluded.weight, italic = excluded.italic,
            is_variable = excluded.is_variable, axes_json = excluded.axes_json, features_json = excluded.features_json,
            glyph_count = excluded.glyph_count, category = excluded.category, metrics_json = excluded.metrics_json,
-           real_family = excluded.real_family",
+           real_family = excluded.real_family, coverage_json = excluded.coverage_json",
     )?;
-    for f in faces {
+    for (f, cov) in faces.iter().zip(coverage) {
         let family = over.as_deref().unwrap_or(&f.family);
         stmt.execute(params![
             hash,
@@ -147,6 +148,7 @@ fn insert_faces(conn: &Connection, hash: &str, faces: &[FaceInfo]) -> rusqlite::
             f.metrics.category.map(|c| c.as_str()),
             serde_json::to_string(&f.metrics).unwrap_or_default(),
             f.family,
+            cov,
         ])?;
     }
     Ok(())
@@ -159,6 +161,7 @@ struct Scanned {
     hash: String,
     format: String,
     faces: Vec<FaceInfo>,
+    coverage: Vec<String>,
 }
 
 impl Engine {
@@ -385,13 +388,16 @@ impl Engine {
             .par_iter()
             .filter_map(|(rel, path, size, mtime)| {
                 let bytes = std::fs::read(path).ok()?;
+                let faces = parse_faces(&bytes).unwrap_or_default();
+                let coverage = faces.iter().map(|f| serde_json::to_string(&glyphs::coverage(&bytes, f.index)).unwrap_or_default()).collect();
                 Some(Scanned {
                     rel: rel.clone(),
                     size: *size,
                     mtime: *mtime,
                     hash: file_hash(&bytes),
                     format: path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase(),
-                    faces: parse_faces(&bytes).unwrap_or_default(),
+                    faces,
+                    coverage,
                 })
             })
             .collect();
@@ -413,7 +419,7 @@ impl Engine {
                        hash = excluded.hash, size = excluded.size, mtime = excluded.mtime, format = excluded.format",
                     params![id, s.rel, s.hash, s.size, s.mtime, s.format, now],
                 )?;
-                insert_faces(&tx, &s.hash, &s.faces)?;
+                insert_faces(&tx, &s.hash, &s.faces, &s.coverage)?;
             }
             if !removed.is_empty() {
                 prune_faces(&tx)?;

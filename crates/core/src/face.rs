@@ -202,6 +202,66 @@ fn metrics(font: &FontRef, family: &str) -> Metrics {
     m
 }
 
+/// Name-table strings and file facts for the details panel; a blank string is `None`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FontDetails {
+    pub copyright: Option<String>,
+    pub trademark: Option<String>,
+    pub manufacturer: Option<String>,
+    pub designer: Option<String>,
+    pub description: Option<String>,
+    pub license: Option<String>,
+    pub license_url: Option<String>,
+    pub vendor_url: Option<String>,
+    pub designer_url: Option<String>,
+    pub version: Option<String>,
+    pub unique_id: Option<String>,
+    /// "TrueType", "OpenType (CFF)", "Variable TrueType", "TrueType Collection"…
+    pub format: String,
+    pub upm: Option<u16>,
+    pub glyph_count: u32,
+}
+
+/// Details of face `index` of a font file; `None` when it does not parse.
+pub fn font_details(bytes: &[u8], index: u32) -> Option<FontDetails> {
+    let font = crate::glyphs::face_at(bytes, index)?;
+    let s = |id| Some(name(&font, id)).filter(|v| !v.is_empty());
+    let mut format = if font.cff2().is_ok() {
+        "OpenType (CFF2)"
+    } else if font.cff().is_ok() {
+        "OpenType (CFF)"
+    } else {
+        "TrueType"
+    }
+    .to_string();
+    if matches!(FileRef::new(bytes), Ok(FileRef::Collection(_))) {
+        format = match format.as_str() {
+            "TrueType" => "TrueType Collection".into(),
+            f => f.replacen("OpenType", "OpenType Collection", 1),
+        };
+    }
+    if font.fvar().is_ok() {
+        format = format!("Variable {format}");
+    }
+    Some(FontDetails {
+        copyright: s(StringId::COPYRIGHT_NOTICE),
+        trademark: s(StringId::TRADEMARK),
+        manufacturer: s(StringId::MANUFACTURER),
+        designer: s(StringId::DESIGNER),
+        description: s(StringId::DESCRIPTION),
+        license: s(StringId::LICENSE_DESCRIPTION),
+        license_url: s(StringId::LICENSE_URL),
+        vendor_url: s(StringId::VENDOR_URL),
+        designer_url: s(StringId::DESIGNER_URL),
+        version: s(StringId::VERSION_STRING),
+        unique_id: s(StringId::UNIQUE_ID),
+        format,
+        upm: font.head().ok().map(|h| h.units_per_em()),
+        glyph_count: font.maxp().map(|m| m.num_glyphs() as u32).unwrap_or(0),
+    })
+}
+
 /// post.isFixedPitch, then PANOSE, then the OS/2 IBM family class, then words in the family name.
 // ponytail: metadata only, no glyph analysis; fonts with blank PANOSE/class and a plain name stay uncategorized.
 pub fn category(fixed_pitch: bool, panose: &[u8; 10], family_class: u8, family: &str) -> Option<Category> {
@@ -292,6 +352,16 @@ mod tests {
         assert_eq!(category(false, &[0; 10], 8, "X"), Some(Category::Sans));
         assert_eq!(category(false, &[0; 10], 0, "Noto Sans Mono"), Some(Category::Mono));
         assert_eq!(category(false, &[0; 10], 0, "Plain"), None);
+    }
+
+    #[test]
+    fn details_of_windows_fonts() {
+        for (file, format) in [("arial.ttf", "TrueType"), ("cambria.ttc", "TrueType Collection"), ("bahnschrift.ttf", "Variable TrueType")] {
+            let Ok(bytes) = std::fs::read(format!("C:\\Windows\\Fonts\\{file}")) else { continue };
+            let d = font_details(&bytes, 0).unwrap();
+            assert_eq!(d.format, format, "{file}");
+            assert!(d.copyright.is_some() && d.upm.is_some() && d.glyph_count > 100, "{file}");
+        }
     }
 
     #[test]
