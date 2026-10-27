@@ -354,3 +354,5 @@ h1, h2 { margin: 0; }
 .picker-list { position: absolute; z-index: 20; top: 100%; left: 0; right: 0; margin: 4px 0 0; padding: 4px; list-style: none; max-height: 280px; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgb(0 0 0 / .15); font-size: 14px; color: var(--ink); }
 .picker-list li { padding: 7px 10px; border-radius: 6px; cursor: pointer; }
 .picker-list li[aria-selected="true"], .picker-list li:hover { background: var(--neutral-soft); }
+
+.notes summary { cursor: pointer; list-style-position: inside; }

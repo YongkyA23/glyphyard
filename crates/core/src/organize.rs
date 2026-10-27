@@ -45,6 +45,22 @@ pub enum Action {
     Move { from: PathBuf, to: PathBuf },
 }
 
+impl Action {
+    /// False for findings that only inform (alternate, group, skip): applying them changes nothing.
+    pub fn changes_files(&self) -> bool {
+        !matches!(self, Action::KeepAsAlternate { .. } | Action::Group { .. } | Action::Skip { .. })
+    }
+
+    /// The file the change is about (the first one, for a group).
+    pub fn path(&self) -> &Path {
+        match self {
+            Action::Trash { path, .. } | Action::KeepAsAlternate { path, .. } | Action::Skip { path } => path,
+            Action::Rename { from, .. } | Action::MoveAside { from, .. } | Action::Quarantine { from, .. } | Action::Move { from, .. } => from,
+            Action::Group { paths, .. } => paths.first().map_or(Path::new(""), |p| p.as_path()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Change {
     pub case: Case,
@@ -59,7 +75,8 @@ pub struct Options {
     pub aside_dir: PathBuf,
 }
 
-const JUNK_NAMES: [&str; 3] = ["thumbs.db", ".ds_store", "desktop.ini"];
+// desktop.ini is left alone: it is Windows' own folder settings file, not junk.
+const JUNK_NAMES: [&str; 2] = ["thumbs.db", ".ds_store"];
 
 pub fn is_junk_path(path: &Path) -> bool {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
@@ -97,6 +114,15 @@ pub fn versioned_name(ps_name: &str, version: Option<&str>, suffix: Option<&str>
     format!("{}.{}", sanitize(&s), ext)
 }
 
+/// Where a web font is moved aside: `<aside>/<watched folder name>/<path inside it>`, so same-named files from
+/// different folders don't collide and the user can still tell where each came from.
+fn aside_target(f: &ScannedFile, aside: &Path) -> PathBuf {
+    match f.home.as_deref().and_then(|h| Some((h.file_name()?, f.path.strip_prefix(h).ok()?))) {
+        Some((root, rel)) => aside.join(root).join(rel),
+        None => aside.join(file_name(&f.path)),
+    }
+}
+
 fn version_key(v: &str) -> Vec<u64> {
     v.split('.').map(|p| p.parse().unwrap_or(0)).collect()
 }
@@ -115,8 +141,13 @@ pub fn plan(files: &[ScannedFile], system_ps_names: &HashSet<String>, opts: &Opt
     // 1. Junk and unparsable files.
     let mut candidates = Vec::new();
     for (i, f) in files.iter().enumerate() {
-        if is_junk_path(&f.path) || f.faces.is_empty() {
-            let to = opts.quarantine_dir.join(format!("{}-{}", &f.hash[..8.min(f.hash.len())], file_name(&f.path)));
+        // WOFF/WOFF2 are compressed, so they parse to no faces; they are web fonts, not junk (step 3).
+        let web = matches!(ext(&f.path).as_str(), "woff" | "woff2");
+        if is_junk_path(&f.path) || (f.faces.is_empty() && !web) {
+            // Named after the source path, not the bytes: junk files are often identical (Thumbs.db) and
+            // would all aim at one name.
+            let tag = crate::file_hash(f.path.to_string_lossy().as_bytes());
+            let to = opts.quarantine_dir.join(format!("{}-{}", &tag[..8], file_name(&f.path)));
             let note = if f.faces.is_empty() && !is_junk_path(&f.path) { "not a readable font file" } else { "not a real font file" };
             changes.push(Change { case: Case::Junk, action: Action::Quarantine { from: f.path.clone(), to }, note: note.into() });
         } else {
@@ -154,7 +185,7 @@ pub fn plan(files: &[ScannedFile], system_ps_names: &HashSet<String>, opts: &Opt
         if matches!(ext(&f.path).as_str(), "woff" | "woff2") {
             changes.push(Change {
                 case: Case::OtherFormat,
-                action: Action::MoveAside { from: f.path.clone(), to: opts.aside_dir.join(file_name(&f.path)) },
+                action: Action::MoveAside { from: f.path.clone(), to: aside_target(f, &opts.aside_dir) },
                 note: "web-only format, not for desktop use".into(),
             });
         } else if system_ps_names.contains(&primary(f).ps_name.to_lowercase()) {
@@ -259,9 +290,11 @@ fn plan_versions(
     let newest = by_version.keys().last().cloned();
 
     for (vkey, same) in &by_version {
-        // Prefer OTF among same-version files; other formats stay as alternates.
+        // Prefer OTF among same-version files; other formats stay as alternates. Ties go by content hash,
+        // not by file name: the names are what this plan changes, so sorting on them made two files swap
+        // names on every run.
         let mut same = same.clone();
-        same.sort_by_key(|&i| (ext(&files[i].path) != "otf", files[i].path.clone()));
+        same.sort_by_key(|&i| (ext(&files[i].path) != "otf", files[i].hash.clone()));
         let preferred = same[0];
         let mut same_format_seen = vec![ext(&files[preferred].path)];
         for &i in &same[1..] {
@@ -348,6 +381,58 @@ mod tests {
 
     fn cases(changes: &[Change]) -> Vec<Case> {
         changes.iter().map(|c| c.case).collect()
+    }
+
+    /// Applies the plan's renames and junk moves to `files`, like the engine would after a rescan.
+    fn applied(files: &[ScannedFile], changes: &[Change]) -> Vec<ScannedFile> {
+        files
+            .iter()
+            .filter(|f| !changes.iter().any(|c| matches!(&c.action, Action::Quarantine { from, .. } if *from == f.path)))
+            .map(|f| {
+                let to = changes.iter().find_map(|c| match &c.action {
+                    Action::Rename { from, to } if *from == f.path => Some(to.clone()),
+                    _ => None,
+                });
+                ScannedFile { path: to.unwrap_or_else(|| f.path.clone()), ..f.clone() }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn plan_settles_after_one_apply() {
+        // Same name and version, different bytes, plus an older version: the names must not swap back.
+        let v = |ver| face("VAGRoundedStd-Bold", "VAG Rounded Std", ver, "Adobe", false);
+        let files = vec![
+            file("/fonts/VAGRoundedStd-Bold v1.022.otf", "6f5b8020aa", 1, vec![v("1.022")]),
+            file("/fonts/VAGRoundedStd-Bold v1.022 (f2a1c369).otf", "f2a1c369bb", 2, vec![v("1.022")]),
+            file("/fonts/old/VAGRoundedStd-Bold.otf", "0123456789", 3, vec![v("1.000")]),
+            file("/fonts/a/Thumbs.db", "same", 4, vec![]),
+            file("/fonts/b/Thumbs.db", "same", 5, vec![]),
+            file("/fonts/a/Coin.woff", "w1", 6, vec![]),
+            file("/fonts/b/Coin.woff", "w2", 7, vec![]),
+        ];
+        let first = plan(&files, &HashSet::new(), &opts(false));
+        let targets: HashSet<_> = first
+            .iter()
+            .filter_map(|c| match &c.action {
+                Action::Quarantine { to, .. } => Some(to.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(targets.len(), 2, "identical junk files get distinct quarantine names");
+        let aside: HashSet<_> = first
+            .iter()
+            .filter_map(|c| match &c.action {
+                Action::MoveAside { to, .. } => Some(to.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(aside.len(), 2, "unparsed web fonts are moved aside (not quarantined), each to its own path");
+        let again = plan(&applied(&files, &first), &HashSet::new(), &opts(false));
+        assert!(
+            again.iter().all(|c| !matches!(c.action, Action::Rename { .. } | Action::Quarantine { .. })),
+            "second plan still wants changes: {again:#?}"
+        );
     }
 
     #[test]

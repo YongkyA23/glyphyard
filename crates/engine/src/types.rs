@@ -322,7 +322,10 @@ pub struct OrganizeChange {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrganizePlan {
+    /// Things Apply will do.
     pub changes: Vec<OrganizeChange>,
+    /// Findings that need no file change (kept as alternate, grouped, already in the system).
+    pub notes: Vec<OrganizeChange>,
     pub scanned: u32,
     pub scanned_at: String,
 }
@@ -332,6 +335,8 @@ pub struct OrganizePlan {
 pub struct OrganizeResult {
     pub history_id: i64,
     pub applied: u32,
+    /// Changes that could not be done, as "file: reason" (at most 20).
+    pub failed: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

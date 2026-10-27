@@ -70,7 +70,10 @@ export function Organize() {
 
   const changes = plan?.changes ?? []
   const count = (k: OrganizeCase) => changes.filter((c) => c.case === k).length
-  const caseKeys = (Object.keys(CASES) as OrganizeCase[]).filter((k) => k !== 'tidy' || tidy)
+  // Only cases that have work in this plan get a card.
+  const caseKeys = (Object.keys(CASES) as OrganizeCase[]).filter((k) => count(k) > 0)
+  const notes = plan?.notes ?? []
+  const [notesShown, setNotesShown] = useState(100)
   const matching = changes.filter((c) => filter === 'all' || c.case === filter)
   // Big plans render 100 rows at a time.
   const [shown, setShown] = useState(100)
@@ -82,9 +85,10 @@ export function Organize() {
     setBusy(true)
     setApplyState('applying')
     try {
-      const { historyId, applied } = await api.organizeApply(tidy, [...excluded].filter((id) => changes.some((c) => c.id === id)))
+      const { historyId, applied, failed } = await api.organizeApply(tidy, [...excluded].filter((id) => changes.some((c) => c.id === id)))
       setApplyState('done')
       setTimeout(() => setApplyState('idle'), 1600)
+      if (failed.length) toast(`${plural(failed.length, 'change')} couldn’t be done, e.g. ${failed[0]}`)
       toast(`Applied ${plural(applied, 'change')}`, {
         label: 'Undo',
         run: () => api.undoHistory(historyId).then(() => (toast('Auto-organize undone'), bump(), scan(tidy)), (e) => toast(errMsg(e))),
@@ -163,6 +167,32 @@ export function Organize() {
         <button type="button" className="btn" style={{ alignSelf: 'center' }} onClick={() => setShown((n) => n + 100)}>
           Show {Math.min(100, matching.length - shown)} more of {matching.length - shown}
         </button>
+      )}
+
+      {notes.length > 0 && (
+        <details className="card notes">
+          <summary>
+            <span style={{ fontWeight: 500 }}>No action needed · {num(notes.length)}</span>
+            <span className="muted" style={{ fontSize: 13 }}> Fonts kept as alternates, variable + static groups and fonts the system already has. Typeshelf handles these when activating; no file changes.</span>
+          </summary>
+          <div className="table-wrap" style={{ marginTop: 10 }}>
+            <table style={{ minWidth: 760 }}>
+              <thead><tr><th>Case</th><th>File</th><th>What happens</th></tr></thead>
+              <tbody>
+                {notes.slice(0, notesShown).map((c) => (
+                  <tr key={c.id} style={{ verticalAlign: 'top' }}>
+                    <td><span style={{ whiteSpace: 'nowrap' }}><Badge tone={CASES[c.case].tone}>{CASES[c.case].label}</Badge></span></td>
+                    <td className="mono" style={{ fontSize: 12 }}>{fileOf(c)}</td>
+                    <td style={{ color: 'var(--ink-2)' }}>{describe(c, trash)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {notes.length > notesShown && (
+            <button type="button" className="btn small" style={{ marginTop: 10 }} onClick={() => setNotesShown((n) => n + 100)}>Show more</button>
+          )}
+        </details>
       )}
 
       <label className="card" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14, borderRadius: 10 }}>

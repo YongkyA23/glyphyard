@@ -354,13 +354,16 @@ const handlers: Record<string, (a: Args) => unknown> = {
     sets = sets.map((s) => (s.id === id ? { ...s, on, lastUsed: iso() } : s))
     return res
   },
-  organize_plan: ({ tidy }) => ({ changes: plan(tidy), scanned: 1284, scannedAt: iso(-2 * 60_000) }),
+  organize_plan: ({ tidy }) => {
+    const all = plan(tidy), info = ['keep_as_alternate', 'group', 'skip']
+    return { changes: all.filter((c) => !info.includes(c.action.op)), notes: all.filter((c) => info.includes(c.action.op)), scanned: 1284, scannedAt: iso(-2 * 60_000) }
+  },
   organize_apply: ({ tidy, excludeIds }) => {
     const applied = plan(tidy).filter((c) => !excludeIds.includes(c.id)).length
     const id = Math.max(0, ...history.map((h) => h.id)) + 1
     history = [{ id, kind: 'organize', summary: `Auto-organize · ${applied} changes applied`, at: iso(), undone: false }, ...history]
     emit('library-changed', { reason: 'organize' })
-    return { historyId: id, applied }
+    return { historyId: id, applied, failed: [] }
   },
   list_history: () => history,
   undo_history: ({ id }) => {

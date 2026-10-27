@@ -52,7 +52,11 @@ export type FamilyPage = { items: Family[]; total: number }
 export type LibraryCounts = { library: number; active: number; system: number; licenses: Partial<Record<License, number>> }
 export type FolderNode = { path: string; name: string; fontCount: number; activeCount: number; autoActivate: boolean; children: FolderNode[] }
 export type Tag = { name: string; count: number }
-export type OrganizePlan = { changes: OrganizeChange[]; scanned: number; scannedAt: string }
+export type OrganizePlan = {
+  /** What Apply will do. */ changes: OrganizeChange[]
+  /** Findings that change no file (alternates, groups, already in system). */ notes: OrganizeChange[]
+  scanned: number; scannedAt: string
+}
 export type HistoryEntry = { id: number; kind: string; summary: string; at: string; undone: boolean }
 export type Health = { lastCheck: string; active: number; problems: { hash: string; message: string }[]; removed: number; reregistered: number }
 export type PdfFont = {
@@ -137,7 +141,7 @@ export const api = {
     call<ActivationResult[]>('toggle_project_set', { id, on, confirmUnknownLicense }),
 
   organizePlan: (tidy: boolean) => call<OrganizePlan>('organize_plan', { tidy }),
-  organizeApply: (tidy: boolean, excludeIds: number[]) => call<{ historyId: number; applied: number }>('organize_apply', { tidy, excludeIds }),
+  organizeApply: (tidy: boolean, excludeIds: number[]) => call<{ historyId: number; applied: number; failed: string[] }>('organize_apply', { tidy, excludeIds }),
   listHistory: () => call<HistoryEntry[]>('list_history'),
   undoHistory: (id: number) => call<HistoryEntry[]>('undo_history', { id }),
 

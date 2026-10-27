@@ -349,7 +349,9 @@ async fn library_plan(s: &AppState) -> ApiResult<Vec<Change>> {
 }
 
 async fn organize_plan(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Value>> {
-    Ok(Json(json!({ "changes": library_plan(&s).await? })))
+    // Advice that changes no file (alternates, groups, skips) is listed apart so it is not counted as work.
+    let (changes, notes): (Vec<_>, Vec<_>) = library_plan(&s).await?.into_iter().partition(|c| c.action.changes_files());
+    Ok(Json(json!({ "changes": changes, "notes": notes })))
 }
 
 /// Applies renames and removals (quarantine/trash); grouping, alternates and skips are advice only.

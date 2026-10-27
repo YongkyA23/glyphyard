@@ -104,18 +104,18 @@ impl Engine {
 
     pub fn organize_plan(&self, tidy: bool) -> Result<OrganizePlan> {
         let files = scanned_files(&self.db())?;
-        let changes: Vec<OrganizeChange> = plan(&files, self.system_names(), &self.organize_options(tidy))
+        let (changes, notes): (Vec<OrganizeChange>, Vec<OrganizeChange>) = plan(&files, self.system_names(), &self.organize_options(tidy))
             .into_iter()
             .map(|change| OrganizeChange { id: change_id(&change), change })
-            .collect();
-        let count = |case| changes.iter().filter(|c| c.change.case == case).count() as u32;
+            .partition(|c| c.change.action.changes_files());
+        let count = |case| changes.iter().chain(&notes).filter(|c| c.change.case == case).count() as u32;
         self.emit(Event::DuplicatesReport {
             duplicates: count(Case::ExactCopy),
             version_conflicts: count(Case::DifferentVersion),
             name_clashes: count(Case::NameClash),
         });
         *self.last_plan.lock().unwrap() = Some((tidy, changes.clone()));
-        Ok(OrganizePlan { changes, scanned: files.len() as u32, scanned_at: store::now() })
+        Ok(OrganizePlan { changes, notes, scanned: files.len() as u32, scanned_at: store::now() })
     }
 
     /// Applies the previewed plan (or a fresh one) minus `exclude_ids`. A failed change is skipped.
@@ -126,6 +126,7 @@ impl Engine {
             None => self.organize_plan(tidy)?.changes,
         };
         let mut done = Vec::new();
+        let mut failed = Vec::new();
         {
             let db = self.db();
             for c in changes.iter().filter(|c| !exclude_ids.contains(&c.id)) {
@@ -137,8 +138,10 @@ impl Engine {
                     }
                     Action::KeepAsAlternate { .. } | Action::Group { .. } | Action::Skip { .. } => continue,
                 };
-                if let Ok(d) = step {
-                    done.push(d);
+                match step {
+                    Ok(d) => done.push(d),
+                    Err(e) if failed.len() < 20 => failed.push(format!("{}: {}", c.change.action.path().display(), e.message)),
+                    Err(_) => {}
                 }
             }
             self.os.notify_font_change();
@@ -155,7 +158,7 @@ impl Engine {
         self.emit(Event::OrganizeApplied { changes: applied });
         self.rescan()?;
         self.library_changed("organize");
-        Ok(OrganizeResult { history_id, applied })
+        Ok(OrganizeResult { history_id, applied, failed })
     }
 
     fn trash_copy(&self, conn: &Connection, path: &Path, kept: &Path) -> Result<Done> {

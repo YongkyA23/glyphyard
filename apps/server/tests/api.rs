@@ -368,7 +368,7 @@ async fn library_download_needs_a_delivery() {
     assert_eq!(s.admin(Method::GET, "/library?q=nothing-like-this", None).await.json()["total"], 0);
 
     // A single file has nothing to organize.
-    assert_eq!(s.admin(Method::GET, "/library/organize", None).await.json(), json!({ "changes": [] }));
+    assert_eq!(s.admin(Method::GET, "/library/organize", None).await.json(), json!({ "changes": [], "notes": [] }));
     assert_eq!(s.admin(Method::POST, "/library/organize/apply", None).await.json(), json!({ "applied": 0 }));
 }
 
