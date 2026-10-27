@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typeshelf Admin · Overview</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+button{font:inherit;color:inherit}
+a{color:#2547D0}a:hover{color:#1A36A8}
+a:focus-visible,button:focus-visible{outline:2px solid #2547D0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 900px; display: flex; flex-wrap: wrap; background: #F7F7F6; color: #1C1917; font-family: 'Geist', system-ui, sans-serif; font-size: 14px;">
+  <div style="flex: 1 1 240px; display: flex;">
+    <dc-import name="AdminSidebar" active="overview" hint-size="100%,860px"></dc-import>
+  </div>
+  <main style="flex: 999 1 640px; min-width: 0; padding: 28px 36px; display: flex; flex-direction: column; gap: 24px;">
+    <div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px;">
+      <h1 style="margin: 0; font-size: 26px; font-weight: 600;">Overview</h1>
+      <span style="color: #57534E; font-size: 13px;">Updated live · 27 Oct 2026, 10:42</span>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px;">
+      <sc-for list="{{stats}}" as="s" hint-placeholder-count="5">
+        <a href="{{s.href}}" style="display: flex; flex-direction: column; gap: 6px; padding: 16px; border: 1px solid #E7E5E4; border-radius: 12px; background: #FFFFFF; text-decoration: none; color: #1C1917;">
+          <span style="font-size: 13px; color: #57534E;">{{s.label}}</span>
+          <span style="font-size: 30px; font-weight: 600; letter-spacing: -0.5px; color: {{s.color}};">{{s.value}}</span>
+          <span style="font-size: 12px; color: #6F6A65;">{{s.note}}</span>
+        </a>
+      </sc-for>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start;">
+      <section aria-labelledby="act" style="flex: 2 1 520px; min-width: 0; padding: 20px; border: 1px solid #E7E5E4; border-radius: 12px; background: #FFFFFF; display: flex; flex-direction: column; gap: 4px;">
+        <h2 id="act" style="margin: 0 0 10px; font-size: 16px; font-weight: 600;">Recent activity</h2>
+        <sc-for list="{{activity}}" as="a" hint-placeholder-count="7">
+          <div style="display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid #F0EFEE;">
+            <span style="width: 64px; flex-shrink: 0; font-size: 11px; padding: 2px 0; border-radius: 10px; text-align: center; {{a.badge}}">{{a.who}}</span>
+            <span style="flex: 1; display: flex; flex-direction: column; gap: 2px;">
+              <span>{{a.text}}</span>
+              <span style="font-size: 12px; color: #6F6A65;">{{a.when}}</span>
+            </span>
+            <a href="AdminUserDetail.dc.html" style="font-size: 13px; white-space: nowrap;">View</a>
+          </div>
+        </sc-for>
+      </section>
+      <section aria-labelledby="att" style="flex: 1 1 300px; padding: 20px; border: 1px solid #E7E5E4; border-radius: 12px; background: #FFFFFF; display: flex; flex-direction: column; gap: 10px;">
+        <h2 id="att" style="margin: 0 0 6px; font-size: 16px; font-weight: 600;">Needs attention</h2>
+        <sc-for list="{{attention}}" as="n" hint-placeholder-count="4">
+          <a href="{{n.href}}" style="display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 10px; text-decoration: none; {{n.box}}">
+            <span style="font-weight: 500;">{{n.title}}</span>
+            <span style="font-size: 12px;">{{n.detail}}</span>
+          </a>
+        </sc-for>
+        <h2 style="margin: 12px 0 4px; font-size: 16px; font-weight: 600;">Most used fonts</h2>
+        <sc-for list="{{top}}" as="t" hint-placeholder-count="5">
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <span style="display: flex; justify-content: space-between; font-size: 13px;"><span>{{t.name}}</span><span style="color: #57534E;">{{t.users}} users</span></span>
+            <span aria-hidden="true" style="height: 6px; border-radius: 3px; background: #EEEDEC;"><span style="display: block; height: 6px; border-radius: 3px; background: #2547D0; width: {{t.pct}}%;"></span></span>
+          </div>
+        </sc-for>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const W = {
+      User: 'background:#F5F5F4;color:#44403C', Admin: 'background:#EEF2FE;color:#1E3BB0', System: 'background:#FEF3C7;color:#92400E'
+    };
+    const act = [
+      ['User', 'Budi Santoso turned off Fraunces, which you turned on', '5 min ago'],
+      ['User', 'Sari W. changed name to Sari Wulandari', '38 min ago'],
+      ['System', 'Montserrat Bold failed to activate for Rizky Pratama (file missing)', '1 h ago'],
+      ['Admin', 'You turned on Space Grotesk for 12 users', '2 h ago'],
+      ['Admin', 'You uploaded 3 fonts to the shared library', 'Yesterday, 16:20'],
+      ['User', 'Dewi Lestari ran auto-organize · 41 changes', 'Yesterday, 11:02'],
+      ['System', 'New install: “Andi Wijaya” on macOS (Apple Silicon)', '24 Oct, 09:15']
+    ];
+    return {
+      stats: [
+        { label: 'Installs', value: '48', note: '46 Windows · 2 macOS', color: '#1C1917', href: 'AdminUsers.dc.html' },
+        { label: 'Online now', value: '31', note: 'Seen in the last 5 minutes', color: '#166534', href: 'AdminUsers.dc.html' },
+        { label: 'Name changes', value: '6', note: 'This month', color: '#1C1917', href: 'AdminNameHistory.dc.html' },
+        { label: 'User overrides', value: '4', note: 'Admin fonts turned off this week', color: '#1E3BB0', href: 'AdminUserDetail.dc.html' },
+        { label: 'Activation failures', value: '3', note: 'Last 7 days', color: '#B42318', href: 'AdminUserDetail.dc.html' }
+      ],
+      activity: act.map(([who, text, when]) => ({ who, text, when, badge: W[who] })),
+      attention: [
+        { title: '4 user overrides', detail: 'Fonts you turned on were turned off by users', href: 'AdminUserDetail.dc.html', box: 'background:#EEF2FE;color:#1E3BB0' },
+        { title: '3 activation failures', detail: 'Missing files on 2 computers', href: 'AdminUserDetail.dc.html', box: 'background:#FDECEA;color:#912018' },
+        { title: '2 possible duplicate installs', detail: 'Same name on a new computer · merge?', href: 'AdminMerge.dc.html', box: 'background:#FEF3C7;color:#78350F' },
+        { title: '5 installs offline for 14+ days', detail: 'Changes will wait until they reconnect', href: 'AdminUsers.dc.html', box: 'background:#F5F5F4;color:#44403C' }
+      ],
+      top: [
+        { name: 'Space Grotesk', users: 41, pct: 85 }, { name: 'Fraunces', users: 33, pct: 69 },
+        { name: 'IBM Plex Mono', users: 27, pct: 56 }, { name: 'Syne', users: 19, pct: 40 }, { name: 'DM Serif Display', users: 12, pct: 25 }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

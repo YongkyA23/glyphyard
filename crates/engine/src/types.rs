@@ -1,0 +1,464 @@
+//! Serde types matching the TS types in docs/desktop-commands.md.
+
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+pub use typeshelf_core::organize::Change;
+pub use typeshelf_core::Axis;
+pub use typeshelf_protocol::Source;
+
+/// Rejection sent to the UI as `{ code, message, ...extra }`.
+#[derive(Debug, Clone, Serialize)]
+pub struct EngineError {
+    pub code: String,
+    pub message: String,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+pub type Result<T, E = EngineError> = std::result::Result<T, E>;
+
+impl EngineError {
+    pub fn new(code: &str, message: impl Into<String>) -> Self {
+        EngineError { code: code.into(), message: message.into(), extra: Map::new() }
+    }
+
+    pub fn with(mut self, key: &str, value: impl Serialize) -> Self {
+        self.extra.insert(key.into(), serde_json::to_value(value).unwrap_or(Value::Null));
+        self
+    }
+}
+
+impl std::fmt::Display for EngineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for EngineError {}
+
+impl From<rusqlite::Error> for EngineError {
+    fn from(e: rusqlite::Error) -> Self {
+        EngineError::new("database", e.to_string())
+    }
+}
+
+impl From<std::io::Error> for EngineError {
+    fn from(e: std::io::Error) -> Self {
+        EngineError::new("io", e.to_string())
+    }
+}
+
+impl From<serde_json::Error> for EngineError {
+    fn from(e: serde_json::Error) -> Self {
+        EngineError::new("internal", e.to_string())
+    }
+}
+
+pub(crate) fn not_found(what: &str) -> EngineError {
+    EngineError::new("not_found", format!("{what} not found"))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum License {
+    Licensed,
+    Personal,
+    Client,
+    Unknown,
+}
+
+impl License {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            License::Licensed => "licensed",
+            License::Personal => "personal",
+            License::Client => "client",
+            License::Unknown => "unknown",
+        }
+    }
+
+    pub(crate) fn parse(s: &str) -> License {
+        match s {
+            "licensed" => License::Licensed,
+            "personal" => License::Personal,
+            "client" => License::Client,
+            _ => License::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Face {
+    pub hash: String,
+    pub ps_name: String,
+    pub family: String,
+    pub style: String,
+    pub full_name: String,
+    pub version: String,
+    pub path: String,
+    pub active: bool,
+    pub source: Option<Source>,
+    pub weight: f32,
+    pub italic: bool,
+    pub is_variable: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActiveState {
+    All,
+    Some,
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Family {
+    pub key: String,
+    pub family: String,
+    pub foundry: String,
+    pub styles: u32,
+    pub is_variable: bool,
+    pub license: License,
+    pub active_state: ActiveState,
+    pub admin_set: bool,
+    pub has_duplicates: bool,
+    pub faces: Vec<Face>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileStatus {
+    Active,
+    OlderVersion,
+    Alternate,
+    Grouped,
+    Inactive,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FileRow {
+    pub path: String,
+    pub version: String,
+    pub status: FileStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LicenseInfo {
+    pub label: License,
+    pub file: Option<String>,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FamilyDetail {
+    #[serde(flatten)]
+    pub family: Family,
+    pub axes: Vec<Axis>,
+    pub features: Vec<String>,
+    pub glyph_count: u32,
+    pub designer: String,
+    pub files: Vec<FileRow>,
+    pub license_info: LicenseInfo,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FamilyFilter {
+    #[default]
+    All,
+    Active,
+    Inactive,
+    Admin,
+    UnknownLicense,
+    Duplicates,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortBy {
+    #[default]
+    Name,
+    NameDesc,
+    Date,
+    Foundry,
+}
+
+/// Arguments of `list_families`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FamilyQuery {
+    pub search: Option<String>,
+    pub filter: FamilyFilter,
+    pub collection_id: Option<i64>,
+    pub folder_id: Option<i64>,
+    pub tag: Option<String>,
+    pub license: Option<License>,
+    pub sort: SortBy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FolderStatus {
+    Watching,
+    Offline,
+    Scanning,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Folder {
+    pub id: i64,
+    pub path: String,
+    pub status: FolderStatus,
+    pub font_count: u32,
+    pub offline_since: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Builtin {
+    Favorites,
+    Recent,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Collection {
+    pub id: i64,
+    pub name: String,
+    pub parent_id: Option<i64>,
+    pub count: u32,
+    pub builtin: Option<Builtin>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TagCount {
+    pub name: String,
+    pub count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSet {
+    pub id: i64,
+    pub name: String,
+    pub note: String,
+    pub family_keys: Vec<String>,
+    pub on: bool,
+    pub last_used: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivationErrorCode {
+    FileMissing,
+    InUse,
+    InvalidFont,
+    Blocked,
+    NameConflict,
+    Os,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ActivationResult {
+    pub hash: String,
+    pub ok: bool,
+    pub error: Option<ActivationErrorCode>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct OrganizeChange {
+    pub id: i64,
+    #[serde(flatten)]
+    pub change: Change,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizePlan {
+    pub changes: Vec<OrganizeChange>,
+    pub scanned: u32,
+    pub scanned_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizeResult {
+    pub history_id: i64,
+    pub applied: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct HistoryEntry {
+    pub id: i64,
+    pub kind: String,
+    pub summary: String,
+    pub at: String,
+    pub undone: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Problem {
+    pub hash: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Health {
+    pub last_check: Option<String>,
+    pub active: u32,
+    pub problems: Vec<Problem>,
+    pub removed: u32,
+    pub reregistered: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PdfFontStatus {
+    Active,
+    Inactive,
+    Version,
+    Missing,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfFont {
+    pub ps_name: String,
+    pub display: String,
+    pub pages: u32,
+    pub status: PdfFontStatus,
+    pub detail: String,
+    pub hash: Option<String>,
+    pub google: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct GoogleFamily {
+    pub family: String,
+    pub category: String,
+    pub styles: u32,
+    pub variable: bool,
+    pub installed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct GoogleInstall {
+    pub family: String,
+    pub installed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BackupInfo {
+    pub path: String,
+    pub at: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Theme {
+    System,
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettings {
+    pub start_at_login: bool,
+    pub start_hidden: bool,
+    pub auto_update: bool,
+    pub deactivate_on_quit: bool,
+    pub quick_shortcut: String,
+    pub theme: Theme,
+    pub sample_text: String,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        AppSettings {
+            start_at_login: true,
+            start_hidden: false,
+            auto_update: true,
+            deactivate_on_quit: false,
+            quick_shortcut: "CmdOrCtrl+Alt+Space".into(),
+            theme: Theme::System,
+            sample_text: "The quick brown fox jumps over the lazy dog".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectionStatus {
+    Connected,
+    Offline,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Connection {
+    pub status: ConnectionStatus,
+    pub server_url: String,
+    pub install_key: String,
+    pub editable: bool,
+    pub last_sync: Option<String>,
+    pub install_id: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Platform {
+    Windows,
+    Macos,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppState {
+    pub onboarded: bool,
+    pub name: String,
+    pub next_name_change: Option<String>,
+    pub name_change_days: u32,
+    pub connection: Connection,
+    pub platform: Platform,
+    pub app_version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FontLabel {
+    pub family: String,
+    pub style: String,
+}
+
+/// Backend → UI events. Serializes as `{ "event": <name>, "payload": {...} }`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "event", content = "payload", rename_all = "kebab-case")]
+pub enum UiEvent {
+    LibraryChanged { reason: &'static str },
+    AdminChange { action: &'static str, fonts: Vec<FontLabel> },
+    OrganizeRequested {},
+    FolderStatus(Folder),
+}
+
+impl UiEvent {
+    pub fn name(&self) -> &'static str {
+        match self {
+            UiEvent::LibraryChanged { .. } => "library-changed",
+            UiEvent::AdminChange { .. } => "admin-change",
+            UiEvent::OrganizeRequested {} => "organize-requested",
+            UiEvent::FolderStatus(_) => "folder-status",
+        }
+    }
+
+    pub fn payload(&self) -> Value {
+        serde_json::to_value(self).map(|mut v| v["payload"].take()).unwrap_or(Value::Null)
+    }
+}

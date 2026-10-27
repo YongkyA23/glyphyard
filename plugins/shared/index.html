@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Typeshelf</title>
+    <style>
+      :root {
+        --bg: var(--uxp-host-background-color, #323232);
+        --fg: var(--uxp-host-text-color, #e8e8e8);
+        --muted: var(--uxp-host-text-color-secondary, #a8a8a8);
+      }
+      body {
+        margin: 0;
+        padding: 12px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      #status {
+        margin: 0 0 10px;
+        font-weight: 600;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      h2 {
+        margin: 0 0 4px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted);
+      }
+      #log {
+        margin: 0;
+        padding-left: 16px;
+        color: var(--muted);
+      }
+      #log li {
+        margin-bottom: 4px;
+        overflow-wrap: anywhere;
+      }
+    </style>
+  </head>
+  <body>
+    <p id="status" role="status" aria-live="polite">Looking for Typeshelf…</p>
+    <div class="actions">
+      <button id="pair" type="button" style="display: none">Pair with Typeshelf</button>
+      <button id="check" type="button" disabled>Check this document</button>
+    </div>
+    <h2>Recent activity</h2>
+    <ol id="log"></ol>
+    <script src="typeshelf-client.js"></script>
+    <script src="main.js"></script>
+  </body>
+</html>

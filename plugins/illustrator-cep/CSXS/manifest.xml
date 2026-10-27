@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExtensionManifest Version="7.0" ExtensionBundleId="com.typeshelf.illustrator" ExtensionBundleVersion="0.1.0"
+  ExtensionBundleName="Typeshelf" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <ExtensionList>
+    <Extension Id="com.typeshelf.illustrator.panel" Version="0.1.0" />
+  </ExtensionList>
+  <ExecutionEnvironment>
+    <HostList>
+      <!-- Illustrator 2022 (26) and later -->
+      <Host Name="ILST" Version="[26.0,99.9]" />
+    </HostList>
+    <LocaleList>
+      <Locale Code="All" />
+    </LocaleList>
+    <RequiredRuntimeList>
+      <RequiredRuntime Name="CSXS" Version="11.0" />
+    </RequiredRuntimeList>
+  </ExecutionEnvironment>
+  <DispatchInfoList>
+    <Extension Id="com.typeshelf.illustrator.panel">
+      <DispatchInfo>
+        <Resources>
+          <MainPath>./index.html</MainPath>
+          <ScriptPath>./host/fonts.jsx</ScriptPath>
+          <CEFCommandLine>
+            <!-- Node's http module talks to the bridge without a CORS preflight (the bridge refuses those). -->
+            <Parameter>--enable-nodejs</Parameter>
+            <Parameter>--mixed-context</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>true</AutoVisible>
+          <!-- Load at startup so documents are handled even when the panel was never opened. -->
+          <StartOn>
+            <Event>applicationActivate</Event>
+            <Event>com.adobe.csxs.events.ApplicationActivate</Event>
+          </StartOn>
+        </Lifecycle>
+        <UI>
+          <Type>Panel</Type>
+          <Menu>Typeshelf</Menu>
+          <Geometry>
+            <Size>
+              <Height>300</Height>
+              <Width>280</Width>
+            </Size>
+            <MinSize>
+              <Height>160</Height>
+              <Width>220</Width>
+            </MinSize>
+          </Geometry>
+        </UI>
+      </DispatchInfo>
+    </Extension>
+  </DispatchInfoList>
+</ExtensionManifest>

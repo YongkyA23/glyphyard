@@ -20,7 +20,6 @@ person's name history and active fonts and can turn fonts on or off on their com
 ### Non-goals (first version)
 - User login, accounts, paid tiers, team seats, license seat counting.
 - Discover feed, 3D view, sending font inventories to any third party.
-- Adobe plug-ins on macOS (Windows plug-ins come after the core is stable).
 - Editing a font's internal name tables.
 
 ### Anti-goals
@@ -104,6 +103,11 @@ Optional tidy: move into `Foundry/Family/Family-Style vX.YYY.ext`; license files
 - Fonts in a PDF: parse PDF font dictionaries (`lopdf`), match by PostScript name (ignoring subset prefixes `ABCDEF+`).
 - Google Fonts: catalog from Google's public metadata, download into a managed folder, label Licensed (OFL).
 - Quick activate: global shortcut (default Ctrl/Cmd+Alt+Space) opens a small window.
+- Adobe auto-activation (Windows and macOS): UXP plug-ins for Photoshop and InDesign, a CEP extension for
+  Illustrator. On document open they send the document's font list to the app's local bridge
+  (`crates/adobe-bridge`, `http://127.0.0.1:27716`, loopback only), which turns on the fonts the library has.
+  Each plug-in pairs once (the app asks the user to allow it) and then sends a token; requests must carry a
+  custom header and the bridge sends no CORS headers, so web pages cannot call it.
 - Backup/restore: a `.typeshelf` file (zip of a JSON export; no font files).
 - App: start at login, start in tray, auto-update (Tauri updater), deactivate all on quit.
 

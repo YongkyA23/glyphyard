@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typeshelf · Project sets</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Fraunces:opsz,wght@9..144,600&amp;family=Space+Grotesk:wght@500&amp;family=Instrument+Serif&amp;family=DM+Serif+Display&amp;family=Archivo+Black&amp;family=Syne:wght@600&amp;family=IBM+Plex+Mono:wght@500&amp;family=Bebas+Neue&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+button,input{font:inherit;color:inherit}
+a{color:#2547D0}a:hover{color:#1A36A8}
+a:focus-visible,button:focus-visible{outline:2px solid #2547D0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 800px; display: flex; flex-direction: column; background: #FFFFFF; color: #1C1917; font-family: 'Geist', system-ui, sans-serif; font-size: 14px;">
+  <div style="height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid #E7E5E4; background: #FAFAF9;">
+    <span style="font-weight: 500; font-size: 13px;">Typeshelf</span>
+    <span aria-hidden="true" style="display: flex; gap: 18px; color: #6F6A65; font-size: 13px;"><span>—</span><span>☐</span><span>✕</span></span>
+  </div>
+  <div style="flex: 1; display: flex; flex-wrap: wrap;">
+    <div style="flex: 1 1 240px; display: flex;">
+      <dc-import name="DeskSidebar" active="sets" hint-size="100%,760px"></dc-import>
+    </div>
+    <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 20px; padding: 24px 32px;">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <h1 style="margin: 0; font-size: 24px; font-weight: 600;">Project sets</h1>
+          <span style="color: #57534E;">Turn a whole job’s fonts on or off in one click.</span>
+        </div>
+        <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: #2547D0; color: #FFFFFF; font-weight: 500; cursor: pointer;">New project set</button>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;">
+        <div style="flex: 1 1 300px; display: flex; flex-direction: column; gap: 10px;">
+          <sc-for list="{{sets}}" as="p" hint-placeholder-count="3">
+            <button type="button" onClick="{{p.select}}" aria-pressed="{{p.pressed}}" style="text-align: left; display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 12px; background: #FFFFFF; cursor: pointer; {{p.ring}}">
+              <span style="display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%;">
+                <span style="font-weight: 600; font-size: 15px;">{{p.name}}</span>
+                <span style="font-size: 11px; padding: 2px 8px; border-radius: 10px; {{p.stateStyle}}">{{p.stateLabel}}</span>
+              </span>
+              <span style="font-size: 12px; color: #6F6A65;">{{p.meta}}</span>
+              <span style="display: flex; flex-wrap: wrap; gap: 10px; font-size: 20px; color: #1C1917;">
+                <sc-for list="{{p.samples}}" as="smp" hint-placeholder-count="3"><span style="font-family: {{smp}};">Ag</span></sc-for>
+              </span>
+            </button>
+          </sc-for>
+        </div>
+        <section aria-label="Selected project set" style="flex: 2 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 20px; border: 1px solid #E7E5E4; border-radius: 12px;">
+          <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <h2 style="margin: 0; font-size: 18px; font-weight: 600;">{{current.name}}</h2>
+              <span style="font-size: 13px; color: #57534E;">{{current.meta}}</span>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" onClick="{{toggleSet}}" style="height: 40px; padding: 0 16px; border-radius: 8px; cursor: pointer; font-weight: 500; {{setBtn}}">{{setBtnLabel}}</button>
+              <button type="button" style="height: 40px; padding: 0 14px; border: 1px solid #D6D3D1; border-radius: 8px; background: #FFFFFF; cursor: pointer;">Edit</button>
+            </div>
+          </div>
+          <sc-if value="{{current.hasUnknown}}" hint-placeholder-val="{{true}}">
+            <div role="note" style="display: flex; gap: 10px; padding: 12px 14px; border-radius: 10px; background: #FEF3C7; color: #78350F; font-size: 13px; line-height: 1.5;">
+              <span aria-hidden="true" style="font-weight: 700;">!</span>
+              <span>1 font in this set has an unknown license. You’ll be asked to confirm before it’s turned on. <a href="FontDetail.dc.html" style="color: #78350F;">Add a license label</a></span>
+            </div>
+          </sc-if>
+          <div style="display: flex; flex-direction: column;">
+            <sc-for list="{{current.fonts}}" as="f" hint-placeholder-count="5">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid #F0EFEE;">
+                <span style="flex: 1 1 220px; font-family: {{f.css}}; font-size: 24px; line-height: 1.2;">{{f.name}}</span>
+                <span style="font-size: 11px; padding: 2px 8px; border-radius: 10px; {{f.licStyle}}">{{f.license}}</span>
+                <span style="width: 70px; font-size: 12px; color: {{f.onColor}};">{{f.onLabel}}</span>
+              </div>
+            </sc-for>
+          </div>
+          <span style="font-size: 12px; color: #6F6A65;">Turning a set off only turns off fonts that no other active set or admin rule still needs.</span>
+        </section>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { sel: 0, on: [true, false, false] };
+  }
+  renderVals() {
+    const s = this.state;
+    const lic = { 'Licensed': 'background:#E7F6EC;color:#166534', 'Client-provided': 'background:#F3EEFE;color:#5B21B6', 'Unknown license': 'background:#FEF3C7;color:#92400E', 'Personal use': 'background:#EEF2FE;color:#1E3BB0' };
+    const data = [
+      { name: 'Northwind rebrand', meta: 'Client · 5 fonts · last used today', fonts: [
+        ['DM Serif Display', "'DM Serif Display', serif", 'Client-provided'], ['Space Grotesk', "'Space Grotesk', sans-serif", 'Licensed'],
+        ['IBM Plex Mono', "'IBM Plex Mono', monospace", 'Licensed'], ['Archivo Black', "'Archivo Black', sans-serif", 'Unknown license'], ['Syne', "'Syne', sans-serif", 'Licensed']] },
+      { name: 'Café Lumen menu', meta: 'Client · 3 fonts · last used 4 days ago', fonts: [
+        ['Fraunces', "'Fraunces', serif", 'Licensed'], ['Instrument Serif', "'Instrument Serif', serif", 'Personal use'], ['Space Grotesk', "'Space Grotesk', sans-serif", 'Licensed']] },
+      { name: 'Wedding invitations', meta: 'Personal · 2 fonts · last used 3 weeks ago', fonts: [
+        ['Instrument Serif', "'Instrument Serif', serif", 'Personal use'], ['Bebas Neue', "'Bebas Neue', sans-serif", 'Licensed']] }
+    ];
+    const sets = data.map((d, i) => ({
+      name: d.name, meta: d.meta, pressed: s.sel === i ? 'true' : 'false',
+      ring: s.sel === i ? 'border:2px solid #2547D0' : 'border:1px solid #E7E5E4',
+      stateLabel: s.on[i] ? 'On' : 'Off',
+      stateStyle: s.on[i] ? 'background:#E8EDFD;color:#1E3BB0' : 'background:#F5F5F4;color:#57534E',
+      samples: d.fonts.map((f) => f[1]),
+      select: () => this.setState({ sel: i })
+    }));
+    const d = data[s.sel];
+    const isOn = s.on[s.sel];
+    const current = {
+      name: d.name, meta: d.meta,
+      hasUnknown: d.fonts.some((f) => f[2] === 'Unknown license'),
+      fonts: d.fonts.map(([name, css, license]) => ({ name, css, license, licStyle: lic[license], onLabel: isOn ? 'Active' : 'Inactive', onColor: isOn ? '#166534' : '#6F6A65' }))
+    };
+    return {
+      sets, current,
+      setBtnLabel: isOn ? 'Turn all off' : 'Turn all on',
+      setBtn: isOn ? 'background:#FFFFFF;color:#1C1917;border:1px solid #D6D3D1' : 'background:#2547D0;color:#FFFFFF;border:1px solid #2547D0',
+      toggleSet: () => { const on = s.on.slice(); on[s.sel] = !on[s.sel]; this.setState({ on }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

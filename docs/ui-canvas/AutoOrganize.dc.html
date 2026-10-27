@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typeshelf · Auto-organize</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+button,input{font:inherit;color:inherit}
+a{color:#2547D0}a:hover{color:#1A36A8}
+input:focus-visible,a:focus-visible,button:focus-visible{outline:2px solid #2547D0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 900px; display: flex; flex-direction: column; background: #FFFFFF; color: #1C1917; font-family: 'Geist', system-ui, sans-serif; font-size: 14px;">
+  <div style="height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid #E7E5E4; background: #FAFAF9;">
+    <span style="font-weight: 500; font-size: 13px;">Typeshelf</span>
+    <span aria-hidden="true" style="display: flex; gap: 18px; color: #6F6A65; font-size: 13px;"><span>—</span><span>☐</span><span>✕</span></span>
+  </div>
+  <div style="flex: 1; display: flex; flex-wrap: wrap;">
+    <div style="flex: 1 1 240px; display: flex;">
+      <dc-import name="DeskSidebar" active="organize" hint-size="100%,760px"></dc-import>
+    </div>
+    <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 18px; padding: 24px 32px;">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <h1 style="margin: 0; font-size: 24px; font-weight: 600;">Auto-organize</h1>
+          <span style="color: #57534E;">Scanned 1,284 files in 3 folders · 2 min ago · nothing has changed yet</span>
+        </div>
+        <button type="button" style="height: 40px; padding: 0 14px; border: 1px solid #D6D3D1; border-radius: 8px; background: #FFFFFF; cursor: pointer;">Scan again</button>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px;">
+        <sc-for list="{{cases}}" as="c" hint-placeholder-count="7">
+          <button type="button" aria-pressed="{{c.pressed}}" onClick="{{c.pick}}" style="text-align: left; display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 10px; background: #FFFFFF; cursor: pointer; {{c.ring}}">
+            <span style="font-size: 22px; font-weight: 600;">{{c.count}}</span>
+            <span style="font-weight: 500; font-size: 13px;">{{c.label}}</span>
+            <span style="font-size: 12px; color: #6F6A65;">{{c.action}}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="overflow-x: auto; border: 1px solid #E7E5E4; border-radius: 12px;">
+        <table style="width: 100%; min-width: 820px; border-collapse: collapse; font-size: 13px;">
+          <caption style="position: absolute; left: -9999px;">Planned changes</caption>
+          <thead><tr style="background: #FAFAF9; text-align: left; color: #57534E;">
+            <th style="padding: 10px 14px; font-weight: 500; width: 44px;"><span style="position: absolute; left: -9999px;">Include</span></th>
+            <th style="padding: 10px 14px; font-weight: 500;">Case</th>
+            <th style="padding: 10px 14px; font-weight: 500;">File</th>
+            <th style="padding: 10px 14px; font-weight: 500;">What will happen</th>
+          </tr></thead>
+          <tbody>
+            <sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
+              <tr style="border-top: 1px solid #F0EFEE; vertical-align: top;">
+                <td style="padding: 12px 14px;"><input type="checkbox" checked="{{r.checked}}" onChange="{{r.toggle}}" aria-label="{{r.aria}}" style="width: 16px; height: 16px; accent-color: #2547D0;"></td>
+                <td style="padding: 12px 14px;"><span style="font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; {{r.badge}}">{{r.label}}</span></td>
+                <td style="padding: 12px 14px; font-family: 'Geist Mono', monospace; font-size: 12px;">{{r.file}}</td>
+                <td style="padding: 12px 14px; color: #44403C;">{{r.result}}</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+      <label style="display: flex; align-items: flex-start; gap: 10px; padding: 14px; border: 1px solid #E7E5E4; border-radius: 10px;">
+        <input type="checkbox" checked="{{tidy}}" onChange="{{toggleTidy}}" style="margin-top: 2px; width: 16px; height: 16px; accent-color: #2547D0;">
+        <span style="display: flex; flex-direction: column; gap: 4px;">
+          <span style="font-weight: 500;">Also tidy folders</span>
+          <span style="font-size: 13px; color: #57534E;">Move files into Foundry / Family / Family-Style v1.000.otf. License files move with their fonts.</span>
+        </span>
+      </label>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px;">
+        <span style="font-size: 13px; color: #57534E; max-width: 560px; line-height: 1.5;">Renames change the file name and the name shown in Typeshelf. The font’s internal name is never edited. You can undo this run from Settings › History.</span>
+        <span style="display: flex; gap: 8px;">
+          <button type="button" style="height: 44px; padding: 0 16px; border: 1px solid #D6D3D1; border-radius: 8px; background: #FFFFFF; cursor: pointer;">Cancel</button>
+          <button type="button" style="height: 44px; padding: 0 18px; border: 0; border-radius: 8px; background: #2547D0; color: #FFFFFF; font-weight: 500; cursor: pointer;">Apply {{selectedCount}} changes</button>
+        </span>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { filter: 'all', off: {}, tidy: false };
+  }
+  renderVals() {
+    const s = this.state;
+    const C = {
+      copy: { label: 'Exact copy', count: 38, action: 'Keep one, rest to Recycle Bin', badge: 'background:#F5F5F4;color:#44403C' },
+      version: { label: 'Different version', count: 12, action: 'Rename with version', badge: 'background:#EEF2FE;color:#1E3BB0' },
+      format: { label: 'Same font, other format', count: 9, action: 'Prefer OTF', badge: 'background:#E7F6EC;color:#166534' },
+      clash: { label: 'Name clash', count: 3, action: 'Rename with foundry', badge: 'background:#FDECEA;color:#B42318' },
+      variable: { label: 'Variable + static', count: 4, action: 'Group, activate one kind', badge: 'background:#F3EEFE;color:#5B21B6' },
+      system: { label: 'Already in system', count: 6, action: 'Skip', badge: 'background:#F5F5F4;color:#57534E' },
+      junk: { label: 'Junk', count: 21, action: 'Move to quarantine', badge: 'background:#FEF3C7;color:#92400E' }
+    };
+    const plan = [
+      ['copy', 'Client work\\Montserrat-Bold.otf', 'Moved to Recycle Bin. Kept: Licensed\\Montserrat\\Montserrat-Bold.otf'],
+      ['copy', 'Downloads\\Montserrat-Bold (1).otf', 'Moved to Recycle Bin (same file as above)'],
+      ['version', 'Licensed\\Montserrat-Bold.otf (v8.000)', 'Renamed to Montserrat-Bold v8.000.otf · newest, used by default'],
+      ['version', 'Archive\\Montserrat-Bold.otf (v7.200)', 'Renamed to Montserrat-Bold v7.200.otf · never active at the same time'],
+      ['format', 'Client work\\Syne-Bold.ttf', 'Kept as alternate. Syne-Bold.otf is used'],
+      ['clash', 'Archive\\Unnamed-Regular.otf (foundry: Studio A)', 'Renamed to Unnamed-Regular (Studio A).otf · never active with the other one'],
+      ['variable', 'Fraunces[SOFT,WONK,opsz,wght].ttf + 9 static', 'Grouped as one family · variable version preferred'],
+      ['system', 'Client work\\Arial.ttf', 'Skipped · Windows already has Arial'],
+      ['junk', '__MACOSX\\._Lora-Regular.ttf', 'Moved to quarantine · not a real font file'],
+      ['junk', 'Client work\\Thumbs.db', 'Moved to quarantine']
+    ];
+    const cases = [{ key: 'all', label: 'All changes', count: 93, action: 'Everything below' }].concat(Object.keys(C).map((k) => ({ key: k, ...C[k] }))).map((c) => ({
+      ...c, pressed: s.filter === c.key ? 'true' : 'false',
+      ring: s.filter === c.key ? 'border:2px solid #2547D0' : 'border:1px solid #E7E5E4',
+      pick: () => this.setState({ filter: c.key })
+    }));
+    const rows = plan.map((p, i) => ({ i, kind: p[0], file: p[1], result: p[2] }))
+      .filter((r) => s.filter === 'all' || r.kind === s.filter)
+      .map((r) => ({
+        ...r, label: C[r.kind].label, badge: C[r.kind].badge,
+        checked: !s.off[r.i], aria: 'Include change for ' + r.file,
+        toggle: () => this.setState({ off: { ...s.off, [r.i]: !s.off[r.i] } })
+      }));
+    const excluded = Object.values(s.off).filter(Boolean).length;
+    return {
+      cases, rows,
+      selectedCount: 93 - excluded,
+      tidy: s.tidy,
+      toggleTidy: () => this.setState({ tidy: !s.tidy })
+    };
+  }
+}
+</script>
+</body>
+</html>

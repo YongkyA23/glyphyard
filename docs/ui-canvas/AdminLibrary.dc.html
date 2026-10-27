@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typeshelf Admin · Shared library</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Fraunces:opsz,wght@9..144,600&amp;family=Space+Grotesk:wght@500&amp;family=IBM+Plex+Mono:wght@500&amp;family=Syne:wght@600&amp;family=DM+Serif+Display&amp;family=Bebas+Neue&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+button,input{font:inherit;color:inherit}
+a{color:#2547D0}a:hover{color:#1A36A8}
+input:focus-visible,a:focus-visible,button:focus-visible{outline:2px solid #2547D0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 900px; display: flex; flex-wrap: wrap; background: #F7F7F6; color: #1C1917; font-family: 'Geist', system-ui, sans-serif; font-size: 14px;">
+  <div style="flex: 1 1 240px; display: flex;">
+    <dc-import name="AdminSidebar" active="library" hint-size="100%,860px"></dc-import>
+  </div>
+  <main style="flex: 999 1 640px; min-width: 0; padding: 28px 36px; display: flex; flex-direction: column; gap: 18px;">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <h1 style="margin: 0; font-size: 26px; font-weight: 600;">Shared library</h1>
+        <span style="color: #57534E;">Approved fonts you deliver to users’ apps. 214 files in 38 families.</span>
+      </div>
+      <span style="display: flex; gap: 8px;">
+        <a href="AdminAutoOrganize.dc.html" style="height: 40px; display: flex; align-items: center; padding: 0 14px; border: 1px solid #D6D3D1; border-radius: 8px; background: #FFFFFF; color: #1C1917; text-decoration: none;">Auto-organize</a>
+        <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: #2547D0; color: #FFFFFF; font-weight: 500; cursor: pointer;">Upload fonts</button>
+      </span>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+      <label for="lsearch" style="position: absolute; left: -9999px;">Search the shared library</label>
+      <input id="lsearch" type="search" placeholder="Search families" style="flex: 1 1 300px; height: 40px; padding: 0 12px; border: 1px solid #D6D3D1; border-radius: 8px; background: #FFFFFF;">
+    </div>
+    <div style="overflow-x: auto; border: 1px solid #E7E5E4; border-radius: 12px; background: #FFFFFF;">
+      <table style="width: 100%; min-width: 980px; border-collapse: collapse; font-size: 13px;">
+        <caption style="position: absolute; left: -9999px;">Font families in the shared library</caption>
+        <thead><tr style="text-align: left; color: #57534E; background: #FAFAF9;">
+          <th style="padding: 10px 14px; font-weight: 500;">Family</th>
+          <th style="padding: 10px 14px; font-weight: 500;">License</th>
+          <th style="padding: 10px 14px; font-weight: 500;">Delivered to</th>
+          <th style="padding: 10px 14px; font-weight: 500;">Active on</th>
+          <th style="padding: 10px 14px; font-weight: 500;">Status</th>
+          <th style="padding: 10px 14px; font-weight: 500;"><span style="position: absolute; left: -9999px;">Actions</span></th>
+        </tr></thead>
+        <tbody>
+          <sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+            <tr style="border-top: 1px solid #F0EFEE;">
+              <td style="padding: 12px 14px;"><span style="display: flex; flex-direction: column; gap: 2px;"><span style="font-family: {{r.css}}; font-size: 22px; color: {{r.ink}};">{{r.name}}</span><span style="font-size: 12px; color: #6F6A65;">{{r.meta}}</span></span></td>
+              <td style="padding: 12px 14px;"><span style="font-size: 11px; padding: 2px 8px; border-radius: 10px; {{r.licStyle}}">{{r.license}}</span></td>
+              <td style="padding: 12px 14px;">{{r.to}}</td>
+              <td style="padding: 12px 14px;">{{r.active}}</td>
+              <td style="padding: 12px 14px;"><span style="font-size: 11px; padding: 2px 8px; border-radius: 10px; {{r.statusStyle}}">{{r.status}}</span></td>
+              <td style="padding: 12px 14px; white-space: nowrap;">
+                <span style="display: flex; gap: 6px; justify-content: flex-end;">
+                  <button type="button" style="height: 32px; padding: 0 10px; border: 1px solid #D6D3D1; border-radius: 8px; background: #FFFFFF; cursor: pointer; font-size: 12px;">Deliver…</button>
+                  <button type="button" onClick="{{r.toggleBlock}}" style="height: 32px; padding: 0 10px; border-radius: 8px; cursor: pointer; font-size: 12px; {{r.blockStyle}}">{{r.blockLabel}}</button>
+                </span>
+              </td>
+            </tr>
+          </sc-for>
+        </tbody>
+      </table>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 16px;">
+      <div style="flex: 1 1 320px; padding: 16px; border: 1px solid #E7E5E4; border-radius: 12px; background: #FFFFFF; display: flex; flex-direction: column; gap: 6px;">
+        <span style="font-weight: 600;">Delivering a font</span>
+        <span style="font-size: 13px; color: #57534E; line-height: 1.5;">Pick everyone or specific users. The file is downloaded to their app and appears in their library. Choose whether it’s also turned on.</span>
+      </div>
+      <div style="flex: 1 1 320px; padding: 16px; border: 1px solid #F5C2BD; border-radius: 12px; background: #FFF8F7; display: flex; flex-direction: column; gap: 6px;">
+        <span style="font-weight: 600; color: #912018;">Blocking a font</span>
+        <span style="font-size: 13px; color: #7A271A; line-height: 1.5;">A blocked font is turned off on every computer and can’t be turned on again, even if a user has their own copy.</span>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { blocked: { bebas: true } };
+  }
+  renderVals() {
+    const s = this.state;
+    const L = { Licensed: 'background:#E7F6EC;color:#166534', 'Client-provided': 'background:#F3EEFE;color:#5B21B6', Unknown: 'background:#FEF3C7;color:#92400E' };
+    const data = [
+      { id: 'grotesk', name: 'Space Grotesk', css: "'Space Grotesk', sans-serif", meta: '5 styles · v2.0', license: 'Licensed', to: 'Everyone', active: '41 users' },
+      { id: 'fraunces', name: 'Fraunces', css: "'Fraunces', serif", meta: 'Variable + 9 static · v1.000', license: 'Licensed', to: 'Everyone', active: '33 users' },
+      { id: 'plex', name: 'IBM Plex Mono', css: "'IBM Plex Mono', monospace", meta: '14 styles · v6.4', license: 'Licensed', to: 'Everyone', active: '27 users' },
+      { id: 'syne', name: 'Syne', css: "'Syne', sans-serif", meta: '5 styles · v2.0', license: 'Licensed', to: '12 users', active: '12 users' },
+      { id: 'dm', name: 'DM Serif Display', css: "'DM Serif Display', serif", meta: '2 styles · v1.1', license: 'Client-provided', to: '5 users', active: '4 users' },
+      { id: 'bebas', name: 'Bebas Neue', css: "'Bebas Neue', sans-serif", meta: '1 style · v1.0 (unofficial copy)', license: 'Unknown', to: 'Nobody', active: '0 users' }
+    ];
+    const rows = data.map((d) => {
+      const b = !!s.blocked[d.id];
+      return {
+        ...d, licStyle: L[d.license],
+        ink: b ? '#A8A29E' : '#1C1917',
+        status: b ? 'Blocked' : 'Published',
+        statusStyle: b ? 'background:#FDECEA;color:#B42318' : 'background:#E7F6EC;color:#166534',
+        blockLabel: b ? 'Unblock' : 'Block',
+        blockStyle: b ? 'border:1px solid #D6D3D1;background:#FFFFFF;color:#1C1917' : 'border:1px solid #F5C2BD;background:#FFFFFF;color:#B42318',
+        toggleBlock: () => this.setState({ blocked: { ...s.blocked, [d.id]: !b } })
+      };
+    });
+    return { rows };
+  }
+}
+</script>
+</body>
+</html>

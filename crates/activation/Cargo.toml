@@ -1,0 +1,16 @@
+[package]
+name = "typeshelf-activation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+typeshelf-core = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging"] }
+windows-registry = "0.6"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10.1"
+core-foundation-sys = "0.8.7"

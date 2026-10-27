@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typeshelf Admin · Auto-organize</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+button{font:inherit;color:inherit}
+a{color:#2547D0}a:hover{color:#1A36A8}
+a:focus-visible,button:focus-visible{outline:2px solid #2547D0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 900px; display: flex; flex-wrap: wrap; background: #F7F7F6; color: #1C1917; font-family: 'Geist', system-ui, sans-serif; font-size: 14px;">
+  <div style="flex: 1 1 240px; display: flex;">
+    <dc-import name="AdminSidebar" active="organize" hint-size="100%,860px"></dc-import>
+  </div>
+  <main style="flex: 999 1 640px; min-width: 0; padding: 28px 36px; display: flex; flex-direction: column; gap: 20px;">
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <h1 style="margin: 0; font-size: 26px; font-weight: 600;">Auto-organize</h1>
+      <span style="color: #57534E;">Clean up the shared library, or ask a user’s app to clean up their own fonts.</span>
+    </div>
+
+    <section aria-labelledby="lib" style="padding: 20px; border: 1px solid #E7E5E4; border-radius: 12px; background: #FFFFFF; display: flex; flex-direction: column; gap: 14px;">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <h2 id="lib" style="margin: 0; font-size: 16px; font-weight: 600;">Shared library</h2>
+          <span style="font-size: 13px; color: #57534E;">Scanned 214 files · 11 changes suggested · nothing changed yet</span>
+        </div>
+        <button type="button" onClick="{{apply}}" style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; font-weight: 500; cursor: pointer; {{applyStyle}}">{{applyLabel}}</button>
+      </div>
+      <div style="overflow-x: auto; border: 1px solid #F0EFEE; border-radius: 10px;">
+        <table style="width: 100%; min-width: 760px; border-collapse: collapse; font-size: 13px;">
+          <caption style="position: absolute; left: -9999px;">Suggested changes to the shared library</caption>
+          <thead><tr style="text-align: left; color: #57534E; background: #FAFAF9;">
+            <th style="padding: 10px 14px; font-weight: 500;">Case</th><th style="padding: 10px 14px; font-weight: 500;">File</th><th style="padding: 10px 14px; font-weight: 500;">What will happen</th>
+          </tr></thead>
+          <tbody>
+            <sc-for list="{{plan}}" as="p" hint-placeholder-count="5">
+              <tr style="border-top: 1px solid #F0EFEE;">
+                <td style="padding: 10px 14px;"><span style="font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; {{p.badge}}">{{p.label}}</span></td>
+                <td style="padding: 10px 14px; font-family: 'Geist Mono', monospace; font-size: 12px;">{{p.file}}</td>
+                <td style="padding: 10px 14px; color: #44403C;">{{p.result}}</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+      <span style="font-size: 12px; color: #6F6A65;">Users receive the cleaned-up files on their next sync. Renamed fonts keep their internal names.</span>
+    </section>
+
+    <section aria-labelledby="usr" style="padding: 20px; border: 1px solid #E7E5E4; border-radius: 12px; background: #FFFFFF; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; flex-direction: column; gap: 2px;">
+        <h2 id="usr" style="margin: 0; font-size: 16px; font-weight: 600;">Users’ computers</h2>
+        <span style="font-size: 13px; color: #57534E;">Duplicates reported by each app. A request shows the user a preview, and nothing changes until they confirm.</span>
+      </div>
+      <sc-for list="{{users}}" as="u" hint-placeholder-count="4">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #F0EFEE;">
+          <a href="AdminUserDetail.dc.html" style="flex: 1 1 180px; color: #1C1917; font-weight: 500; text-decoration: none;">{{u.name}}</a>
+          <span style="flex: 2 1 280px; font-size: 13px; color: #57534E;">{{u.found}}</span>
+          <span style="width: 120px; font-size: 12px; color: #6F6A65;">{{u.last}}</span>
+          <button type="button" onClick="{{u.request}}" style="height: 34px; padding: 0 12px; border-radius: 8px; cursor: pointer; font-size: 13px; {{u.btnStyle}}">{{u.btnLabel}}</button>
+        </div>
+      </sc-for>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { applied: false, asked: {} };
+  }
+  renderVals() {
+    const s = this.state;
+    const C = {
+      copy: ['Exact copy', 'background:#F5F5F4;color:#44403C'], version: ['Different version', 'background:#EEF2FE;color:#1E3BB0'],
+      clash: ['Name clash', 'background:#FDECEA;color:#B42318'], junk: ['Junk', 'background:#FEF3C7;color:#92400E'], format: ['Other format', 'background:#E7F6EC;color:#166534']
+    };
+    const plan = [
+      ['copy', 'uploads/2026-10/SpaceGrotesk-Bold.otf', 'Removed · same file already in Space Grotesk'],
+      ['version', 'Syne/Syne-Bold.otf (v1.1)', 'Renamed to Syne-Bold v1.1.otf · v2.0 stays the default'],
+      ['clash', 'misc/Unnamed-Regular.otf (Studio A)', 'Renamed to Unnamed-Regular (Studio A).otf'],
+      ['format', 'IBM Plex Mono/IBMPlexMono-Medium.ttf', 'Kept as alternate · OTF is delivered'],
+      ['junk', '__MACOSX/._Fraunces-Regular.otf', 'Moved to quarantine']
+    ].map(([k, file, result]) => ({ label: C[k][0], badge: C[k][1], file, result }));
+    const users = [
+      { k: 'r', name: 'Rizky Pratama', found: '41 duplicates · 6 version conflicts', last: 'Never organized' },
+      { k: 'p', name: 'Putri Ananda', found: '18 duplicates · 2 name clashes', last: 'Never organized' },
+      { k: 'b', name: 'Budi Santoso', found: '3 duplicates', last: 'Organized 21 Oct' },
+      { k: 'd', name: 'Dewi Lestari', found: 'No duplicates', last: 'Organized yesterday', clean: true }
+    ].map((u) => {
+      const asked = !!s.asked[u.k];
+      return {
+        ...u,
+        btnLabel: u.clean ? 'Nothing to do' : asked ? 'Requested · waiting for user' : 'Request auto-organize',
+        btnStyle: u.clean || asked ? 'border:1px solid #E7E5E4;background:#F5F5F4;color:#57534E' : 'border:1px solid #2547D0;background:#FFFFFF;color:#2547D0',
+        request: () => { if (!u.clean) this.setState({ asked: { ...s.asked, [u.k]: true } }); }
+      };
+    });
+    return {
+      plan, users,
+      applyLabel: s.applied ? 'Applied · undo available' : 'Apply 11 changes',
+      applyStyle: s.applied ? 'background:#E7F6EC;color:#166534' : 'background:#2547D0;color:#FFFFFF',
+      apply: () => this.setState({ applied: true })
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+﻿[package]
+name = "typeshelf-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono = { version = "0.4.45", features = ["serde"] }
+lopdf = { version = "0.46.0", default-features = false }
+notify-debouncer-full = "0.7.0"
+rayon = "1.12.0"
+rusqlite = { version = "0.41.0", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+trash = "5.2.9"
+typeshelf-activation.workspace = true
+typeshelf-core.workspace = true
+typeshelf-protocol.workspace = true
+ureq = "3.5.0"
+uuid = { version = "1.29.0", features = ["v4"] }
+walkdir = "2.5.0"
+zip = { version = "9.1.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

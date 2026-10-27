@@ -1,0 +1,46 @@
+/* Design tokens shared by the desktop UI and the admin UI. Source: the "Typeshelf UI" canvas. */
+:root {
+  --bg: #ffffff;
+  --bg-page: #f7f7f6;     /* admin page background */
+  --panel: #fafaf9;       /* title bars, table heads, sidebars */
+  --line: #e7e5e4;
+  --line-soft: #f0efee;
+  --line-strong: #d6d3d1;
+  --ink: #1c1917;
+  --ink-2: #44403c;
+  --mute: #57534e;
+  --faint: #6f6a65;
+  --disabled: #8a847e;
+
+  --accent: #2547d0;
+  --accent-hover: #1a36a8;
+  --accent-ink: #1e3bb0;
+  --accent-soft: #e8edfd;
+  --accent-soft-2: #eef2fe;
+  --accent-line: #c9d4fa;
+
+  --ok: #166534;     --ok-soft: #e7f6ec;    --ok-dot: #16a34a;
+  --warn: #92400e;   --warn-soft: #fef3c7;  --warn-ink: #78350f;
+  --bad: #b42318;    --bad-soft: #fdecea;
+  --violet: #5b21b6; --violet-soft: #f3eefe;
+
+  /* License label colors */
+  --lic-licensed-bg: var(--ok-soft);      --lic-licensed: var(--ok);
+  --lic-personal-bg: var(--accent-soft-2); --lic-personal: var(--accent-ink);
+  --lic-client-bg: var(--violet-soft);    --lic-client: var(--violet);
+  --lic-unknown-bg: var(--warn-soft);     --lic-unknown: var(--warn);
+
+  --admin-sidebar: #1c1917;
+  --radius: 8px;
+  --radius-card: 12px;
+  --font-ui: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font-ui); font-size: 14px; color: var(--ink); background: var(--bg); }
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--accent); }
+a:hover { color: var(--accent-hover); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

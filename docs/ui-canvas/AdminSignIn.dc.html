@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typeshelf Admin · Sign in</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Instrument+Serif:ital@0;1&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+button,input{font:inherit;color:inherit}
+a{color:#2547D0}a:hover{color:#1A36A8}
+input:focus-visible,a:focus-visible,button:focus-visible{outline:2px solid #2547D0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 900px; display: flex; flex-wrap: wrap; background: #FFFFFF; color: #1C1917; font-family: 'Geist', system-ui, sans-serif; font-size: 14px;">
+  <div style="flex: 1 1 420px; display: flex; flex-direction: column; justify-content: space-between; padding: 48px; background: #1C1917; color: #F5F5F4;">
+    <span style="font-weight: 600; font-size: 16px;">Typeshelf <span style="font-weight: 400; color: #A8A29E;">Admin</span></span>
+    <div style="font-family: 'Instrument Serif', serif; font-size: 72px; line-height: 1; letter-spacing: -1px;">Every font,<br><span style="font-style: italic; color: #C7D2FE;">on every desk.</span></div>
+    <span style="font-size: 13px; color: #A8A29E;">Only admins sign in here. Desktop users never need an account.</span>
+  </div>
+  <div style="flex: 1 1 420px; display: flex; align-items: center; justify-content: center; padding: 48px 24px;">
+    <form style="width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 18px;" onSubmit="{{submit}}">
+      <h1 style="margin: 0; font-size: 26px; font-weight: 600;">Sign in</h1>
+      <label style="display: flex; flex-direction: column; gap: 6px;">
+        <span style="font-weight: 500;">Email</span>
+        <input type="email" value="{{email}}" onChange="{{setEmail}}" autocomplete="username" style="height: 44px; padding: 0 12px; border: 1px solid #D6D3D1; border-radius: 8px;">
+      </label>
+      <label style="display: flex; flex-direction: column; gap: 6px;">
+        <span style="font-weight: 500;">Password</span>
+        <input type="password" value="{{password}}" onChange="{{setPassword}}" autocomplete="current-password" style="height: 44px; padding: 0 12px; border: 1px solid #D6D3D1; border-radius: 8px;">
+      </label>
+      <sc-if value="{{showError}}" hint-placeholder-val="{{false}}">
+        <span role="alert" style="color: #B42318; font-size: 13px;">Enter your email and password.</span>
+      </sc-if>
+      <sc-if value="{{ready}}" hint-placeholder-val="{{false}}">
+        <a href="AdminOverview.dc.html" style="height: 46px; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: #2547D0; color: #FFFFFF; text-decoration: none; font-weight: 500;">Sign in</a>
+      </sc-if>
+      <sc-if value="{{notReady}}" hint-placeholder-val="{{true}}">
+        <button type="submit" style="height: 46px; border: 0; border-radius: 8px; background: #2547D0; color: #FFFFFF; font-weight: 500; cursor: pointer;">Sign in</button>
+      </sc-if>
+      <a href="AdminSettings.dc.html" style="font-size: 13px;">Forgot password?</a>
+    </form>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { email: '', password: '', tried: false };
+  }
+  renderVals() {
+    const s = this.state;
+    const ready = s.email.includes('@') && s.password.length > 0;
+    return {
+      email: s.email, password: s.password, ready, notReady: !ready,
+      showError: s.tried && !ready,
+      setEmail: (e) => this.setState({ email: e.target.value, tried: false }),
+      setPassword: (e) => this.setState({ password: e.target.value, tried: false }),
+      submit: (e) => { e.preventDefault(); this.setState({ tried: true }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typeshelf · Google Fonts</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Lora:wght@500&amp;family=Caveat:wght@600&amp;family=Work+Sans:wght@500&amp;family=Bricolage+Grotesque:wght@600&amp;family=Playfair+Display:wght@600&amp;family=Space+Mono&amp;family=Instrument+Serif&amp;family=Syne:wght@600&amp;family=DM+Serif+Display&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+button,input{font:inherit;color:inherit}
+a{color:#2547D0}a:hover{color:#1A36A8}
+input:focus-visible,button:focus-visible{outline:2px solid #2547D0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 800px; display: flex; flex-direction: column; background: #FFFFFF; color: #1C1917; font-family: 'Geist', system-ui, sans-serif; font-size: 14px;">
+  <div style="height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid #E7E5E4; background: #FAFAF9;">
+    <span style="font-weight: 500; font-size: 13px;">Typeshelf</span>
+    <span aria-hidden="true" style="display: flex; gap: 18px; color: #6F6A65; font-size: 13px;"><span>—</span><span>☐</span><span>✕</span></span>
+  </div>
+  <div style="flex: 1; display: flex; flex-wrap: wrap;">
+    <div style="flex: 1 1 240px; display: flex;">
+      <dc-import name="DeskSidebar" active="google" hint-size="100%,760px"></dc-import>
+    </div>
+    <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 24px 32px;">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <h1 style="margin: 0; font-size: 24px; font-weight: 600;">Google Fonts</h1>
+          <span style="color: #57534E;">Free fonts. Installed fonts are labeled Licensed (SIL Open Font License) automatically.</span>
+        </div>
+        <label for="gsearch" style="position: absolute; left: -9999px;">Search Google Fonts</label>
+        <input id="gsearch" type="search" placeholder="Search 1,700+ families" style="flex: 0 1 320px; height: 40px; padding: 0 12px; border: 1px solid #D6D3D1; border-radius: 8px;">
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+        <sc-for list="{{cats}}" as="c" hint-placeholder-count="6">
+          <button type="button" aria-pressed="{{c.pressed}}" onClick="{{c.pick}}" style="height: 32px; padding: 0 12px; border-radius: 16px; cursor: pointer; {{c.style}}">{{c.label}}</button>
+        </sc-for>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px;">
+        <sc-for list="{{cards}}" as="f" hint-placeholder-count="9">
+          <div style="display: flex; flex-direction: column; gap: 14px; padding: 18px; border: 1px solid #E7E5E4; border-radius: 12px;">
+            <span style="font-family: {{f.css}}; font-size: 40px; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{f.name}}</span>
+            <span style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+              <span style="font-size: 12px; color: #6F6A65;">{{f.meta}}</span>
+              <button type="button" onClick="{{f.toggle}}" aria-label="{{f.aria}}" style="height: 34px; padding: 0 12px; border-radius: 8px; cursor: pointer; font-size: 13px; {{f.btn}}">{{f.btnLabel}}</button>
+            </span>
+          </div>
+        </sc-for>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { cat: 'All', got: { syne: true, instrument: true } };
+  }
+  renderVals() {
+    const s = this.state;
+    const fonts = [
+      { id: 'lora', name: 'Lora', css: "'Lora', serif", cat: 'Serif', styles: 8 },
+      { id: 'bricolage', name: 'Bricolage Grotesque', css: "'Bricolage Grotesque', sans-serif", cat: 'Sans', styles: 'Variable' },
+      { id: 'caveat', name: 'Caveat', css: "'Caveat', cursive", cat: 'Handwriting', styles: 'Variable' },
+      { id: 'playfair', name: 'Playfair Display', css: "'Playfair Display', serif", cat: 'Display', styles: 12 },
+      { id: 'work', name: 'Work Sans', css: "'Work Sans', sans-serif", cat: 'Sans', styles: 18 },
+      { id: 'spacemono', name: 'Space Mono', css: "'Space Mono', monospace", cat: 'Mono', styles: 4 },
+      { id: 'syne', name: 'Syne', css: "'Syne', sans-serif", cat: 'Display', styles: 5 },
+      { id: 'instrument', name: 'Instrument Serif', css: "'Instrument Serif', serif", cat: 'Serif', styles: 2 },
+      { id: 'dmserif', name: 'DM Serif Display', css: "'DM Serif Display', serif", cat: 'Display', styles: 2 }
+    ];
+    const cats = ['All', 'Serif', 'Sans', 'Display', 'Handwriting', 'Mono'].map((label) => ({
+      label, pressed: s.cat === label ? 'true' : 'false',
+      style: s.cat === label ? 'background:#1C1917;color:#FFFFFF;border:1px solid #1C1917' : 'background:#FFFFFF;color:#1C1917;border:1px solid #D6D3D1',
+      pick: () => this.setState({ cat: label })
+    }));
+    const cards = fonts.filter((f) => s.cat === 'All' || f.cat === s.cat).map((f) => {
+      const got = !!s.got[f.id];
+      return {
+        ...f,
+        meta: f.cat + ' · ' + (typeof f.styles === 'number' ? f.styles + ' styles' : 'Variable'),
+        btnLabel: got ? 'Installed ✓' : 'Install',
+        aria: (got ? 'Remove ' : 'Install ') + f.name,
+        btn: got ? 'background:#E7F6EC;color:#166534;border:1px solid #BFE5CB' : 'background:#2547D0;color:#FFFFFF;border:1px solid #2547D0',
+        toggle: () => this.setState({ got: { ...s.got, [f.id]: !got } })
+      };
+    });
+    return { cats, cards };
+  }
+}
+</script>
+</body>
+</html>

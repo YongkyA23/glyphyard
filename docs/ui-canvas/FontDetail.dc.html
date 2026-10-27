@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typeshelf · Fraunces</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Fraunces:opsz,wght,SOFT,WONK@9..144,100..900,0..100,0..1&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+button,input,textarea{font:inherit;color:inherit}
+a{color:#2547D0}a:hover{color:#1A36A8}
+input:focus-visible,a:focus-visible,button:focus-visible,textarea:focus-visible{outline:2px solid #2547D0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 900px; display: flex; flex-direction: column; background: #FFFFFF; color: #1C1917; font-family: 'Geist', system-ui, sans-serif; font-size: 14px;">
+  <div style="height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid #E7E5E4; background: #FAFAF9;">
+    <span style="font-weight: 500; font-size: 13px;">Typeshelf</span>
+    <span aria-hidden="true" style="display: flex; gap: 18px; color: #6F6A65; font-size: 13px;"><span>—</span><span>☐</span><span>✕</span></span>
+  </div>
+  <div style="flex: 1; display: flex; flex-wrap: wrap;">
+    <div style="flex: 1 1 240px; display: flex;">
+      <dc-import name="DeskSidebar" active="library" hint-size="100%,760px"></dc-import>
+    </div>
+    <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 20px; padding: 20px 32px 32px;">
+      <a href="Library.dc.html" style="font-size: 13px; text-decoration: none;">← Library</a>
+      <div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 20px;">
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <h1 style="margin: 0; font-family: 'Fraunces', serif; font-weight: 600; font-size: 56px; line-height: 1; letter-spacing: -1px;">Fraunces</h1>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: #57534E; font-size: 13px;">
+            <span>Undercase Type</span><span aria-hidden="true">·</span><span>9 styles + variable</span><span aria-hidden="true">·</span><span>v1.000</span>
+            <span style="font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #E7F6EC; color: #166534;">Licensed</span>
+            <span style="font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #EEF2FE; color: #1E3BB0;">Set by admin</span>
+          </div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          <button type="button" aria-pressed="{{familyOnStr}}" onClick="{{toggleFamily}}" style="height: 40px; padding: 0 16px; border-radius: 8px; cursor: pointer; font-weight: 500; {{familyBtn}}">{{familyLabel}}</button>
+          <button type="button" style="height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #D6D3D1; background: #FFFFFF; cursor: pointer;">Add to project set</button>
+          <button type="button" style="height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #D6D3D1; background: #FFFFFF; cursor: pointer;">Show in folder</button>
+        </div>
+      </div>
+      <div role="tablist" aria-label="Font views" style="display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid #E7E5E4;">
+        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="4">
+          <button type="button" role="tab" aria-selected="{{t.selected}}" onClick="{{t.pick}}" style="height: 40px; padding: 0 14px; border: 0; background: transparent; cursor: pointer; margin-bottom: -1px; {{t.style}}">{{t.label}}</button>
+        </sc-for>
+      </div>
+
+      <sc-if value="{{isPreview}}" hint-placeholder-val="{{true}}">
+        <div style="display: flex; flex-wrap: wrap; gap: 24px;">
+          <div style="flex: 2 1 440px; min-width: 0; display: flex; flex-direction: column; gap: 14px;">
+            <sc-for list="{{waterfall}}" as="w" hint-placeholder-count="5">
+              <div style="display: flex; align-items: baseline; gap: 16px; border-bottom: 1px solid #F0EFEE; padding-bottom: 10px;">
+                <span style="width: 40px; flex-shrink: 0; font-size: 12px; color: #6F6A65;">{{w.size}}</span>
+                <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.15; font-family: 'Fraunces', serif; font-size: {{w.size}}px; font-variation-settings: {{fvs}}; font-feature-settings: {{ffs}};">Office hours ½ off · Affinity 2026</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="flex: 1 1 280px; display: flex; flex-direction: column; gap: 20px; padding: 18px; border: 1px solid #E7E5E4; border-radius: 12px; background: #FAFAF9;">
+            <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Variable axes</h2>
+            <sc-for list="{{axes}}" as="a" hint-placeholder-count="4">
+              <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px;">
+                <span style="display: flex; justify-content: space-between;"><span>{{a.name}} <span style="color: #6F6A65;">({{a.tag}})</span></span><span style="color: #57534E;">{{a.value}}</span></span>
+                <input type="range" min="{{a.min}}" max="{{a.max}}" step="{{a.step}}" value="{{a.value}}" onChange="{{a.set}}" style="accent-color: #2547D0;">
+              </label>
+            </sc-for>
+            <h2 style="margin: 4px 0 0; font-size: 14px; font-weight: 600;">OpenType features</h2>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+              <sc-for list="{{features}}" as="ft" hint-placeholder-count="4">
+                <button type="button" aria-pressed="{{ft.pressed}}" onClick="{{ft.toggle}}" style="height: 32px; padding: 0 10px; border-radius: 8px; cursor: pointer; font-size: 12px; {{ft.style}}">{{ft.label}}</button>
+              </sc-for>
+            </div>
+            <button type="button" style="height: 36px; border-radius: 8px; border: 1px solid #D6D3D1; background: #FFFFFF; cursor: pointer;">Open in playground</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isGlyphs}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; color: #57534E; font-size: 13px;">
+            <span>Unicode block</span>
+            <span style="padding: 6px 10px; border: 1px solid #D6D3D1; border-radius: 8px;">Basic Latin ▾</span>
+            <span>612 glyphs in this font</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px;">
+            <sc-for list="{{glyphs}}" as="g" hint-placeholder-count="40">
+              <div style="aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border: 1px solid #E7E5E4; border-radius: 8px; font-family: 'Fraunces', serif; font-size: 30px;">{{g}}</div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isFiles}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="overflow-x: auto; border: 1px solid #E7E5E4; border-radius: 12px;">
+            <table style="width: 100%; min-width: 720px; border-collapse: collapse; font-size: 13px;">
+              <thead><tr style="background: #FAFAF9; text-align: left; color: #57534E;">
+                <th style="padding: 10px 14px; font-weight: 500;">File</th><th style="padding: 10px 14px; font-weight: 500;">Version</th><th style="padding: 10px 14px; font-weight: 500;">Location</th><th style="padding: 10px 14px; font-weight: 500;">Status</th>
+              </tr></thead>
+              <tbody>
+                <sc-for list="{{files}}" as="r" hint-placeholder-count="4">
+                  <tr style="border-top: 1px solid #F0EFEE;">
+                    <td style="padding: 12px 14px;">{{r.file}}</td><td style="padding: 12px 14px;">{{r.ver}}</td><td style="padding: 12px 14px; color: #57534E;">{{r.loc}}</td>
+                    <td style="padding: 12px 14px;"><span style="font-size: 11px; padding: 2px 8px; border-radius: 10px; {{r.badge}}">{{r.status}}</span></td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+          <p style="margin: 0; color: #57534E; font-size: 13px; line-height: 1.5;">Only one version of a font can be active at a time. Older versions were renamed by auto-organize, so they keep their internal font name but are easy to tell apart here.</p>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isLicense}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; flex-wrap: wrap; gap: 24px;">
+          <fieldset style="flex: 1 1 280px; margin: 0; padding: 18px; border: 1px solid #E7E5E4; border-radius: 12px; display: flex; flex-direction: column; gap: 10px;">
+            <legend style="padding: 0 6px; font-weight: 600;">License label</legend>
+            <sc-for list="{{licenseOptions}}" as="o" hint-placeholder-count="4">
+              <label style="display: flex; align-items: center; gap: 10px; min-height: 36px;">
+                <input type="radio" name="lic" checked="{{o.checked}}" onChange="{{o.pick}}" style="accent-color: #2547D0; width: 16px; height: 16px;">
+                <span>{{o.label}}</span>
+              </label>
+            </sc-for>
+          </fieldset>
+          <div style="flex: 2 1 360px; display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; border: 1px solid #E7E5E4; border-radius: 12px;">
+              <span style="display: flex; flex-direction: column; gap: 2px;"><span style="font-weight: 500;">OFL.txt</span><span style="font-size: 12px; color: #6F6A65;">SIL Open Font License · attached 3 Oct 2026</span></span>
+              <span style="display: flex; gap: 8px;"><button type="button" style="height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #D6D3D1; background: #FFFFFF; cursor: pointer;">Open</button><button type="button" style="height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #D6D3D1; background: #FFFFFF; cursor: pointer;">Replace</button></span>
+            </div>
+            <label for="licnote" style="font-weight: 500;">Notes</label>
+            <textarea id="licnote" rows="4" style="padding: 10px 12px; border: 1px solid #D6D3D1; border-radius: 8px; resize: vertical;">Free for commercial use, including logos.</textarea>
+            <p style="margin: 0; font-size: 13px; color: #57534E;">The label and file move with the font when auto-organize tidies folders.</p>
+          </div>
+        </div>
+      </sc-if>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tab: 'preview', familyOn: true, wght: 600, opsz: 72, SOFT: 50, WONK: 0, feat: { liga: true, onum: false, frac: true, smcp: false }, lic: 'Licensed' };
+  }
+  renderVals() {
+    const s = this.state;
+    const tabs = [['preview', 'Preview'], ['glyphs', 'Glyphs'], ['files', 'Files and versions'], ['license', 'License']].map(([k, label]) => ({
+      label, selected: s.tab === k ? 'true' : 'false',
+      style: s.tab === k ? 'border-bottom:2px solid #2547D0;color:#1C1917;font-weight:500' : 'border-bottom:2px solid transparent;color:#57534E',
+      pick: () => this.setState({ tab: k })
+    }));
+    const axes = [
+      { name: 'Weight', tag: 'wght', min: 100, max: 900, step: 1 },
+      { name: 'Optical size', tag: 'opsz', min: 9, max: 144, step: 1 },
+      { name: 'Softness', tag: 'SOFT', min: 0, max: 100, step: 1 },
+      { name: 'Wonky', tag: 'WONK', min: 0, max: 1, step: 1 }
+    ].map((a) => ({ ...a, value: s[a.tag], set: (e) => this.setState({ [a.tag]: Number(e.target.value) }) }));
+    const featNames = { liga: 'Ligatures', onum: 'Old-style figures', frac: 'Fractions', smcp: 'Small caps' };
+    const features = Object.keys(featNames).map((k) => ({
+      label: featNames[k] + ' (' + k + ')', pressed: s.feat[k] ? 'true' : 'false',
+      style: s.feat[k] ? 'background:#1C1917;color:#FFFFFF;border:1px solid #1C1917' : 'background:#FFFFFF;color:#1C1917;border:1px solid #D6D3D1',
+      toggle: () => this.setState({ feat: { ...s.feat, [k]: !s.feat[k] } })
+    }));
+    const fvs = "'wght' " + s.wght + ", 'opsz' " + s.opsz + ", 'SOFT' " + s.SOFT + ", 'WONK' " + s.WONK;
+    const ffs = Object.keys(s.feat).map((k) => "'" + k + "' " + (s.feat[k] ? 1 : 0)).join(', ');
+    const licenseOptions = ['Licensed', 'Personal use only', 'Client-provided', 'Unknown'].map((label) => ({
+      label, checked: s.lic === label, pick: () => this.setState({ lic: label })
+    }));
+    return {
+      tabs, axes, features, fvs, ffs, licenseOptions,
+      isPreview: s.tab === 'preview', isGlyphs: s.tab === 'glyphs', isFiles: s.tab === 'files', isLicense: s.tab === 'license',
+      familyOnStr: s.familyOn ? 'true' : 'false',
+      familyLabel: s.familyOn ? 'Active · turn off' : 'Activate family',
+      familyBtn: s.familyOn ? 'background:#2547D0;color:#FFFFFF;border:1px solid #2547D0' : 'background:#FFFFFF;color:#1C1917;border:1px solid #D6D3D1',
+      toggleFamily: () => this.setState({ familyOn: !s.familyOn }),
+      waterfall: [{ size: 72 }, { size: 48 }, { size: 32 }, { size: 24 }, { size: 16 }],
+      glyphs: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789&?!@#%'.split(''),
+      files: [
+        { file: 'Fraunces[SOFT,WONK,opsz,wght].ttf', ver: '1.000', loc: 'D:\\Fonts\\Licensed\\Undercase Type\\Fraunces', status: 'Active', badge: 'background:#E7F6EC;color:#166534' },
+        { file: 'Fraunces-Italic[SOFT,WONK,opsz,wght].ttf', ver: '1.000', loc: 'D:\\Fonts\\Licensed\\Undercase Type\\Fraunces', status: 'Active', badge: 'background:#E7F6EC;color:#166534' },
+        { file: 'Fraunces v0.900.ttf', ver: '0.900', loc: 'D:\\Fonts\\Client work\\Old', status: 'Older version', badge: 'background:#FEF3C7;color:#92400E' },
+        { file: '9 static styles (Fraunces-Regular.otf …)', ver: '1.000', loc: 'D:\\Fonts\\Licensed\\Undercase Type\\Fraunces\\static', status: 'Grouped with variable', badge: 'background:#F5F5F4;color:#57534E' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

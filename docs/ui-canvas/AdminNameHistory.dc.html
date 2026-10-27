@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typeshelf Admin · Name history</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+button,input,select{font:inherit;color:inherit}
+a{color:#2547D0}a:hover{color:#1A36A8}
+input:focus-visible,select:focus-visible,a:focus-visible,button:focus-visible{outline:2px solid #2547D0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 900px; display: flex; flex-wrap: wrap; background: #F7F7F6; color: #1C1917; font-family: 'Geist', system-ui, sans-serif; font-size: 14px;">
+  <div style="flex: 1 1 240px; display: flex;">
+    <dc-import name="AdminSidebar" active="names" hint-size="100%,860px"></dc-import>
+  </div>
+  <main style="flex: 999 1 640px; min-width: 0; padding: 28px 36px; display: flex; flex-direction: column; gap: 18px;">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <h1 style="margin: 0; font-size: 26px; font-weight: 600;">Name history</h1>
+        <span style="color: #57534E;">Every name every install has used. Nothing is ever overwritten.</span>
+      </div>
+      <button type="button" style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: #2547D0; color: #FFFFFF; font-weight: 500; cursor: pointer;">Export CSV</button>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+      <label for="nsearch" style="position: absolute; left: -9999px;">Search names</label>
+      <input id="nsearch" type="search" value="{{q}}" onChange="{{setQ}}" placeholder="Search old or new names" style="flex: 1 1 300px; height: 40px; padding: 0 12px; border: 1px solid #D6D3D1; border-radius: 8px; background: #FFFFFF;">
+      <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #57534E;">Period
+        <select style="height: 40px; padding: 0 10px; border: 1px solid #D6D3D1; border-radius: 8px; background: #FFFFFF;">
+          <option>Last 90 days</option><option>This month</option><option>This year</option><option>All time</option>
+        </select>
+      </label>
+    </div>
+    <div style="overflow-x: auto; border: 1px solid #E7E5E4; border-radius: 12px; background: #FFFFFF;">
+      <table style="width: 100%; min-width: 900px; border-collapse: collapse; font-size: 13px;">
+        <caption style="position: absolute; left: -9999px;">Name changes</caption>
+        <thead><tr style="text-align: left; color: #57534E; background: #FAFAF9;">
+          <th style="padding: 10px 14px; font-weight: 500;">Date</th>
+          <th style="padding: 10px 14px; font-weight: 500;">Old name</th>
+          <th style="padding: 10px 14px; font-weight: 500;">New name</th>
+          <th style="padding: 10px 14px; font-weight: 500;">Install</th>
+          <th style="padding: 10px 14px; font-weight: 500;">Changed by</th>
+          <th style="padding: 10px 14px; font-weight: 500;">Next change allowed</th>
+        </tr></thead>
+        <tbody>
+          <sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
+            <tr style="border-top: 1px solid #F0EFEE;">
+              <td style="padding: 12px 14px; color: #44403C; white-space: nowrap;">{{r.date}}</td>
+              <td style="padding: 12px 14px; color: #57534E;">{{r.old}}</td>
+              <td style="padding: 12px 14px;"><a href="AdminUserDetail.dc.html" style="color: #1C1917; font-weight: 500; text-decoration: none;">{{r.now}}</a></td>
+              <td style="padding: 12px 14px; font-family: 'Geist Mono', monospace; font-size: 12px;">{{r.id}}</td>
+              <td style="padding: 12px 14px;"><span style="font-size: 11px; padding: 2px 8px; border-radius: 10px; {{r.badge}}">{{r.by}}</span></td>
+              <td style="padding: 12px 14px; color: #44403C;">{{r.next}}</td>
+            </tr>
+          </sc-for>
+        </tbody>
+      </table>
+    </div>
+    <span style="font-size: 12px; color: #6F6A65;">“First name” rows are the name entered at first launch. Merged installs show both install IDs.</span>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { q: '' };
+  }
+  renderVals() {
+    const B = { User: 'background:#F5F5F4;color:#44403C', 'First name': 'background:#E7F6EC;color:#166534', Merge: 'background:#FEF3C7;color:#92400E', 'Admin reset': 'background:#EEF2FE;color:#1E3BB0' };
+    const data = [
+      ['27 Oct 2026', 'Sari W.', 'Sari Wulandari', '1B77-40DA-0E15', 'User', '26 Nov 2026'],
+      ['24 Oct 2026', '—', 'Andi Wijaya', '22E8-B6C4-1F09', 'First name', 'Any time'],
+      ['20 Oct 2026', 'Dewi L.', 'Dewi Lestari', '5D0C-91F2-AA70', 'User', '19 Nov 2026'],
+      ['19 Sep 2026', 'Dewi', 'Dewi L.', '5D0C-91F2-AA70', 'User', '19 Oct 2026'],
+      ['12 Oct 2026', 'Budi S.', 'Budi Santoso', '7F3A-2C9E-91C2', 'User', '11 Nov 2026'],
+      ['5 Oct 2026', 'Rina (old laptop)', 'Rina Kusuma', 'A3C1-77E0-2B4D + 0F9E-1A2B-8C3D', 'Merge', 'Kept from older install'],
+      ['1 Oct 2026', '—', 'Budi S.', '7F3A-2C9E-91C2', 'First name', '—'],
+      ['25 Sep 2026', 'Sari', 'Sari W.', '1B77-40DA-0E15', 'User', '25 Oct 2026']
+    ];
+    const q = this.state.q.trim().toLowerCase();
+    const rows = data.filter((d) => !q || (d[1] + ' ' + d[2]).toLowerCase().includes(q)).map((d) => ({
+      date: d[0], old: d[1], now: d[2], id: d[3], by: d[4], next: d[5], badge: B[d[4]]
+    }));
+    return { rows, q: this.state.q, setQ: (e) => this.setState({ q: e.target.value }) };
+  }
+}
+</script>
+</body>
+</html>

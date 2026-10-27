@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typeshelf Admin · Merge installs</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+button,input{font:inherit;color:inherit}
+a{color:#2547D0}a:hover{color:#1A36A8}
+input:focus-visible,a:focus-visible,button:focus-visible{outline:2px solid #2547D0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 900px; display: flex; flex-wrap: wrap; background: #F7F7F6; color: #1C1917; font-family: 'Geist', system-ui, sans-serif; font-size: 14px;">
+  <div style="flex: 1 1 240px; display: flex;">
+    <dc-import name="AdminSidebar" active="users" hint-size="100%,860px"></dc-import>
+  </div>
+  <main style="flex: 999 1 640px; min-width: 0; padding: 28px 36px; display: flex; flex-direction: column; gap: 20px;">
+    <a href="AdminUsers.dc.html" style="font-size: 13px; text-decoration: none;">← Users</a>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <h1 style="margin: 0; font-size: 26px; font-weight: 600;">Merge two installs into one person</h1>
+      <span style="color: #57534E;">Use this when someone reinstalls or moves to a new computer. Their history and name limit carry over.</span>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 16px;">
+      <sc-for list="{{installs}}" as="i" hint-placeholder-count="2">
+        <div style="flex: 1 1 320px; padding: 18px; border-radius: 12px; background: #FFFFFF; display: flex; flex-direction: column; gap: 10px; {{i.ring}}">
+          <span style="font-size: 12px; font-weight: 500; color: #57534E;">{{i.tag}}</span>
+          <span style="font-size: 20px; font-weight: 600;">{{i.name}}</span>
+          <span style="font-family: 'Geist Mono', monospace; font-size: 12px; color: #44403C;">{{i.id}}</span>
+          <span style="display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #44403C;">
+            <span>{{i.os}}</span><span>{{i.since}}</span><span>{{i.fonts}}</span><span>{{i.names}}</span>
+          </span>
+        </div>
+      </sc-for>
+    </div>
+    <fieldset style="margin: 0; padding: 18px; border: 1px solid #E7E5E4; border-radius: 12px; background: #FFFFFF; display: flex; flex-direction: column; gap: 10px;">
+      <legend style="padding: 0 6px; font-weight: 600;">Which name should this person keep?</legend>
+      <sc-for list="{{choices}}" as="c" hint-placeholder-count="2">
+        <label style="display: flex; align-items: center; gap: 10px; min-height: 36px;">
+          <input type="radio" name="keep" checked="{{c.checked}}" onChange="{{c.pick}}" style="width: 16px; height: 16px; accent-color: #2547D0;">
+          <span>{{c.label}}</span>
+        </label>
+      </sc-for>
+    </fieldset>
+    <section aria-labelledby="after" style="padding: 18px; border: 1px solid #E7E5E4; border-radius: 12px; background: #FFFFFF; display: flex; flex-direction: column; gap: 8px;">
+      <h2 id="after" style="margin: 0 0 4px; font-size: 15px; font-weight: 600;">After merging</h2>
+      <sc-for list="{{after}}" as="a" hint-placeholder-count="4">
+        <span style="display: flex; gap: 10px; font-size: 13px; color: #44403C; line-height: 1.5;"><span aria-hidden="true" style="color: #166534;">✓</span><span>{{a}}</span></span>
+      </sc-for>
+    </section>
+    <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+      <span style="font-size: 13px; color: #92400E;">{{note}}</span>
+      <span style="display: flex; gap: 8px;">
+        <a href="AdminUsers.dc.html" style="height: 44px; display: flex; align-items: center; padding: 0 16px; border: 1px solid #D6D3D1; border-radius: 8px; background: #FFFFFF; color: #1C1917; text-decoration: none;">Cancel</a>
+        <button type="button" onClick="{{merge}}" style="height: 44px; padding: 0 18px; border: 0; border-radius: 8px; font-weight: 500; cursor: pointer; {{mergeStyle}}">{{mergeLabel}}</button>
+      </span>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { keep: 'old', merged: false };
+  }
+  renderVals() {
+    const s = this.state;
+    const keepName = s.keep === 'old' ? 'Budi Santoso' : 'Budi S.';
+    return {
+      installs: [
+        { tag: 'Older install · stays the main record', name: 'Budi Santoso', id: '7F3A-2C9E-91C2', os: 'Windows 11', since: 'First seen 1 Oct 2026 · online now', fonts: '86 active fonts', names: '2 names used · last change 12 Oct 2026', ring: 'border:2px solid #2547D0' },
+        { tag: 'Newer install · will be retired', name: 'Budi S.', id: 'E41D-03B7-7C6A', os: 'macOS · Intel', since: 'First seen 24 Oct 2026 · 3 days ago', fonts: '0 active fonts', names: '1 name used', ring: 'border:1px solid #E7E5E4' }
+      ],
+      choices: [
+        { label: 'Budi Santoso (from the older install)', checked: s.keep === 'old', pick: () => this.setState({ keep: 'old' }) },
+        { label: 'Budi S. (from the newer install)', checked: s.keep === 'new', pick: () => this.setState({ keep: 'new' }) }
+      ],
+      after: [
+        'One person named “' + keepName + '” with both computers listed',
+        'Name history combined: 3 entries, nothing deleted',
+        'Name limit carries over: next change allowed 11 Nov 2026',
+        'Admin-delivered fonts are sent to the new computer too'
+      ],
+      note: s.merged ? 'Merged. You can split them again from this person’s page within 30 days.' : 'Both computers keep working while you merge.',
+      mergeLabel: s.merged ? 'Merged ✓' : 'Merge installs',
+      mergeStyle: s.merged ? 'background:#E7F6EC;color:#166534' : 'background:#2547D0;color:#FFFFFF',
+      merge: () => this.setState({ merged: true })
+    };
+  }
+}
+</script>
+</body>
+</html>

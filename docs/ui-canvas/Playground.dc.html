@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typeshelf · Playground</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Fraunces:opsz,wght@9..144,400;9..144,600&amp;family=Space+Grotesk:wght@400;500&amp;family=Instrument+Serif&amp;family=Syne:wght@500;700&amp;family=IBM+Plex+Mono:wght@400&amp;family=DM+Serif+Display&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+button,input,select{font:inherit;color:inherit}
+a{color:#2547D0}a:hover{color:#1A36A8}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid #2547D0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 800px; display: flex; flex-direction: column; background: #FFFFFF; color: #1C1917; font-family: 'Geist', system-ui, sans-serif; font-size: 14px;">
+  <div style="height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid #E7E5E4; background: #FAFAF9;">
+    <span style="font-weight: 500; font-size: 13px;">Typeshelf</span>
+    <span aria-hidden="true" style="display: flex; gap: 18px; color: #6F6A65; font-size: 13px;"><span>—</span><span>☐</span><span>✕</span></span>
+  </div>
+  <div style="flex: 1; display: flex; flex-wrap: wrap;">
+    <div style="flex: 1 1 240px; display: flex;">
+      <dc-import name="DeskSidebar" active="playground" hint-size="100%,760px"></dc-import>
+    </div>
+    <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column;">
+      <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; padding: 16px 24px; border-bottom: 1px solid #E7E5E4;">
+        <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #57534E;">Headings (font A)
+          <select value="{{fontA}}" onChange="{{setA}}" style="height: 38px; min-width: 180px; padding: 0 10px; border: 1px solid #D6D3D1; border-radius: 8px; background: #FFFFFF; font-size: 14px;">
+            <sc-for list="{{options}}" as="o" hint-placeholder-count="6"><option value="{{o}}">{{o}}</option></sc-for>
+          </select>
+        </label>
+        <button type="button" onClick="{{swap}}" aria-label="Swap fonts A and B" style="height: 38px; padding: 0 12px; border: 1px solid #D6D3D1; border-radius: 8px; background: #FFFFFF; cursor: pointer;">⇄ Swap</button>
+        <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #57534E;">Body (font B)
+          <select value="{{fontB}}" onChange="{{setB}}" style="height: 38px; min-width: 180px; padding: 0 10px; border: 1px solid #D6D3D1; border-radius: 8px; background: #FFFFFF; font-size: 14px;">
+            <sc-for list="{{options}}" as="o" hint-placeholder-count="6"><option value="{{o}}">{{o}}</option></sc-for>
+          </select>
+        </label>
+        <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #57534E;">Base size · {{base}}px
+          <input type="range" min="14" max="22" value="{{base}}" onChange="{{setBase}}" style="width: 120px; accent-color: #2547D0;">
+        </label>
+        <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #57534E;">Scale · {{ratio}}
+          <input type="range" min="1.1" max="1.6" step="0.05" value="{{ratio}}" onChange="{{setRatio}}" style="width: 120px; accent-color: #2547D0;">
+        </label>
+        <button type="button" style="margin-left: auto; height: 38px; padding: 0 14px; border: 0; border-radius: 8px; background: #2547D0; color: #FFFFFF; font-weight: 500; cursor: pointer;">Copy CSS</button>
+      </div>
+      <div style="flex: 1; display: flex; flex-wrap: wrap; gap: 0;">
+        <article style="flex: 3 1 480px; min-width: 0; padding: 48px 56px; background: #FFFDF9;">
+          <div style="max-width: 680px; display: flex; flex-direction: column; gap: 18px;">
+            <span style="font-family: {{cssB}}; font-size: {{base}}px; letter-spacing: 1.5px; text-transform: uppercase; color: #6F6A65;">Field notes · Issue 12</span>
+            <h1 style="margin: 0; font-family: {{cssA}}; font-weight: 600; font-size: {{h1}}px; line-height: 1.05;">Quiet type makes room for loud ideas</h1>
+            <p style="margin: 0; font-family: {{cssB}}; font-size: {{lead}}px; line-height: 1.5; color: #44403C;">A good pairing lets the headline carry the voice while the text simply gets read.</p>
+            <h2 style="margin: 12px 0 0; font-family: {{cssA}}; font-weight: 600; font-size: {{h2}}px; line-height: 1.15;">Start with contrast, not novelty</h2>
+            <p style="margin: 0; font-family: {{cssB}}; font-size: {{base}}px; line-height: 1.65; color: #44403C;">Pick a display face with character, then a text face that stays out of its way. Check them side by side at the sizes you will actually use, in the colors you will actually print.</p>
+            <blockquote style="margin: 8px 0; padding-left: 20px; border-left: 3px solid #1C1917; font-family: {{cssA}}; font-size: {{h3}}px; line-height: 1.3;">“Typography is what language looks like.”</blockquote>
+            <p style="margin: 0; font-family: {{cssB}}; font-size: {{small}}px; color: #6F6A65;">Ellen Lupton</p>
+          </div>
+        </article>
+        <aside aria-label="Element settings" style="flex: 1 1 260px; padding: 20px; border-left: 1px solid #E7E5E4; display: flex; flex-direction: column; gap: 12px; background: #FAFAF9;">
+          <h2 style="margin: 0; font-size: 14px; font-weight: 600;">Elements</h2>
+          <sc-for list="{{elements}}" as="e" hint-placeholder-count="5">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border: 1px solid #E7E5E4; border-radius: 8px; background: #FFFFFF; font-size: 13px;">
+              <span style="font-weight: 500;">{{e.tag}}</span>
+              <span style="color: #57534E;">{{e.font}} · {{e.size}}px</span>
+            </div>
+          </sc-for>
+          <p style="margin: 4px 0 0; font-size: 12px; color: #6F6A65; line-height: 1.5;">Select an element to change its weight, size, line height, color or variable axes.</p>
+        </aside>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { a: 'Fraunces', b: 'Space Grotesk', base: 17, ratio: 1.3 };
+  }
+  renderVals() {
+    const s = this.state;
+    const css = { 'Fraunces': "'Fraunces', serif", 'Space Grotesk': "'Space Grotesk', sans-serif", 'Instrument Serif': "'Instrument Serif', serif", 'Syne': "'Syne', sans-serif", 'IBM Plex Mono': "'IBM Plex Mono', monospace", 'DM Serif Display': "'DM Serif Display', serif" };
+    const r = s.ratio, b = s.base;
+    const px = (n) => Math.round(b * Math.pow(r, n));
+    return {
+      options: Object.keys(css),
+      fontA: s.a, fontB: s.b, cssA: css[s.a], cssB: css[s.b],
+      base: b, ratio: r.toFixed(2), h1: px(4), h2: px(2), h3: px(1), lead: px(0.5), small: Math.round(b * 0.85),
+      elements: [
+        { tag: 'H1', font: s.a, size: px(4) }, { tag: 'H2', font: s.a, size: px(2) }, { tag: 'Lead', font: s.b, size: px(0.5) },
+        { tag: 'Body', font: s.b, size: b }, { tag: 'Quote', font: s.a, size: px(1) }
+      ],
+      setA: (e) => this.setState({ a: e.target.value }),
+      setB: (e) => this.setState({ b: e.target.value }),
+      swap: () => this.setState({ a: s.b, b: s.a }),
+      setBase: (e) => this.setState({ base: Number(e.target.value) }),
+      setRatio: (e) => this.setState({ ratio: Number(e.target.value) })
+    };
+  }
+}
+</script>
+</body>
+</html>

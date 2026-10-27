@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typeshelf Admin · Budi Santoso</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400&amp;family=Fraunces:opsz,wght@9..144,600&amp;family=Space+Grotesk:wght@500&amp;family=IBM+Plex+Mono:wght@500&amp;family=Syne:wght@600&amp;family=DM+Serif+Display&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+button,input{font:inherit;color:inherit}
+a{color:#2547D0}a:hover{color:#1A36A8}
+input:focus-visible,a:focus-visible,button:focus-visible{outline:2px solid #2547D0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 1200px; display: flex; flex-wrap: wrap; background: #F7F7F6; color: #1C1917; font-family: 'Geist', system-ui, sans-serif; font-size: 14px;">
+  <div style="flex: 1 1 240px; display: flex;">
+    <dc-import name="AdminSidebar" active="users" hint-size="100%,860px"></dc-import>
+  </div>
+  <main style="flex: 999 1 640px; min-width: 0; padding: 28px 36px; display: flex; flex-direction: column; gap: 20px;">
+    <a href="AdminUsers.dc.html" style="font-size: 13px; text-decoration: none;">← Users</a>
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px;">
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <h1 style="margin: 0; font-size: 28px; font-weight: 600;">Budi Santoso</h1>
+        <span style="color: #57534E;">Previously “Budi S.” until 12 Oct 2026 · next name change allowed 11 Nov 2026</span>
+        <span style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px;">
+          <span style="padding: 3px 10px; border-radius: 10px; background: #E7F6EC; color: #166534;">● Online</span>
+          <span style="padding: 3px 10px; border-radius: 10px; background: #FFFFFF; border: 1px solid #E7E5E4;">Windows 11</span>
+          <span style="padding: 3px 10px; border-radius: 10px; background: #FFFFFF; border: 1px solid #E7E5E4;">Typeshelf 1.0.0</span>
+          <span style="padding: 3px 10px; border-radius: 10px; background: #FFFFFF; border: 1px solid #E7E5E4; font-family: 'Geist Mono', monospace;">7F3A-2C9E-91C2</span>
+          <span style="padding: 3px 10px; border-radius: 10px; background: #FFFFFF; border: 1px solid #E7E5E4;">First seen 1 Oct 2026</span>
+        </span>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+        <button type="button" style="height: 40px; padding: 0 14px; border: 1px solid #D6D3D1; border-radius: 8px; background: #FFFFFF; cursor: pointer;">Reset name limit</button>
+        <a href="AdminMerge.dc.html" style="height: 40px; display: flex; align-items: center; padding: 0 14px; border: 1px solid #D6D3D1; border-radius: 8px; background: #FFFFFF; color: #1C1917; text-decoration: none;">Merge with another install</a>
+        <button type="button" style="height: 40px; padding: 0 14px; border: 1px solid #D6D3D1; border-radius: 8px; background: #FFFFFF; cursor: pointer;">Export CSV</button>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start;">
+      <section aria-labelledby="tl" style="flex: 3 1 520px; min-width: 0; padding: 20px; border: 1px solid #E7E5E4; border-radius: 12px; background: #FFFFFF; display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;">
+          <h2 id="tl" style="margin: 0; font-size: 16px; font-weight: 600;">Timeline</h2>
+          <span style="display: flex; flex-wrap: wrap; gap: 6px;">
+            <sc-for list="{{chips}}" as="c" hint-placeholder-count="5">
+              <button type="button" aria-pressed="{{c.pressed}}" onClick="{{c.pick}}" style="height: 30px; padding: 0 10px; border-radius: 15px; cursor: pointer; font-size: 12px; {{c.style}}">{{c.label}}</button>
+            </sc-for>
+          </span>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <sc-for list="{{events}}" as="e" hint-placeholder-count="8">
+            <div style="display: flex; gap: 14px; padding: 12px 0; border-bottom: 1px solid #F0EFEE; {{e.rowStyle}}">
+              <span style="width: 120px; flex-shrink: 0; font-size: 12px; color: #57534E; line-height: 1.5;">{{e.when}}</span>
+              <span style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+                <span>{{e.text}}</span>
+                <sc-if value="{{e.isOverride}}" hint-placeholder-val="{{false}}">
+                  <span style="font-size: 12px; color: #1E3BB0;">Override: this font was turned on by an admin</span>
+                </sc-if>
+              </span>
+              <span style="width: 64px; flex-shrink: 0; height: 20px; font-size: 11px; border-radius: 10px; display: flex; align-items: center; justify-content: center; {{e.badge}}">{{e.who}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+
+      <div style="flex: 2 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 20px;">
+        <section aria-labelledby="ov" style="padding: 18px; border: 1px solid #C9D4FA; border-radius: 12px; background: #EEF2FE; display: flex; flex-direction: column; gap: 10px;">
+          <h2 id="ov" style="margin: 0; font-size: 15px; font-weight: 600; color: #1E3BB0;">User overrides</h2>
+          <sc-for list="{{overrides}}" as="o" hint-placeholder-count="1">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px; border-radius: 10px; background: #FFFFFF;">
+              <span style="display: flex; flex-direction: column; gap: 2px;"><span style="font-family: {{o.css}}; font-size: 18px;">{{o.name}}</span><span style="font-size: 12px; color: #57534E;">{{o.detail}}</span></span>
+              <button type="button" onClick="{{o.restore}}" style="height: 34px; padding: 0 12px; border: 0; border-radius: 8px; background: #2547D0; color: #FFFFFF; cursor: pointer;">{{o.label}}</button>
+            </div>
+          </sc-for>
+        </section>
+
+        <section aria-labelledby="af" style="padding: 18px; border: 1px solid #E7E5E4; border-radius: 12px; background: #FFFFFF; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+            <h2 id="af" style="margin: 0; font-size: 15px; font-weight: 600;">Active fonts · {{activeCount}}</h2>
+            <a href="AdminLibrary.dc.html" style="font-size: 13px;">Turn on fonts…</a>
+          </div>
+          <label for="fsearch" style="position: absolute; left: -9999px;">Search this user's fonts</label>
+          <input id="fsearch" type="search" placeholder="Search Budi’s fonts" style="height: 38px; padding: 0 12px; border: 1px solid #D6D3D1; border-radius: 8px;">
+          <sc-for list="{{fonts}}" as="f" hint-placeholder-count="5">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #F0EFEE;">
+              <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;">
+                <span style="font-family: {{f.css}}; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{f.name}}</span>
+                <span style="font-size: 12px; color: #6F6A65;">{{f.source}}</span>
+              </span>
+              <button type="button" aria-pressed="{{f.pressed}}" aria-label="{{f.aria}}" onClick="{{f.toggle}}" style="width: 40px; height: 22px; border: 0; border-radius: 11px; padding: 0; position: relative; cursor: pointer; flex-shrink: 0; background: {{f.track}};">
+                <span style="position: absolute; top: 3px; left: {{f.knob}}; width: 16px; height: 16px; border-radius: 8px; background: #FFFFFF;"></span>
+              </button>
+            </div>
+          </sc-for>
+          <span style="font-size: 12px; color: #6F6A65;">Changes reach Budi’s computer within seconds while online.</span>
+        </section>
+
+        <section aria-labelledby="nh" style="padding: 18px; border: 1px solid #E7E5E4; border-radius: 12px; background: #FFFFFF; display: flex; flex-direction: column; gap: 8px;">
+          <h2 id="nh" style="margin: 0 0 4px; font-size: 15px; font-weight: 600;">Name history</h2>
+          <sc-for list="{{names}}" as="n" hint-placeholder-count="2">
+            <div style="display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 6px 0; border-bottom: 1px solid #F0EFEE;">
+              <span>{{n.name}}</span><span style="color: #57534E;">{{n.range}}</span>
+            </div>
+          </sc-for>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1200}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { chip: 'all', restored: false, on: { fraunces: false, grotesk: true, plex: true, syne: true, dm: true } };
+  }
+  renderVals() {
+    const s = this.state;
+    const W = { User: 'background:#F5F5F4;color:#44403C', Admin: 'background:#EEF2FE;color:#1E3BB0', System: 'background:#FEF3C7;color:#92400E' };
+    const all = [
+      { when: '27 Oct, 10:37', text: 'Turned off Fraunces', who: 'User', kind: 'fonts', override: true },
+      { when: '26 Oct, 16:40', text: 'Fraunces turned on remotely', who: 'Admin', kind: 'fonts' },
+      { when: '26 Oct, 09:02', text: 'Turned on project set “Northwind rebrand” (5 fonts)', who: 'User', kind: 'fonts' },
+      { when: '21 Oct, 14:05', text: 'Ran auto-organize · 89 changes', who: 'User', kind: 'fonts' },
+      { when: '18 Oct, 11:30', text: 'Montserrat Bold failed to activate (file missing) · fixed by repair', who: 'System', kind: 'failures' },
+      { when: '12 Oct, 10:05', text: 'Changed name from “Budi S.” to “Budi Santoso”', who: 'User', kind: 'names' },
+      { when: '3 Oct, 08:44', text: 'Space Grotesk turned on remotely', who: 'Admin', kind: 'fonts' },
+      { when: '1 Oct, 08:00', text: 'First launch · name set to “Budi S.”', who: 'User', kind: 'names' }
+    ];
+    const keep = (e) => s.chip === 'all' || (s.chip === 'overrides' ? e.override : e.kind === s.chip);
+    const events = all.filter(keep).map((e) => ({
+      ...e, isOverride: !!e.override, badge: W[e.who],
+      rowStyle: e.override ? 'background:#F7F9FF;margin:0 -10px;padding-left:10px;padding-right:10px;border-radius:8px' : ''
+    }));
+    const chips = [['all', 'All'], ['names', 'Names'], ['fonts', 'Fonts'], ['overrides', 'Overrides'], ['failures', 'Failures']].map(([k, label]) => ({
+      label, pressed: s.chip === k ? 'true' : 'false',
+      style: s.chip === k ? 'background:#1C1917;color:#FFFFFF;border:1px solid #1C1917' : 'background:#FFFFFF;color:#1C1917;border:1px solid #D6D3D1',
+      pick: () => this.setState({ chip: k })
+    }));
+    const fontsData = [
+      ['fraunces', 'Fraunces', "'Fraunces', serif", 'Turned on by admin · turned off by Budi'],
+      ['grotesk', 'Space Grotesk', "'Space Grotesk', sans-serif", 'Turned on by admin'],
+      ['plex', 'IBM Plex Mono', "'IBM Plex Mono', monospace", 'Turned on by Budi'],
+      ['syne', 'Syne', "'Syne', sans-serif", 'Project set · Northwind rebrand'],
+      ['dm', 'DM Serif Display', "'DM Serif Display', serif", 'Project set · Northwind rebrand']
+    ];
+    const fonts = fontsData.map(([id, name, css, source]) => {
+      const on = !!s.on[id];
+      return {
+        name, css, source, pressed: on ? 'true' : 'false', aria: (on ? 'Turn off ' : 'Turn on ') + name + ' for Budi',
+        track: on ? '#2547D0' : '#D6D3D1', knob: on ? '21px' : '3px',
+        toggle: () => this.setState({ on: { ...s.on, [id]: !on } })
+      };
+    });
+    return {
+      chips, events, fonts,
+      activeCount: 82 + Object.values(s.on).filter(Boolean).length,
+      overrides: [{
+        name: 'Fraunces', css: "'Fraunces', serif",
+        detail: s.restored ? 'Sent · Budi will see it turned on again' : 'You turned it on 26 Oct · Budi turned it off 27 Oct',
+        label: s.restored ? 'Sent' : 'Turn on again',
+        restore: () => this.setState({ restored: true, on: { ...s.on, fraunces: true } })
+      }],
+      names: [
+        { name: 'Budi Santoso', range: '12 Oct 2026 – now' },
+        { name: 'Budi S.', range: '1 Oct 2026 – 12 Oct 2026' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

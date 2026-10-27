@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typeshelf · Quick activate</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Space+Grotesk:wght@500&amp;family=Bricolage+Grotesque:wght@600&amp;family=Familjen+Grotesk:wght@500&amp;family=Schibsted+Grotesk:wght@500&amp;family=Hanken+Grotesk:wght@500&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+button,input{font:inherit;color:inherit}
+input:focus-visible,button:focus-visible{outline:2px solid #2547D0;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 440px; height: 560px; display: flex; flex-direction: column; background: #FFFFFF; color: #1C1917; font-family: 'Geist', system-ui, sans-serif; font-size: 14px; border: 1px solid #D6D3D1; border-radius: 14px; overflow: hidden;">
+  <div style="padding: 14px; border-bottom: 1px solid #E7E5E4;">
+    <label for="qa" style="position: absolute; left: -9999px;">Search fonts to turn on or off</label>
+    <input id="qa" type="search" value="{{q}}" onChange="{{setQ}}" placeholder="Search fonts…" style="width: 100%; height: 44px; padding: 0 12px; border: 1px solid #2547D0; border-radius: 10px; font-size: 16px;">
+  </div>
+  <div style="flex: 1; overflow-y: auto; padding: 6px 8px;">
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="5">
+      <div style="display: flex; align-items: center; gap: 12px; padding: 10px 8px; border-radius: 10px; {{r.bg}}">
+        <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;">
+          <span style="font-family: {{r.css}}; font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{r.name}}</span>
+          <span style="font-size: 12px; color: #6F6A65;">{{r.meta}}</span>
+        </span>
+        <button type="button" aria-pressed="{{r.pressed}}" aria-label="{{r.aria}}" onClick="{{r.toggle}}" style="width: 40px; height: 22px; border: 0; border-radius: 11px; padding: 0; position: relative; cursor: pointer; flex-shrink: 0; background: {{r.track}};">
+          <span style="position: absolute; top: 3px; left: {{r.knob}}; width: 16px; height: 16px; border-radius: 8px; background: #FFFFFF;"></span>
+        </button>
+      </div>
+    </sc-for>
+    <sc-if value="{{empty}}" hint-placeholder-val="{{false}}">
+      <p style="margin: 24px 8px; color: #6F6A65; text-align: center;">No fonts match “{{q}}”.</p>
+    </sc-if>
+  </div>
+  <div style="display: flex; justify-content: space-between; gap: 8px; padding: 10px 14px; border-top: 1px solid #E7E5E4; background: #FAFAF9; font-size: 12px; color: #57534E;">
+    <span>Enter turns on · Esc closes</span><span>Ctrl + Alt + Space</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":440,"height":560}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { q: 'grotesk', on: { space: true } };
+  }
+  renderVals() {
+    const s = this.state;
+    const all = [
+      { id: 'space', name: 'Space Grotesk', css: "'Space Grotesk', sans-serif", meta: '5 styles · Licensed' },
+      { id: 'bricolage', name: 'Bricolage Grotesque', css: "'Bricolage Grotesque', sans-serif", meta: 'Variable · Licensed' },
+      { id: 'familjen', name: 'Familjen Grotesk', css: "'Familjen Grotesk', sans-serif", meta: '4 styles · Licensed' },
+      { id: 'schibsted', name: 'Schibsted Grotesk', css: "'Schibsted Grotesk', sans-serif", meta: 'Variable · Personal use' },
+      { id: 'hanken', name: 'Hanken Grotesk', css: "'Hanken Grotesk', sans-serif", meta: 'Variable · Unknown license' }
+    ];
+    const q = s.q.trim().toLowerCase();
+    const rows = all.filter((f) => !q || f.name.toLowerCase().includes(q)).map((f, i) => {
+      const on = !!s.on[f.id];
+      return {
+        ...f, pressed: on ? 'true' : 'false', aria: (on ? 'Turn off ' : 'Turn on ') + f.name,
+        track: on ? '#2547D0' : '#D6D3D1', knob: on ? '21px' : '3px',
+        bg: i === 1 ? 'background:#F5F5F4' : 'background:transparent',
+        toggle: () => this.setState({ on: { ...s.on, [f.id]: !on } })
+      };
+    });
+    return { q: s.q, rows, empty: rows.length === 0, setQ: (e) => this.setState({ q: e.target.value }) };
+  }
+}
+</script>
+</body>
+</html>

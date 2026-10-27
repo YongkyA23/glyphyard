@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admin sidebar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<nav aria-label="Admin" style="width: 100%; min-height: 860px; height: 100%; display: flex; flex-direction: column; gap: 24px; padding: 20px 14px; background: #1C1917; color: #F5F5F4; font-family: 'Geist', system-ui, sans-serif; font-size: 14px; box-sizing: border-box;">
+  <div style="display: flex; flex-direction: column; gap: 2px; padding: 0 8px;">
+    <span style="font-weight: 600; font-size: 16px;">Typeshelf</span>
+    <span style="font-size: 12px; color: #A8A29E;">Admin</span>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 2px;">
+    <sc-for list="{{nav}}" as="item" hint-placeholder-count="6">
+      <a href="{{item.href}}" aria-current="{{item.current}}" style="display: flex; align-items: center; justify-content: space-between; height: 38px; padding: 0 10px; border-radius: 8px; text-decoration: none; {{item.style}}">
+        <span>{{item.label}}</span>
+        <span style="font-size: 12px; color: #A8A29E;">{{item.count}}</span>
+      </a>
+    </sc-for>
+  </div>
+  <div style="margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid #44403C; border-radius: 10px;">
+    <span style="font-size: 13px; font-weight: 500;">admin@[your-domain]</span>
+    <a href="AdminSignIn.dc.html" style="font-size: 13px; color: #C7D2FE;">Sign out</a>
+  </div>
+</nav>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"active":{"editor":"enum","options":["overview","users","names","library","organize","settings"],"default":"overview"},"$preview":{"width":240,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const active = this.props.active ?? 'overview';
+    const nav = [
+      { key: 'overview', label: 'Overview', href: 'AdminOverview.dc.html', count: '' },
+      { key: 'users', label: 'Users', href: 'AdminUsers.dc.html', count: '48' },
+      { key: 'names', label: 'Name history', href: 'AdminNameHistory.dc.html', count: '' },
+      { key: 'library', label: 'Shared library', href: 'AdminLibrary.dc.html', count: '214' },
+      { key: 'organize', label: 'Auto-organize', href: 'AdminAutoOrganize.dc.html', count: '' },
+      { key: 'settings', label: 'Settings', href: 'AdminSettings.dc.html', count: '' }
+    ].map((i) => ({
+      ...i,
+      current: i.key === active ? 'page' : 'false',
+      style: i.key === active ? 'background:#F5F5F4;color:#1C1917;font-weight:500' : 'color:#E7E5E4'
+    }));
+    return { nav };
+  }
+}
+</script>
+</body>
+</html>

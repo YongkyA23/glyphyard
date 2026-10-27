@@ -1,6 +1,14 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/protocol"]
+members = [
+    "crates/core",
+    "crates/protocol",
+    "crates/activation",
+    "crates/engine",
+    "crates/sync",
+    "crates/adobe-bridge",
+    "apps/server",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,3 +18,4 @@ license = "UNLICENSED"
 [workspace.dependencies]
 typeshelf-core = { path = "crates/core" }
 typeshelf-protocol = { path = "crates/protocol" }
+typeshelf-activation = { path = "crates/activation" }
