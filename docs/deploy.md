@@ -1,11 +1,11 @@
-# Deploying the server (qrvm → https://fonts.collabproject.web.id)
+﻿# Deploying the server (qrvm â†’ https://fonts.collabproject.web.id)
 
 ```
-Internet ─HTTPS─▶ Cloudflare (proxied A record) ─▶ vpnwg 103.150.196.24 nginx + Let's Encrypt
-        ─WireGuard wg0─▶ MikroTik 10.0.0.2 ─LAN─▶ qrvm 192.168.8.102:8095 (typeshelf-server)
+Internet â”€HTTPSâ”€â–¶ Cloudflare (proxied A record) â”€â–¶ vpnwg 103.150.196.24 nginx + Let's Encrypt
+        â”€WireGuard wg0â”€â–¶ MikroTik 10.0.0.2 â”€LANâ”€â–¶ qrvm 192.168.8.102:8095 (typeshelf-server)
 ```
 Same path as the other collabproject.web.id sites. vpnwg already routes 192.168.8.0/24 over wg0, so the MikroTik
-needs no new forwarding rules; it only needs a static DHCP lease so qrvm keeps 192.168.8.102.
+has a dst-nat rule like the other wgs_* sites, plus a static DHCP lease so qrvm keeps 192.168.8.102.
 
 ## qrvm (user `qr`)
 ```
@@ -22,14 +22,15 @@ systemctl --user status typeshelf        # restart / stop / journalctl --user -u
 
 ## vpnwg
 - `/etc/nginx/sites-available/fonts.collabproject.web.id` (HTTP until the certificate exists) and
-  `fonts.collabproject.web.id.https` (final: 80→443 redirect, TLS, WebSocket for `/api/v1/me/ws`, 512 MB uploads).
+  `fonts.collabproject.web.id.https` (final: 80â†’443 redirect, TLS, WebSocket for `/api/v1/me/ws`, 512 MB uploads).
 - After the DNS record exists: `~/enable-fonts-https.sh` (certbot webroot, swaps in the HTTPS config, reloads nginx).
 
 ## Cloudflare DNS
-`fonts` · A · `103.150.196.24` · Proxied (like jobs/portal/qr).
+`fonts` Â· A Â· `103.150.196.24` Â· Proxied (like jobs/portal/qr).
 
 ## MikroTik
 ```
+/ip firewall nat add chain=dstnat in-interface=wireguard-client dst-address=10.0.0.2 protocol=tcp dst-port=8095 action=dst-nat to-addresses=192.168.8.102 to-ports=8095 comment="wgs_fonts_8095"
 /ip dhcp-server lease make-static [find where mac-address="BC:24:11:CF:C9:00" dynamic]
 /ip dhcp-server lease set [find where mac-address="BC:24:11:CF:C9:00"] address=192.168.8.102 comment="qrvm (Typeshelf server)"
 ```
@@ -42,7 +43,7 @@ cargo install cargo-zigbuild --locked
 rustup target add x86_64-unknown-linux-gnu
 $env:CARGO_TARGET_DIR = "target-linux"
 cargo zigbuild -p typeshelf-server --release --target x86_64-unknown-linux-gnu.2.35
-cd apps/admin-ui; bun run build   # → apps/server/static
+cd apps/admin-ui; bun run build   # â†’ apps/server/static
 ```
 Upload the binary to `~/typeshelf/bin/` and `apps/server/static/*` to `~/typeshelf/static/`, then
 `systemctl --user restart typeshelf`.
