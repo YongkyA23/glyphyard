@@ -13,6 +13,8 @@ struct FakeState {
     fail: Mutex<HashSet<PathBuf>>,
     /// Held by a test to keep activate() waiting.
     gate: Mutex<()>,
+    /// Held by a test to keep deactivate() and reconcile() waiting (a stalled OS call).
+    stall: Mutex<()>,
     font_dirs: Mutex<Vec<PathBuf>>,
 }
 
@@ -32,10 +34,12 @@ impl OsFonts for FakeOs {
         Ok(())
     }
     fn deactivate(&self, e: &LedgerEntry) -> std::result::Result<(), ActivationError> {
+        let _stall = self.0.stall.lock().unwrap();
         self.0.registered.lock().unwrap().remove(&e.path);
         Ok(())
     }
     fn reconcile(&self, ledger: &[LedgerEntry]) -> ReconcileReport {
+        let _stall = self.0.stall.lock().unwrap();
         let mut reg = self.0.registered.lock().unwrap();
         let want: HashSet<&PathBuf> = ledger.iter().map(|e| &e.path).collect();
         let mut report = ReconcileReport::default();
@@ -1187,5 +1191,31 @@ fn background_activation_returns_first_and_reports_failures() {
     drop(gate);
     engine.wait_for_activations();
     assert!(os.registered().is_empty(), "registration that was cancelled is undone");
+    assert_eq!(engine.library_counts().unwrap().active, 0);
+}
+
+#[test]
+fn a_stalled_os_call_does_not_lock_the_library() {
+    let fx = fixture!();
+    fx.put("arial.ttf", &system_font("arial.ttf").unwrap());
+    fx.engine.add_folder(&fx.root).unwrap();
+    let hashes = fx.hashes("Arial");
+    fx.engine.set_active(&hashes, true).unwrap();
+    let engine = Arc::new(fx.engine);
+    let stall = fx.os.0.stall.lock().unwrap();
+
+    // Repair and turning off both wait on the "OS"; the library must still answer meanwhile.
+    let (e1, e2) = (engine.clone(), engine.clone());
+    let repair = std::thread::spawn(move || e1.repair_now().map(|_| ()));
+    let off = std::thread::spawn(move || e2.set_active(&hashes, false).map(|_| ()));
+    let (tx, rx) = std::sync::mpsc::channel();
+    let e3 = engine.clone();
+    std::thread::spawn(move || tx.send(e3.library_counts().map(|c| c.active)).unwrap());
+    let active = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("library blocked by a stalled OS call");
+    assert_eq!(active.unwrap(), 1, "still on until the OS call returns");
+
+    drop(stall);
+    repair.join().unwrap().unwrap();
+    off.join().unwrap().unwrap();
     assert_eq!(engine.library_counts().unwrap().active, 0);
 }

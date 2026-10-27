@@ -567,13 +567,10 @@ impl Engine {
         let mut results = Vec::with_capacity(total);
         let mut changed = false;
         for chunk in chunks {
-            let (r, did) = {
-                let db = self.db();
-                if active {
-                    self.activate_batch(&db, &chunk, Source::User)?
-                } else {
-                    self.deactivate_batch(&db, &chunk, Source::User)?
-                }
+            let (r, did) = if active {
+                self.activate_batch(&self.db(), &chunk, Source::User)?
+            } else {
+                self.deactivate_unlocked(&chunk, Source::User)?
             };
             changed |= did;
             results.extend(r);
@@ -586,6 +583,44 @@ impl Engine {
         }
         self.library_changed("activation");
         Ok(results)
+    }
+
+    /// Turning off with the OS call outside the database lock (see `repair_now`): reads the ledger rows,
+    /// unregisters without the lock, then removes the rows. A row that changed meanwhile (another version
+    /// was picked) is left alone; a queued registration that lands later sees its row gone and undoes itself.
+    fn deactivate_unlocked(&self, hashes: &[String], source: Source) -> Result<(Vec<ActivationResult>, bool)> {
+        let mut results = Vec::new();
+        let rows: Vec<LedgerRow> = {
+            let db = self.db();
+            let mut rows = Vec::new();
+            for h in hashes {
+                match self.ledger_row(&db, h)? {
+                    Some(row) => rows.push(row),
+                    None => results.push(ok(h, None)),
+                }
+            }
+            rows
+        };
+        let entries: Vec<LedgerEntry> = rows.iter().map(LedgerRow::entry).collect();
+        let outcomes = self.os.deactivate_many(&entries);
+        let db = self.db();
+        let batch = Batch::begin(&db)?;
+        let mut changed = false;
+        for (row, outcome) in rows.iter().zip(outcomes) {
+            if let Err(e) = outcome {
+                self.activation_failed(&db, &row.hash, &e);
+                let (code, msg) = error_code(&e);
+                results.push(fail(&row.hash, code, msg));
+                continue;
+            }
+            db.execute("DELETE FROM activations WHERE hash = ?1 AND path = ?2", params![row.hash, row.path])?;
+            let was_admin = row.source == Source::Admin && source != Source::Admin;
+            self.emit(Event::FontDeactivated { font: font_ref(&db, &row.hash), source, was_admin });
+            results.push(ok(&row.hash, None));
+            changed = true;
+        }
+        drop(batch);
+        Ok((results, changed))
     }
 
     /// Turning a set off keeps fonts that another active set or an admin still needs.
@@ -660,10 +695,12 @@ impl Engine {
     /// Makes the OS match the ledger. Missing files stay in the ledger so they come back with their
     /// folder; they are reported as problems.
     pub fn repair_now(&self) -> Result<Health> {
+        let entries: Vec<LedgerEntry> = self.ledger(&self.db())?.iter().map(LedgerRow::entry).collect();
+        // Without the database: the first font call of a process sets up Windows' font subsystem, and that
+        // has been seen to stall (DWriteCreateFactory); the rest of the app must keep working meanwhile.
+        let report = self.os.reconcile(&entries);
         {
             let db = self.db();
-            let entries: Vec<LedgerEntry> = self.ledger(&db)?.iter().map(LedgerRow::entry).collect();
-            let report = self.os.reconcile(&entries);
             let last = LastRepair {
                 at: Some(store::now()),
                 removed: report.removed.len() as u32,

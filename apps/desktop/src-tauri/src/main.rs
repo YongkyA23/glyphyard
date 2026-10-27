@@ -185,19 +185,19 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// open → rescan → repair → watch, then connect (the first connect uploads the snapshot).
+/// open → rescan → watch → connect (the first connect uploads the snapshot), with repair alongside: it is
+/// the first OS font call of the process, and Windows' font set-up has been seen to stall there, so nothing
+/// waits for it.
 async fn startup(app: AppHandle) {
     let engine = app.state::<Ctx>().engine.clone();
-    let res = blocking(&engine, |e| {
-        e.rescan()?;
-        let health = e.repair_now()?;
-        tracing::info!(active = health.active, removed = health.removed, reregistered = health.reregistered, "repair");
-        Ok(())
-    })
-    .await;
-    if let Err(e) = res {
-        tracing::error!("startup scan/repair: {e}");
+    if let Err(e) = blocking(&engine, |e| e.rescan().map(drop)).await {
+        tracing::error!("startup scan: {e}");
     }
+    let repaired = engine.clone();
+    tauri::async_runtime::spawn_blocking(move || match repaired.repair_now() {
+        Ok(h) => tracing::info!(active = h.active, removed = h.removed, reregistered = h.reregistered, "repair"),
+        Err(e) => tracing::error!("startup repair: {e}"),
+    });
     let watched = engine.clone();
     match tauri::async_runtime::spawn_blocking(move || watched.start_watching()).await {
         Ok(Err(e)) => tracing::error!("watching folders: {e}"),
