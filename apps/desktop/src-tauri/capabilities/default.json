@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "UI needs: event listen/unlisten (incl. drag-drop on the PDF page) and closing the quick window. App commands are not plugin-gated; dialogs, opener, autostart and shortcuts are driven from Rust only.",
+  "windows": ["main", "quick"],
+  "permissions": ["core:event:default", "core:window:allow-close"]
+}

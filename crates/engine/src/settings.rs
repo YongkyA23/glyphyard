@@ -18,6 +18,13 @@ impl Engine {
         Ok(())
     }
 
+    /// Starts over as a new install, e.g. after switching servers. Returns the new id.
+    pub fn new_install_id(&self) -> Result<String> {
+        let id = uuid::Uuid::new_v4().to_string();
+        store::set(&self.db(), "install_id", &id)?;
+        Ok(id)
+    }
+
     pub fn install_id(&self) -> Result<String> {
         Ok(store::get(&self.db(), "install_id")?.unwrap_or_default())
     }

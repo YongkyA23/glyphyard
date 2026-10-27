@@ -1,0 +1,33 @@
+[package]
+name = "typeshelf-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "typeshelf"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+async-trait = "0.1.92"
+chrono = { version = "0.4.45", features = ["serde"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tokio = { version = "1.54.1", features = ["sync", "time"] }
+tracing = "0.1.44"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+typeshelf-adobe-bridge = { path = "../../../crates/adobe-bridge" }
+typeshelf-core.workspace = true
+typeshelf-engine = { path = "../../../crates/engine" }
+typeshelf-protocol.workspace = true
+typeshelf-sync = { path = "../../../crates/sync" }
