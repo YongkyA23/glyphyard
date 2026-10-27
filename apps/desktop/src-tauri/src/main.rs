@@ -254,10 +254,33 @@ fn shutdown(app: &AppHandle) {
     drop(ctx.log_guard.lock().unwrap().take());
 }
 
+/// The same login item tauri-plugin-autostart manages (name = productName, path = this exe, no args).
+fn set_start_at_login(on: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let exe = std::env::current_exe()?.display().to_string();
+    let item = auto_launch::AutoLaunchBuilder::new().set_app_name("Typeshelf").set_app_path(&exe).build()?;
+    if on {
+        item.enable()?;
+    } else {
+        item.disable()?;
+    }
+    // ponytail: Windows-only (Setup is the only caller); Tauri's app_data_dir there is %APPDATA%\<identifier>.
+    let data_dir = PathBuf::from(std::env::var_os("APPDATA").ok_or("APPDATA is not set")?).join("app.typeshelf.desktop");
+    Engine::open(data_dir, SystemFonts)?.update_settings(serde_json::json!({ "startAtLogin": on }))?;
+    Ok(())
+}
+
 fn main() {
     // Run by the uninstaller: remove every font registration Typeshelf made, so nothing stale is left behind.
     if std::env::args().any(|a| a == "--unregister-fonts") {
         typeshelf_activation::reconcile(&[]);
+        return;
+    }
+    // Run by Setup: apply the "start at login" choice and remember it, so startup doesn't undo it.
+    if let Some(on) = std::env::args().find_map(|a| a.strip_prefix("--set-start-at-login=").map(|v| v == "true")) {
+        if let Err(e) = set_start_at_login(on) {
+            eprintln!("--set-start-at-login: {e}");
+            std::process::exit(1);
+        }
         return;
     }
     tauri::Builder::default()

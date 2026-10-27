@@ -5767,6 +5767,7 @@ name = "typeshelf-desktop"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "auto-launch",
  "chrono",
  "serde",
  "serde_json",
@@ -5845,6 +5846,23 @@ dependencies = [
  "tracing-subscriber",
  "typeshelf-core",
  "typeshelf-protocol",
+]
+
+[[package]]
+name = "typeshelf-setup"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "typeshelf-adobe-bridge",
+ "webview2-com",
+ "windows",
+ "windows-registry",
+ "zip",
 ]
 
 [[package]]

@@ -60,15 +60,6 @@
     },
     "publisher": "Typeshelf",
     "shortDescription": "Font manager",
-    "category": "GraphicsAndDesign",
-    "windows": {
-      "webviewInstallMode": { "type": "downloadBootstrapper" },
-      "nsis": {
-        "installMode": "currentUser",
-        "displayLanguageSelector": false,
-        "installerIcon": "icons/icon.ico",
-        "installerHooks": "windows/hooks.nsh"
-      }
-    }
+    "category": "GraphicsAndDesign"
   }
 }

@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Typeshelf Setup</title>
+<link rel="stylesheet" href="styles.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<div class="win">
+  <div class="drag" data-tauri-drag-region></div>
+
+  <!-- S1 Welcome -->
+  <section class="screen" id="s-welcome" hidden>
+    <aside class="side" aria-label="Typeshelf">
+      <span class="brand">Typeshelf</span>
+      <div class="hero">
+        <div class="cycbox" aria-hidden="true">
+          <span class="cyc f-is s150">Aa</span>
+          <span class="cyc f-fr s132">Aa</span>
+          <span class="cyc f-sg s132">Aa</span>
+          <span class="cyc f-sy s124">Aa</span>
+        </div>
+        <div class="shelf" aria-hidden="true"></div>
+        <div class="cycname caption" aria-hidden="true">
+          <span class="cyc">Instrument Serif</span>
+          <span class="cyc">Fraunces</span>
+          <span class="cyc">Space Grotesk</span>
+          <span class="cyc">Syne</span>
+        </div>
+      </div>
+      <span class="tag">Every font,<br>on the right shelf.</span>
+    </aside>
+    <main class="main">
+      <button type="button" class="btn x" data-close aria-label="Close setup">×</button>
+      <span class="eyebrow rise">Setup · <span data-f="version"></span></span>
+      <h1 class="rise d2 h32">Install Typeshelf</h1>
+      <p class="lead rise d3">A calm home for your fonts. Turn them on and off, keep duplicates in check, and never leave a mess behind.</p>
+      <ul class="facts rise d4">
+        <li>
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2547D0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"></path></svg>
+          <span>Just for you. No admin password needed.</span>
+        </li>
+        <li>
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2547D0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"></rect><rect x="3" y="13" width="18" height="7" rx="2"></rect><path d="M7 7.5h.01M7 16.5h.01"></path></svg>
+          <span>Connects to <span class="mono f12" data-f="serverUrl"></span></span>
+        </li>
+        <li>
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2547D0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"></path></svg>
+          <span>About <span data-f="sizeMb"></span> MB · takes a few seconds</span>
+        </li>
+      </ul>
+      <div class="welcome-foot rise d5">
+        <button type="button" class="btn primary big shadow" data-primary id="welcome-install">Install</button>
+        <div class="fine">
+          <button type="button" class="link" id="welcome-options">Install options</button>
+          <span>By installing you agree to the license.</span>
+        </div>
+      </div>
+    </main>
+  </section>
+
+  <!-- S2 Options -->
+  <section class="screen" id="s-options" hidden>
+    <aside class="side" aria-label="Typeshelf">
+      <span class="brand">Typeshelf</span>
+      <div class="hero">
+        <span class="still f-is s150" aria-hidden="true">Aa</span>
+        <div class="shelf" aria-hidden="true"></div>
+        <span class="caption h16" aria-hidden="true">Instrument Serif</span>
+      </div>
+      <span class="tag">Every font,<br>on the right shelf.</span>
+    </aside>
+    <main class="main top36">
+      <button type="button" class="btn x" data-close aria-label="Close setup">×</button>
+      <button type="button" class="link back rise" data-go="welcome">← Back</button>
+      <h1 class="rise d2 h26">Install options</h1>
+      <div class="loc rise d3">
+        <label class="f13 w500" for="opt-dir">Install location</label>
+        <div class="loc-row">
+          <input type="text" id="opt-dir" readonly>
+          <button type="button" class="btn ghost-box" id="opt-change">Change…</button>
+        </div>
+      </div>
+      <div class="opts rise d4">
+        <div class="opt">
+          <span class="two"><span id="l-menu">Start menu shortcut</span><span class="hint">Find Typeshelf by searching Start</span></span>
+          <button type="button" class="switch" data-opt="startMenu" aria-labelledby="l-menu" aria-pressed="true"><span class="knob"></span></button>
+        </div>
+        <div class="opt">
+          <span class="two"><span id="l-desk">Desktop shortcut</span><span class="hint">An icon on your desktop</span></span>
+          <button type="button" class="switch" data-opt="desktop" aria-labelledby="l-desk" aria-pressed="false"><span class="knob"></span></button>
+        </div>
+        <div class="opt">
+          <span class="two"><span id="l-login">Start Typeshelf when I sign in</span><span class="hint">Your fonts are ready right away; it waits in the tray</span></span>
+          <button type="button" class="switch" data-opt="startAtLogin" aria-labelledby="l-login" aria-pressed="true"><span class="knob"></span></button>
+        </div>
+      </div>
+      <div class="foot end">
+        <button type="button" class="btn secondary" data-go="welcome">Back</button>
+        <button type="button" class="btn primary" data-primary id="opt-install">Install</button>
+      </div>
+    </main>
+  </section>
+
+  <!-- S3 Installing / Updating / Removing -->
+  <section class="screen" id="s-progress" hidden>
+    <aside class="side" aria-label="Typeshelf">
+      <span class="brand">Typeshelf</span>
+      <div class="col10 for-install" aria-hidden="true">
+        <div class="glyphs" id="p-glyphs">
+          <span class="gl drop f-is s92" hidden>A</span>
+          <span class="gl drop f-fr s80 c-indigo" hidden>g</span>
+          <span class="gl drop f-sg s76" hidden>R</span>
+          <span class="gl drop f-dm s80 c-amber" hidden>&amp;</span>
+          <span class="gl drop f-bb s88" hidden>3</span>
+          <span class="gl drop f-sy s78 c-mint" hidden>f</span>
+        </div>
+        <div class="shelf w"></div>
+        <span class="caption center">Putting things on the shelf…</span>
+      </div>
+      <div class="col10 for-uninstall" aria-hidden="true">
+        <div class="glyphs gap8 dim">
+          <span class="gl f-is s92">A</span>
+          <span class="gl f-fr s80">g</span>
+          <span class="gl f-sg s76">R</span>
+          <span class="gl f-bb s88">3</span>
+        </div>
+        <div class="shelf w dim"></div>
+        <span class="caption center">Taking things off the shelf…</span>
+      </div>
+      <span class="tag for-install">Every font,<br>on the right shelf.</span>
+      <span class="tag for-uninstall">Leaving the shelf<br>tidier than we found it.</span>
+    </aside>
+    <main class="main">
+      <span class="eyebrow" id="p-eyebrow">Installing</span>
+      <div class="pct" role="status" aria-live="polite">
+        <span class="pct-n" id="p-pct">0</span><span class="pct-u">%</span>
+      </div>
+      <div class="bar-track" role="progressbar" id="p-bar" aria-label="Install progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="bar" id="p-fill"></div>
+      </div>
+      <ol class="steps" id="p-steps"></ol>
+      <p class="p-err rise" id="p-err" role="alert" hidden></p>
+      <div class="foot between">
+        <span class="fine-note" id="p-note">Nothing outside your user folder is changed.</span>
+        <span class="row8" id="p-actions" hidden>
+          <button type="button" class="btn secondary" data-close>Close</button>
+          <button type="button" class="btn primary" data-primary id="p-retry">Try again</button>
+        </span>
+      </div>
+    </main>
+  </section>
+
+  <!-- S5 Typeshelf is still open -->
+  <section class="screen" id="s-running" hidden>
+    <aside class="side" aria-label="Typeshelf">
+      <span class="brand">Typeshelf</span>
+      <div class="col10" aria-hidden="true">
+        <div class="glyphs gap8">
+          <span class="gl f-is s92">A</span>
+          <span class="gl wobble f-fr s80 c-amber">g</span>
+          <span class="gl f-sg s76">R</span>
+          <span class="gl f-bb s88">3</span>
+        </div>
+        <div class="shelf w"></div>
+        <span class="caption center">One thing is still in use.</span>
+      </div>
+      <span class="tag">Every font,<br>on the right shelf.</span>
+    </aside>
+    <main class="main">
+      <button type="button" class="btn x" data-close aria-label="Close setup">×</button>
+      <span class="badge warnbadge shake">
+        <svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#92400E" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l9 16H3z"></path><path d="M12 10v4M12 17h.01"></path></svg>
+      </span>
+      <h1 class="rise mt22 h28">Typeshelf is still open</h1>
+      <p class="lead w380 rise d2" id="r-lead">Setup needs to replace files Typeshelf is using. Your fonts stay turned on while it restarts. Nothing in your library changes.</p>
+      <div class="proc rise d3">
+        <span class="dot-green" aria-hidden="true"></span>
+        <span>typeshelf.exe · running in the tray</span>
+      </div>
+      <div class="foot between">
+        <button type="button" class="btn plain" data-close>Cancel</button>
+        <span class="row8">
+          <button type="button" class="btn secondary" id="r-retry">Try again</button>
+          <button type="button" class="btn primary" data-primary id="r-close">Close it and continue</button>
+        </span>
+      </div>
+    </main>
+  </section>
+
+  <!-- S4 Ready -->
+  <section class="screen" id="s-done" hidden>
+    <aside class="side" aria-label="Typeshelf">
+      <span class="brand">Typeshelf</span>
+      <div class="col10" aria-hidden="true">
+        <div class="glyphs">
+          <span class="gl bob f-is s92">A</span>
+          <span class="gl bob f-fr s80 c-indigo">g</span>
+          <span class="gl bob f-sg s76">R</span>
+          <span class="gl bob f-dm s80 c-amber">&amp;</span>
+          <span class="gl bob f-bb s88">3</span>
+          <span class="gl bob f-sy s78 c-mint">f</span>
+        </div>
+        <div class="shelf w"></div>
+        <span class="caption center">All on the shelf.</span>
+      </div>
+      <span class="tag">Every font,<br>on the right shelf.</span>
+    </aside>
+    <main class="main">
+      <button type="button" class="btn x" data-close aria-label="Close setup">×</button>
+      <span class="badge okbadge ring">
+        <svg class="check" aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#166534" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+      </span>
+      <h1 class="rise d2 mt22 h32">Typeshelf is ready</h1>
+      <p class="lead rise d3" id="d-lead">When it opens, it asks what to call you. That’s the only setup. Then add a font folder and you’re done.</p>
+      <div class="card rise d4" id="d-login">
+        <span class="two"><span>Start Typeshelf when I sign in</span><span class="hint">Set during install · change it later in Settings</span></span>
+        <span class="switch readonly" id="d-login-sw" role="img" aria-label="On"><span class="knob"></span></span>
+      </div>
+      <div class="foot end">
+        <button type="button" class="btn secondary" data-close>Close</button>
+        <button type="button" class="btn primary shadow" data-primary id="d-open">Open Typeshelf</button>
+      </div>
+    </main>
+  </section>
+
+  <!-- S6 Update -->
+  <section class="screen" id="s-update" hidden>
+    <aside class="side" aria-label="Typeshelf">
+      <span class="brand">Typeshelf</span>
+      <div class="hero">
+        <span class="still weight s140" aria-hidden="true">Aa</span>
+        <div class="shelf" aria-hidden="true"></div>
+        <span class="caption" aria-hidden="true">A little bolder than before.</span>
+      </div>
+      <span class="tag">Every font,<br>on the right shelf.</span>
+    </aside>
+    <main class="main">
+      <button type="button" class="btn x" data-close aria-label="Close setup">×</button>
+      <span class="eyebrow rise">Update</span>
+      <h1 class="rise d2 h32">Update Typeshelf</h1>
+      <div class="versions rise d3">
+        <span class="v-old" data-f="installedVersion"></span>
+        <span aria-hidden="true" class="v-arrow">→</span>
+        <span class="v-new" data-f="version"></span>
+      </div>
+      <p class="lead w380 mt16 rise d3">Your library, active fonts, collections and settings stay exactly as they are. Typeshelf restarts by itself when it’s done.</p>
+      <div class="foot end">
+        <button type="button" class="btn primary shadow" data-primary id="u-update">Update</button>
+      </div>
+    </main>
+  </section>
+
+  <!-- U1 Remove? -->
+  <section class="screen" id="s-uninstall" hidden>
+    <aside class="side" aria-label="Typeshelf">
+      <span class="brand">Typeshelf</span>
+      <div class="col10 dim" aria-hidden="true">
+        <div class="glyphs gap8">
+          <span class="gl f-is s92">A</span>
+          <span class="gl f-fr s80">g</span>
+          <span class="gl f-sg s76">R</span>
+          <span class="gl f-bb s88">3</span>
+        </div>
+        <div class="shelf w"></div>
+      </div>
+      <span class="tag">Leaving the shelf<br>tidier than we found it.</span>
+    </aside>
+    <main class="main">
+      <button type="button" class="btn x" data-close aria-label="Close">×</button>
+      <h1 class="rise h30">Remove Typeshelf?</h1>
+      <ul class="checks rise d2">
+        <li><span class="tick" aria-hidden="true">✓</span><span id="un-fonts"></span></li>
+        <li><span class="tick" aria-hidden="true">✓</span><span>Your font files stay exactly where they are.</span></li>
+        <li><span class="tick" aria-hidden="true">✓</span><span>The Adobe plug-ins are removed too.</span></li>
+      </ul>
+      <label class="wipe rise d3">
+        <input type="checkbox" id="un-wipe">
+        <span class="two">
+          <span>Also delete my library data</span>
+          <span class="hint">Collections, tags, project sets, license labels and settings</span>
+        </span>
+      </label>
+      <p class="warn" id="un-warn" role="note" hidden>This can’t be undone. Make a backup first in Settings › Backup.</p>
+      <div class="foot end rise d4">
+        <button type="button" class="btn secondary" data-close>Keep Typeshelf</button>
+        <button type="button" class="btn primary danger" data-primary id="un-remove">Remove</button>
+      </div>
+    </main>
+  </section>
+
+  <!-- U2 Removed -->
+  <section class="screen" id="s-removed" hidden>
+    <aside class="side" aria-label="Typeshelf">
+      <span class="brand">Typeshelf</span>
+      <div class="col10" aria-hidden="true">
+        <div class="glyphs gap8">
+          <span class="gl away f-is s92">A</span>
+          <span class="gl away f-fr s80">g</span>
+          <span class="gl away f-sg s76">R</span>
+          <span class="gl away f-bb s88">3</span>
+        </div>
+        <div class="shelf w"></div>
+        <span class="caption center">A clean, empty shelf.</span>
+      </div>
+      <span class="tag">Thanks for keeping<br>your type in order.</span>
+    </aside>
+    <main class="main">
+      <h1 class="rise d2 h30">Typeshelf is removed</h1>
+      <ul class="tally rise d3">
+        <li><span>Fonts turned off</span><span class="w600 num" id="rm-off"></span></li>
+        <li><span>Leftover font entries</span><span class="w600 num" id="rm-left"></span></li>
+        <li><span>Your font files</span><span class="muted">Untouched</span></li>
+      </ul>
+      <p class="rm-note rise d4" id="rm-note"></p>
+      <div class="foot end">
+        <button type="button" class="btn primary dark" data-primary data-close>Close</button>
+      </div>
+    </main>
+  </section>
+</div>
+</body>
+</html>

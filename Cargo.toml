@@ -9,6 +9,7 @@ members = [
     "crates/adobe-bridge",
     "apps/server",
     "apps/desktop/src-tauri",
+    "apps/setup",
 ]
 
 [workspace.package]

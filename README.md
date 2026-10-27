@@ -44,10 +44,14 @@ Both UIs also run in a plain browser with sample data: desktop `bun run dev` in 
 cargo run -p typeshelf-server -- install-key --data ./data   # the key users' apps will carry
 ./scripts/build-windows.ps1 -ServerUrl https://fonts.example.com -InstallKey <key>
 ```
-Produces `dist/Typeshelf_<version>_x64-setup.exe` (NSIS, per-user install, no admin prompt) with the server URL
-and install key compiled in and the Adobe plug-in packages bundled. Uninstalling first removes every font
-registration Typeshelf made. The installer is unsigned, so Windows SmartScreen shows "More info → Run anyway".
-Regenerating the install key on the server means rebuilding the installer.
+Produces `dist/Typeshelf-Setup-<version>.exe`: the custom installer in `apps/setup` (see [docs/setup.md](docs/setup.md)),
+per-user, no admin prompt, with the server URL and install key compiled in and the Adobe plug-in packages bundled.
+It also updates an existing install and acts as the uninstaller, which turns off every font Typeshelf registered.
+Silent: `Typeshelf-Setup.exe --silent [--dir <path>] [--desktop]`. The installer is unsigned, so Windows SmartScreen
+shows "More info → Run anyway". Regenerating the install key on the server means rebuilding the installer.
+
+## Server deployment
+See [docs/deploy.md](docs/deploy.md) (Linux service behind a Cloudflare Tunnel).
 
 ## Test
 ```

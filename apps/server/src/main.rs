@@ -17,6 +17,9 @@ enum Cmd {
     Serve {
         #[arg(long, default_value_t = 8080)]
         port: u16,
+        /// Address to listen on; use 127.0.0.1 behind a reverse proxy or tunnel.
+        #[arg(long, default_value = "0.0.0.0")]
+        host: std::net::IpAddr,
         #[arg(long, default_value = "./data")]
         data: PathBuf,
         /// Built admin UI (contains index.html).
@@ -51,10 +54,10 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     match Cli::parse().command {
-        Cmd::Serve { port, data, static_dir } => {
+        Cmd::Serve { port, host, data, static_dir } => {
             let conn = open_db(&data)?;
             let state = AppState::new(conn, data.clone());
-            let addr = SocketAddr::from(([0, 0, 0, 0], port));
+            let addr = SocketAddr::new(host, port);
             let listener = tokio::net::TcpListener::bind(addr).await.with_context(|| format!("binding {addr}"))?;
             tracing::info!("listening on http://{addr} (data in {})", data.display());
             axum::serve(listener, app(state, &static_dir)).await?;

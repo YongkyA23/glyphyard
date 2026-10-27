@@ -1,4 +1,5 @@
 /target
+/target-linux
 /dist
 /data
 node_modules/
@@ -9,3 +10,4 @@ dist/
 .env
 apps/server/static/
 apps/desktop/src-tauri/gen/
+apps/setup/gen/
