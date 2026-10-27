@@ -1,8 +1,8 @@
-// App-wide state: AppState, event subscriptions, toasts, the unknown-license confirm and the Adobe pairing prompt.
+// App-wide state: AppState, event subscriptions, toasts and the Adobe pairing prompt.
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { api, isApiError, on, type ActivationResult, type AppState, type Events } from './api'
+import { api, on, type ActivationResult, type AppState, type Events } from './api'
 import { pop, spring } from './motion'
 import { andList, Dialog, errMsg, plural, Skel } from './ui'
 
@@ -14,8 +14,8 @@ type Ctx = {
   libVersion: number
   bump: () => void
   toast: (msg: string, action?: Toast['action']) => void
-  /** Runs an activation, asking first when the backend rejects with `unknown_license`. Returns null if cancelled/failed. */
-  activate: (fn: (confirm: boolean) => Promise<ActivationResult[]>, opts?: { quiet?: boolean }) => Promise<ActivationResult[] | null>
+  /** Runs an activation and reports failures. Returns null if it failed. */
+  activate: (fn: () => Promise<ActivationResult[]>, opts?: { quiet?: boolean }) => Promise<ActivationResult[] | null>
   adminChange: (Events['admin-change'] & { at: string }) | null
   dismissAdmin: () => void
   organizeCount: number | null
@@ -33,7 +33,6 @@ export function AppProvider({ main, children }: { main: boolean; children: React
   const [bootError, setBootError] = useState<string | null>(null)
   const [libVersion, setLibVersion] = useState(0)
   const [toasts, setToasts] = useState<Toast[]>([])
-  const [confirm, setConfirm] = useState<{ families: string[]; resolve: (ok: boolean) => void } | null>(null)
   const [adminChange, setAdminChange] = useState<Ctx['adminChange']>(null)
   const [pair, setPair] = useState<Events['adobe-pair-request'] | null>(null)
   const [organizeCount, setOrganizeCount] = useState<number | null>(null)
@@ -92,22 +91,10 @@ export function AppProvider({ main, children }: { main: boolean; children: React
         return res
       }
       try {
-        return report(await fn(false))
+        return report(await fn())
       } catch (e) {
-        if (!isApiError(e, 'unknown_license')) {
-          toast(errMsg(e))
-          return null
-        }
-        const families = Array.isArray(e.families) ? (e.families as string[]) : []
-        const ok = await new Promise<boolean>((resolve) => setConfirm({ families, resolve }))
-        setConfirm(null)
-        if (!ok) return null
-        try {
-          return report(await fn(true))
-        } catch (e2) {
-          toast(errMsg(e2))
-          return null
-        }
+        toast(errMsg(e))
+        return null
       }
     },
     [toast],
@@ -154,17 +141,6 @@ export function AppProvider({ main, children }: { main: boolean; children: React
       value={{ app, setApp, libVersion, bump, toast, activate, adminChange, dismissAdmin: () => setAdminChange(null), organizeCount, setOrganizeCount }}
     >
       {children}
-
-      <Dialog open={!!confirm} onClose={() => confirm?.resolve(false)} title="Turn on fonts with an unknown license?">
-        <p>
-          {andList(confirm?.families ?? [])} {(confirm?.families.length ?? 0) > 1 ? 'have' : 'has'} no license label yet. Make sure you’re allowed
-          to use {(confirm?.families.length ?? 0) > 1 ? 'them' : 'it'} before turning {(confirm?.families.length ?? 0) > 1 ? 'them' : 'it'} on.
-        </p>
-        <div className="dialog-actions">
-          <button type="button" className="btn" onClick={() => confirm?.resolve(false)}>Cancel</button>
-          <button type="button" className="btn primary" onClick={() => confirm?.resolve(true)} autoFocus>Turn on anyway</button>
-        </div>
-      </Dialog>
 
       <Dialog open={!!pair} onClose={() => respondPair(false)} title={`Allow ${pair ? ADOBE_LABEL[pair.app] : ''} to turn on fonts automatically?`}>
         <p>

@@ -64,7 +64,7 @@ export function PdfFonts() {
   async function turnOn(targets: PdfFont[]) {
     const hashes = targets.map((r) => r.hash!).filter(Boolean)
     if (!hashes.length) return
-    const res = await activate((confirm) => api.setActive(hashes, true, confirm))
+    const res = await activate(() => api.setActive(hashes, true))
     if (!res) return
     const ok = new Set(res.filter((r) => r.ok).map((r) => r.hash))
     setRows((rs) => rs?.map((r) => (r.hash && ok.has(r.hash) ? { ...r, status: 'active' } : r)) ?? null)

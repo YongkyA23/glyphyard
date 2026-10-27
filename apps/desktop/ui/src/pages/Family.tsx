@@ -320,11 +320,11 @@ export function FamilyPage() {
   }
 
   const toggleFamily = async () => {
-    await activate((confirm) => api.setActive(fam.faces.filter((x) => !x.system).map((x) => x.hash), !allOn, confirm))
+    await activate(() => api.setActive(fam.faces.filter((x) => !x.system).map((x) => x.hash), !allOn))
     api.getFamily(key).then(setFam, () => {})
   }
   const toggleFace = async (face: Face) => {
-    await activate((confirm) => api.setActive([face.hash], !face.active, confirm))
+    await activate(() => api.setActive([face.hash], !face.active))
     api.getFamily(key).then(setFam, () => {})
   }
   const setLicense = async (label: License, file?: string | null, nextNote?: string) => {

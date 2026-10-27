@@ -225,39 +225,34 @@ fn one_active_file_per_postscript_name() {
 
     let hashes = fx.hashes("Arial");
     assert_eq!(hashes.len(), 2, "two versions are two files");
-    let results = fx.engine.set_active(&hashes, true, false).unwrap();
+    let results = fx.engine.set_active(&hashes, true).unwrap();
     assert_eq!(results.iter().filter(|r| r.ok).count(), 1);
     assert!(results.iter().any(|r| r.error == Some(ActivationErrorCode::NameConflict)));
     assert_eq!(fx.os.registered(), HashSet::from([new_path.clone()]), "newest version wins");
 
     // The user picks the old version: it replaces the new one.
     let old_hash = typeshelf_core::file_hash(&old);
-    let r = fx.engine.set_active(std::slice::from_ref(&old_hash), true, false).unwrap();
+    let r = fx.engine.set_active(std::slice::from_ref(&old_hash), true).unwrap();
     assert!(r[0].ok);
     assert_eq!(fx.os.registered(), HashSet::from([old_path]));
     let detail = fx.engine.get_family(&fx.family("Arial").key).unwrap();
     assert!(detail.files.iter().any(|f| f.status == FileStatus::Active));
     assert!(detail.files.iter().any(|f| f.status == FileStatus::OlderVersion) || detail.files.len() == 2);
 
-    let r = fx.engine.set_active(&[old_hash], false, false).unwrap();
+    let r = fx.engine.set_active(&[old_hash], false).unwrap();
     assert!(r[0].ok);
     assert!(fx.os.registered().is_empty());
     assert!(*fx.os.0.notifies.lock().unwrap() >= 3);
 }
 
 #[test]
-fn unknown_license_needs_confirmation() {
+fn unlicensed_fonts_turn_on_without_asking() {
     let fx = fixture!();
     fx.put("arial.ttf", &system_font("arial.ttf").unwrap());
     fx.engine.add_folder(&fx.root).unwrap();
     let hashes = fx.hashes("Arial");
-    let err = fx.engine.set_active(&hashes, true, false).unwrap_err();
-    assert_eq!(err.code, "unknown_license");
-    let json = serde_json::to_value(&err).unwrap();
-    assert_eq!(json["families"][0], "Arial");
-    assert!(fx.os.registered().is_empty());
-
-    assert!(fx.engine.set_active(&hashes, true, true).unwrap()[0].ok);
+    assert_eq!(fx.family("Arial").license, License::Unknown);
+    assert!(fx.engine.set_active(&hashes, true).unwrap()[0].ok);
     assert_eq!(fx.family("Arial").active_state, ActiveState::All);
     let recent = fx.engine.list_collections().unwrap().into_iter().find(|c| c.builtin == Some(Builtin::Recent)).unwrap();
     assert_eq!(recent.count, 1);
@@ -279,11 +274,11 @@ fn project_set_off_keeps_fonts_needed_elsewhere() {
     let big = sets[0].id;
     let sets = fx.engine.save_project_set(None, "Small", "", std::slice::from_ref(&arial)).unwrap();
     let small = sets.iter().find(|s| s.name == "Small").unwrap().id;
-    assert!(fx.engine.toggle_project_set(big, true, false).unwrap().iter().all(|r| r.ok));
-    fx.engine.toggle_project_set(small, true, false).unwrap();
+    assert!(fx.engine.toggle_project_set(big, true).unwrap().iter().all(|r| r.ok));
+    fx.engine.toggle_project_set(small, true).unwrap();
     assert_eq!(fx.os.registered().len(), 2);
 
-    fx.engine.toggle_project_set(big, false, false).unwrap();
+    fx.engine.toggle_project_set(big, false).unwrap();
     let still: Vec<String> = fx
         .engine
         .list_families(&FamilyQuery { filter: FamilyFilter::Active, ..Default::default() })
@@ -310,7 +305,7 @@ fn offline_folder_survives_reopen() {
     let key = fx.family("Arial").key;
     fx.engine.set_tags(&key, &["keep".into()]).unwrap();
     let hashes = fx.hashes("Arial");
-    fx.engine.set_active(&hashes, true, true).unwrap();
+    fx.engine.set_active(&hashes, true).unwrap();
     let Fixture { _tmp, root, data, os, engine, .. } = fx;
     drop(engine);
 
@@ -405,7 +400,7 @@ fn organize_apply_and_undo_round_trip() {
     fx.engine.add_folder(&fx.root).unwrap();
     fx.license_all();
     let new_hash = typeshelf_core::file_hash(&bytes);
-    fx.engine.set_active(std::slice::from_ref(&new_hash), true, false).unwrap();
+    fx.engine.set_active(std::slice::from_ref(&new_hash), true).unwrap();
 
     let plan = fx.engine.organize_plan(false).unwrap();
     let cases: Vec<String> =
@@ -452,17 +447,17 @@ fn blocked_fonts_are_turned_off_and_refused() {
     let sink = ui.clone();
     fx.engine.on_ui_event(move |e| sink.lock().unwrap().push(e));
     let font = arial_ref(&fx);
-    fx.engine.set_active(std::slice::from_ref(&font.hash), true, true).unwrap();
+    fx.engine.set_active(std::slice::from_ref(&font.hash), true).unwrap();
 
     fx.engine.apply_command(&CommandKind::Block { ps_name: font.ps_name.clone(), hash: None }).unwrap();
     assert!(fx.os.registered().is_empty());
     assert!(ui.lock().unwrap().iter().any(|e| matches!(e, UiEvent::AdminChange { action: "blocked", fonts } if fonts.len() == 1)));
-    let r = fx.engine.set_active(std::slice::from_ref(&font.hash), true, true).unwrap();
+    let r = fx.engine.set_active(std::slice::from_ref(&font.hash), true).unwrap();
     assert_eq!(r[0].error, Some(ActivationErrorCode::Blocked));
     assert!(fx.events.lock().unwrap().iter().any(|e| matches!(e, Event::ActivationFailed { reason, .. } if reason == "blocked")));
 
     fx.engine.apply_command(&CommandKind::Unblock { ps_name: font.ps_name.to_lowercase() }).unwrap();
-    assert!(fx.engine.set_active(&[font.hash], true, true).unwrap()[0].ok);
+    assert!(fx.engine.set_active(&[font.hash], true).unwrap()[0].ok);
 }
 
 #[test]
@@ -482,11 +477,11 @@ fn turning_off_an_admin_font_is_an_override() {
     // A project set turning off leaves admin fonts alone.
     fx.engine.save_project_set(None, "S", "", std::slice::from_ref(&fam.key)).unwrap();
     let id = fx.engine.list_project_sets().unwrap()[0].id;
-    fx.engine.toggle_project_set(id, true, true).unwrap();
-    fx.engine.toggle_project_set(id, false, true).unwrap();
+    fx.engine.toggle_project_set(id, true).unwrap();
+    fx.engine.toggle_project_set(id, false).unwrap();
     assert_eq!(fx.os.registered().len(), 1);
 
-    fx.engine.set_active(&[font.hash], false, false).unwrap();
+    fx.engine.set_active(&[font.hash], false).unwrap();
     {
         let events = fx.events.lock().unwrap();
         assert!(events.iter().any(|e| matches!(e, Event::FontDeactivated { was_admin: true, source: Source::User, .. })));
@@ -579,7 +574,7 @@ fn pdf_fonts_match_by_postscript_name() {
     assert_eq!(arial.status, PdfFontStatus::Inactive);
     let hash = arial.hash.unwrap();
     assert_eq!(hash, typeshelf_core::file_hash(&bytes));
-    fx.engine.set_active(&[hash], true, true).unwrap();
+    fx.engine.set_active(&[hash], true).unwrap();
     let arial = find(&fx);
     assert_eq!(arial.status, PdfFontStatus::Active);
     assert_eq!(serde_json::to_value(&arial).unwrap()["psName"], "ArialMT");
@@ -703,8 +698,8 @@ fn system_fonts_are_listed_read_only() {
 
     // Turning it on or off never registers or touches the OS copy.
     let hashes: Vec<String> = arial.faces.iter().map(|f| f.hash.clone()).collect();
-    assert!(fx.engine.set_active(&hashes, true, true).unwrap().iter().all(|r| r.ok));
-    assert!(fx.engine.set_active(&hashes, false, true).unwrap().iter().all(|r| r.ok));
+    assert!(fx.engine.set_active(&hashes, true).unwrap().iter().all(|r| r.ok));
+    assert!(fx.engine.set_active(&hashes, false).unwrap().iter().all(|r| r.ok));
     assert!(fx.os.registered().is_empty());
     assert!(fx.engine.organize_plan(false).unwrap().changes.is_empty());
     assert!(sys.join("arial.ttf").is_file());
@@ -734,10 +729,10 @@ fn folder_tree_and_folder_activation() {
     assert_eq!((b.name.as_str(), b.font_count, b.active_count), ("b", 1, 0));
 
     // A subfolder on/off touches only its own fonts.
-    fx.engine.set_folder_active(&b.path, true, false).unwrap();
+    fx.engine.set_folder_active(&b.path, true).unwrap();
     assert_eq!(fx.os.registered().len(), 1);
     assert_eq!(fx.engine.folder_tree().unwrap()[0].children[0].active_count, 1);
-    fx.engine.set_folder_active(&a.path, false, false).unwrap();
+    fx.engine.set_folder_active(&a.path, false).unwrap();
     assert!(fx.os.registered().is_empty());
 
     // Paging and the path filter.
@@ -748,7 +743,7 @@ fn folder_tree_and_folder_activation() {
     assert_eq!(fx.engine.library_counts().unwrap().library, 1);
 
     // Auto-activate turns on what is there and what arrives later (picked up by a rescan).
-    fx.engine.set_folder_auto(&b.path, true, false).unwrap();
+    fx.engine.set_folder_auto(&b.path, true).unwrap();
     assert_eq!(fx.os.registered().len(), 1);
     let Some(italic) = system_font("ariali.ttf") else { return };
     fx.put("a/b/ariali.ttf", &italic);
@@ -863,8 +858,8 @@ fn reparse_does_not_count_as_arrival() {
     fx.put("a/arial.ttf", &system_font("arial.ttf").unwrap());
     fx.engine.add_folder(&fx.root).unwrap();
     let a = fx.root.join("a").to_string_lossy().into_owned();
-    fx.engine.set_folder_auto(&a, true, true).unwrap();
-    fx.engine.set_folder_active(&a, false, true).unwrap();
+    fx.engine.set_folder_auto(&a, true).unwrap();
+    fx.engine.set_folder_active(&a, false).unwrap();
     fx.engine.db().execute("UPDATE files SET mtime = -1", []).unwrap();
     fx.engine.rescan().unwrap();
     assert!(fx.os.registered().is_empty(), "same bytes re-read: not turned back on");
@@ -907,7 +902,7 @@ fn delete_fonts_and_folders() {
     }
     fx.license_all();
     let arial = fx.hashes("Arial");
-    fx.engine.set_active(&arial, true, false).unwrap();
+    fx.engine.set_active(&arial, true).unwrap();
     let res = fx.engine.delete_fonts(&arial).unwrap();
     assert_eq!((res.trashed, res.failed.len()), (1, 0));
     assert!(fx.os.registered().is_empty());
@@ -916,7 +911,7 @@ fn delete_fonts_and_folders() {
 
     // A subfolder: turned off, trashed, root rescanned.
     let serif = fx.root.join("serif");
-    fx.engine.set_folder_active(&serif.to_string_lossy(), true, false).unwrap();
+    fx.engine.set_folder_active(&serif.to_string_lossy(), true).unwrap();
     let res = fx.engine.delete_folder(&serif.to_string_lossy()).unwrap();
     assert_eq!(res.trashed, 1);
     assert!(!serif.exists() && fx.os.registered().is_empty());
@@ -949,10 +944,10 @@ fn collection_activate_and_export() {
     fx.engine.add_to_collection(parent, &[fx.family("Arial").key]).unwrap();
     fx.engine.add_to_collection(child, &[fx.family("Consolas").key]).unwrap();
 
-    let res = fx.engine.set_collection_active(parent, true, false).unwrap();
+    let res = fx.engine.set_collection_active(parent, true).unwrap();
     assert!(res.iter().all(|r| r.ok));
     assert_eq!(fx.os.registered().len(), 2, "the sub-collection's family too");
-    fx.engine.set_collection_active(parent, false, false).unwrap();
+    fx.engine.set_collection_active(parent, false).unwrap();
     assert!(fx.os.registered().is_empty());
 
     let dest = fx.data.join("out.zip");
@@ -994,7 +989,7 @@ fn glyph_search_and_supersearch() {
     assert_eq!(search("weight:400"), all);
     assert!(search("weight:>600").is_empty() && search("italic").is_empty() && search("active").is_empty());
     assert_eq!(search("inactive"), all);
-    fx.engine.set_active(&fx.hashes("Arial"), true, false).unwrap();
+    fx.engine.set_active(&fx.hashes("Arial"), true).unwrap();
     assert_eq!(search("active"), vec!["Arial"]);
     assert_eq!(search("nosuchkey:x"), Vec::<String>::new(), "unknown keys are plain words");
 }
@@ -1128,7 +1123,7 @@ fn big_batches_are_chunked_with_one_broadcast() {
 
     let all: Vec<String> = fx.engine.list_families(&FamilyQuery::default()).unwrap().iter().flat_map(|f| f.faces.iter().map(|x| x.hash.clone())).collect();
     assert!(all.len() > 64, "needs more than one chunk, got {}", all.len());
-    let results = fx.engine.set_active(&all, true, true).unwrap();
+    let results = fx.engine.set_active(&all, true).unwrap();
     assert_eq!(results.len(), all.len());
     assert!(fx.os.registered().contains(&new_path), "newest Arial wins even though the batch was chunked");
     assert_eq!(results.iter().filter(|r| r.error == Some(ActivationErrorCode::NameConflict)).count(), 1);
@@ -1136,7 +1131,7 @@ fn big_batches_are_chunked_with_one_broadcast() {
     let p = progress.lock().unwrap().clone();
     assert!(p.len() >= 2 && p.last().unwrap().0 == all.len(), "progress {p:?}");
 
-    fx.engine.set_active(&all, false, true).unwrap();
+    fx.engine.set_active(&all, false).unwrap();
     assert!(fx.os.registered().is_empty());
     assert_eq!(*fx.os.0.notifies.lock().unwrap() - before, 2);
 }
@@ -1170,7 +1165,7 @@ fn background_activation_returns_first_and_reports_failures() {
 
     // Returns while the OS is still busy: the ledger already says "on".
     let gate = os.0.gate.lock().unwrap();
-    let r = engine.set_active(&[a.clone(), t.clone()].concat(), true, true).unwrap();
+    let r = engine.set_active(&[a.clone(), t.clone()].concat(), true).unwrap();
     assert!(r.iter().all(|r| r.ok));
     assert!(os.registered().is_empty(), "nothing registered yet");
     assert_eq!(engine.library_counts().unwrap().active, 2, "but the library already shows both as on");
@@ -1184,11 +1179,11 @@ fn background_activation_returns_first_and_reports_failures() {
     assert!(failed[0].len() == 1 && failed[0][0].contains("Times"), "{failed:?}");
 
     // Turned off while still queued: it must not end up registered.
-    engine.set_active(&a, false, true).unwrap();
+    engine.set_active(&a, false).unwrap();
     assert!(os.registered().is_empty());
     let gate = os.0.gate.lock().unwrap();
-    engine.set_active(&a, true, true).unwrap();
-    engine.set_active(&a, false, true).unwrap();
+    engine.set_active(&a, true).unwrap();
+    engine.set_active(&a, false).unwrap();
     drop(gate);
     engine.wait_for_activations();
     assert!(os.registered().is_empty(), "registration that was cancelled is undone");

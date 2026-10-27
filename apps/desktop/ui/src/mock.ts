@@ -243,11 +243,7 @@ Object.assign(window, {
 })
 
 // ---- activation ----
-function activate(hashes: string[], active: boolean, confirm?: boolean): ActivationResult[] {
-  if (active && !confirm) {
-    const unknown = [...new Set(hashes.map(famOfHash).filter((f) => f && f.license === 'unknown').map((f) => f!.family))]
-    if (unknown.length) throw err('unknown_license', `${unknown.join(', ')} has no license label.`, { families: unknown })
-  }
+function activate(hashes: string[], active: boolean): ActivationResult[] {
   const results = hashes.map((hash): ActivationResult => {
     const f = famOfHash(hash)
     const face = f?.faces.find((x) => x.hash === hash)
@@ -407,10 +403,10 @@ const handlers: Record<string, (a: Args) => unknown> = {
   },
   get_faces: ({ hashes }) => families.flatMap((f) => f.faces).filter((x) => hashes.includes(x.hash)),
   folder_tree: () => folderTree(),
-  set_folder_active: ({ path, active, confirmUnknownLicense }) =>
-    activate(families.flatMap((f) => f.faces).filter((x) => x.path.startsWith(path)).map((x) => x.hash), active, confirmUnknownLicense),
-  set_folder_auto: ({ path, on: auto, confirmUnknownLicense }) => {
-    const res = auto ? activate(families.flatMap((f) => f.faces).filter((x) => inside(x.path, path)).map((x) => x.hash), true, confirmUnknownLicense) : []
+  set_folder_active: ({ path, active }) =>
+    activate(families.flatMap((f) => f.faces).filter((x) => x.path.startsWith(path)).map((x) => x.hash), active),
+  set_folder_auto: ({ path, on: auto }) => {
+    const res = auto ? activate(families.flatMap((f) => f.faces).filter((x) => inside(x.path, path)).map((x) => x.hash), true) : []
     if (auto) autoPaths.add(path)
     else autoPaths.delete(path)
     emit('library-changed', { reason: 'scan' })
@@ -434,11 +430,11 @@ const handlers: Record<string, (a: Args) => unknown> = {
     const score = (f: Fam) => (f.category === me.category ? 2 : 0) + (f.isVariable === me.isVariable ? 1 : 0)
     return families.filter((f) => f.key !== key).sort((x, y) => score(y) - score(x) || x.family.localeCompare(y.family)).slice(0, limit).map(toFamily)
   },
-  set_collection_active: ({ id, active, confirmUnknownLicense }) => {
+  set_collection_active: ({ id, active }) => {
     const ids: number[] = [id], keys = new Set<string>()
     for (let i = 0; i < ids.length; i++) collections.filter((c) => c.parentId === ids[i]).forEach((c) => ids.push(c.id))
     ids.forEach((i) => collItems[i]?.forEach((k) => keys.add(k)))
-    return activate([...keys].flatMap((k) => fam(k)?.faces.map((x) => x.hash) ?? []), active, confirmUnknownLicense)
+    return activate([...keys].flatMap((k) => fam(k)?.faces.map((x) => x.hash) ?? []), active)
   },
   export_collection: ({ id, dest }) => ({ files: [...(collItems[id] ?? [])].reduce((n, k) => n + (fam(k)?.faces.length ?? 0), 0), path: dest }),
   pick_save_file: ({ defaultName }) => `C:\\Users\\budi\\Documents\\${defaultName}`,
@@ -472,7 +468,7 @@ const handlers: Record<string, (a: Args) => unknown> = {
     const { addedAt: _a, original: _o, ...rest } = f
     return rest
   },
-  set_active: ({ hashes, active, confirmUnknownLicense }) => activate(hashes, active, confirmUnknownLicense),
+  set_active: ({ hashes, active }) => activate(hashes, active),
   list_folders: () => folders,
   add_folder: ({ path }) => {
     folders = [...folders, { id: Math.max(0, ...folders.map((f) => f.id)) + 1, path, status: 'scanning', fontCount: 0, offlineSince: null }]
@@ -520,7 +516,7 @@ const handlers: Record<string, (a: Args) => unknown> = {
     return sets
   },
   delete_project_set: ({ id }) => (sets = sets.filter((s) => s.id !== id)),
-  toggle_project_set: ({ id, on, confirmUnknownLicense }) => {
+  toggle_project_set: ({ id, on }) => {
     const set = sets.find((s) => s.id === id)!
     let keys = set.familyKeys
     if (!on) {
@@ -529,7 +525,7 @@ const handlers: Record<string, (a: Args) => unknown> = {
       keys = keys.filter((k) => !needed.has(k) && !fam(k)?.adminSet)
     }
     const hashes = keys.flatMap((k) => fam(k)?.faces.map((x) => x.hash) ?? [])
-    const res = activate(hashes, on, confirmUnknownLicense)
+    const res = activate(hashes, on)
     sets = sets.map((s) => (s.id === id ? { ...s, on, lastUsed: iso() } : s))
     return res
   },

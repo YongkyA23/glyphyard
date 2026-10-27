@@ -172,7 +172,7 @@ const GridIcon = () => (
 function FolderBar({ node, onDone }: { node: FolderNode; onDone: () => void }) {
   const { activate, toast } = useApp()
   const [busy, setBusy] = useState(false)
-  async function run(fn: (confirm: boolean) => Promise<ActivationResult[]>) {
+  async function run(fn: () => Promise<ActivationResult[]>) {
     setBusy(true)
     await activate(fn)
     setBusy(false)
@@ -181,10 +181,10 @@ function FolderBar({ node, onDone }: { node: FolderNode; onDone: () => void }) {
   return (
     <div className="folder-bar">
       <span className="faint" style={{ fontSize: 13 }}>{num(node.activeCount)} of {plural(node.fontCount, 'font')} on</span>
-      <button type="button" className="btn small" disabled={busy || node.activeCount === node.fontCount} onClick={() => run((c) => api.setFolderActive(node.path, true, c))}>Turn all on</button>
-      <button type="button" className="btn small" disabled={busy || node.activeCount === 0} onClick={() => run((c) => api.setFolderActive(node.path, false, c))}>Turn all off</button>
+      <button type="button" className="btn small" disabled={busy || node.activeCount === node.fontCount} onClick={() => run(() => api.setFolderActive(node.path, true))}>Turn all on</button>
+      <button type="button" className="btn small" disabled={busy || node.activeCount === 0} onClick={() => run(() => api.setFolderActive(node.path, false))}>Turn all off</button>
       <label className="check">
-        <input type="checkbox" checked={node.autoActivate} disabled={busy} onChange={(e) => run((c) => api.setFolderAuto(node.path, e.target.checked, c))} />
+        <input type="checkbox" checked={node.autoActivate} disabled={busy} onChange={(e) => run(() => api.setFolderAuto(node.path, e.target.checked))} />
         Auto-activate new fonts in this folder
       </label>
       <button type="button" className="btn small" onClick={() => api.showInFolder(node.path).catch((e) => toast(errMsg(e)))}>Show in folder</button>
@@ -286,7 +286,7 @@ export function Library() {
 
   async function toggle(f: Family) {
     const active = f.activeState !== 'all'
-    const res = await activate((confirm) => api.setActive(f.faces.map((x) => x.hash), active, confirm), { quiet: true })
+    const res = await activate(() => api.setActive(f.faces.map((x) => x.hash), active), { quiet: true })
     const failed = res?.filter((r) => !r.ok) ?? []
     setErrors((e) => {
       const { [f.key]: _, ...rest } = e

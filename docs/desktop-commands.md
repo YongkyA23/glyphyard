@@ -61,23 +61,23 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `face_glyphs` | `{ hash, index? }` (face in a TTC, default 0) → `{ total, blocks: GlyphBlock[] }`: the face's cmap read from the file (control characters left out), grouped by Unicode block in codepoint order; codepoints outside the built-in table of ~130 common blocks come last as `"Other"`. Rejects `{code:"not_found"}` when no copy is readable |
 | `set_pinned` | `{ keys, pinned }` → void; emits `library-changed` |
 | `folder_tree` | → `FolderNode[]` = `{ path, name, fontCount, activeCount, autoActivate, hidden, children: FolderNode[] }`, one root per watched folder (app-managed ones included: Imported fonts, Google Fonts, Shared library) |
-| `set_folder_active` | `{ path, active, confirmUnknownLicense? }` → `ActivationResult[]` (every font in the folder and below) |
+| `set_folder_active` | `{ path, active }` → `ActivationResult[]` (every font in the folder and below) |
 | `set_folder_hidden` | `{ path, hidden }` → `FolderNode[]` (the new tree); a hidden folder hides its subfolders too |
 | `delete_folder` | `{ path }` → `DeleteResult` (`trashed` = font files in it): turns its fonts off, moves the folder to the Recycle Bin / Trash, then removes a watched root from the library or rescans the root of a subfolder. Rejects `{code:"not_allowed"}` for OS font folders and the shared library |
-| `set_folder_auto` | `{ path, on, confirmUnknownLicense? }` → `ActivationResult[]`; on: turns on what is there now and every font that lands in the folder later |
+| `set_folder_auto` | `{ path, on }` → `ActivationResult[]`; on: turns on what is there now and every font that lands in the folder later |
 | `get_family` | `{ key }` → `FamilyDetail` |
-| `set_active` | `{ hashes, active, confirmUnknownLicense? }` → `ActivationResult[]`; rejects `{code:"unknown_license", families}` when not confirmed |
+| `set_active` | `{ hashes, active }` → `ActivationResult[]`. No license confirmation: fonts without a license label turn on like any other |
 | `list_folders` / `add_folder {path}` / `remove_folder {id}` / `locate_folder {id, path}` | → `Folder[]` |
 | `list_collections` / `create_collection {name, parentId?}` / `rename_collection {id, name}` / `delete_collection {id}` | → `Collection[]` |
 | `add_to_collection` / `remove_from_collection` | `{ id, familyKeys }` → `Collection[]` |
-| `set_collection_active` | `{ id, active, confirmUnknownLicense? }` → `ActivationResult[]`: every family in the collection and its sub-collections (a font with another version already on is left alone); same unknown-license rejection as `set_active` |
+| `set_collection_active` | `{ id, active }` → `ActivationResult[]`: every family in the collection and its sub-collections (a font with another version already on is left alone); same unknown-license rejection as `set_active` |
 | `export_collection` | `{ id, dest }` → `{ files, path }`: a .zip at `dest` with one copy of each font file in the collection and its sub-collections (OS font folders left out) |
 | `export_collections` | `{ dest }` → `{ collections }`: a JSON file `{ version: 1, collections: [{ name, families: [{ key, family }], children: [...] }] }` with every collection except Recent (Favorites included), nested; `collections` counts the nested ones too |
 | `import_collections` | `{ path }` → `{ collections, families, missing }`: merges such a file — a collection with the same name (any case) under the same parent is reused, otherwise created; each family entry matches by key, then by family name (any case); `missing` counts entries with no match. Rejects `{code:"invalid"}` for a file that is not one |
 | `list_tags` | → `{ name, count }[]`; `set_tags {familyKey, tags}` → `string[]` |
 | `set_license` | `{ familyKey, label, file?, note? }` → `FamilyDetail["licenseInfo"]` |
 | `list_project_sets` / `save_project_set {id?, name, note, familyKeys}` / `delete_project_set {id}` | → `ProjectSet[]` |
-| `toggle_project_set` | `{ id, on, confirmUnknownLicense? }` → `ActivationResult[]` (same unknown-license rejection) |
+| `toggle_project_set` | `{ id, on }` → `ActivationResult[]` (same unknown-license rejection) |
 | `organize_plan` | `{ tidy }` → `{ changes: OrganizeChange[], scanned: number, scannedAt: string }` |
 | `organize_apply` | `{ tidy, excludeIds: number[] }` → `{ historyId, applied }` |
 | `list_history` / `undo_history {id}` | → `{ id, kind, summary, at, undone }[]` |

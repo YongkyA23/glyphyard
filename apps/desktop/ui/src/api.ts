@@ -130,13 +130,13 @@ export const api = {
   libraryCounts: () => call<LibraryCounts>('library_counts'),
   getFaces: (hashes: string[]) => call<Face[]>('get_faces', { hashes }),
   folderTree: () => call<FolderNode[]>('folder_tree'),
-  setFolderActive: (path: string, active: boolean, confirmUnknownLicense?: boolean) =>
-    call<ActivationResult[]>('set_folder_active', { path, active, confirmUnknownLicense }),
-  setFolderAuto: (path: string, on: boolean, confirmUnknownLicense?: boolean) =>
-    call<ActivationResult[]>('set_folder_auto', { path, on, confirmUnknownLicense }),
+  setFolderActive: (path: string, active: boolean) =>
+    call<ActivationResult[]>('set_folder_active', { path, active }),
+  setFolderAuto: (path: string, on: boolean) =>
+    call<ActivationResult[]>('set_folder_auto', { path, on }),
   getFamily: (key: string) => call<FamilyDetail>('get_family', { key }),
-  setActive: (hashes: string[], active: boolean, confirmUnknownLicense?: boolean) =>
-    call<ActivationResult[]>('set_active', { hashes, active, confirmUnknownLicense }),
+  setActive: (hashes: string[], active: boolean) =>
+    call<ActivationResult[]>('set_active', { hashes, active }),
 
   listFolders: () => call<Folder[]>('list_folders'),
   addFolder: (path: string) => call<Folder[]>('add_folder', { path }),
@@ -158,8 +158,8 @@ export const api = {
   listProjectSets: () => call<ProjectSet[]>('list_project_sets'),
   saveProjectSet: (set: { id?: number; name: string; note: string; familyKeys: string[] }) => call<ProjectSet[]>('save_project_set', set),
   deleteProjectSet: (id: number) => call<ProjectSet[]>('delete_project_set', { id }),
-  toggleProjectSet: (id: number, on: boolean, confirmUnknownLicense?: boolean) =>
-    call<ActivationResult[]>('toggle_project_set', { id, on, confirmUnknownLicense }),
+  toggleProjectSet: (id: number, on: boolean) =>
+    call<ActivationResult[]>('toggle_project_set', { id, on }),
 
   organizePlan: (tidy: boolean) => call<OrganizePlan>('organize_plan', { tidy }),
   organizeApply: (tidy: boolean, excludeIds: number[]) => call<{ historyId: number; applied: number; failed: string[] }>('organize_apply', { tidy, excludeIds }),
@@ -201,8 +201,8 @@ export const api = {
   pickSaveFile: (defaultName: string, filters: FileFilter[]) => call<string | null>('pick_save_file', { defaultName, filters }),
 
   similarFamilies: (key: string, limit: number) => call<Family[]>('similar_families', { key, limit }),
-  setCollectionActive: (id: number, active: boolean, confirmUnknownLicense?: boolean) =>
-    call<ActivationResult[]>('set_collection_active', { id, active, confirmUnknownLicense }),
+  setCollectionActive: (id: number, active: boolean) =>
+    call<ActivationResult[]>('set_collection_active', { id, active }),
   exportCollection: (id: number, dest: string) => call<{ files: number; path: string }>('export_collection', { id, dest }),
   importPaths: (paths: string[]) => call<{ imported: number; skipped: number; folder: string }>('import_paths', { paths }),
   /** Show these files under family `name`; null restores the real family. Never edits the files. */

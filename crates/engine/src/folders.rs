@@ -109,14 +109,14 @@ impl Engine {
     }
 
     /// Turns every font in `path` (and its subfolders) on or off.
-    pub fn set_folder_active(&self, path: &str, active: bool, confirm_unknown_license: bool) -> Result<Vec<ActivationResult>> {
+    pub fn set_folder_active(&self, path: &str, active: bool) -> Result<Vec<ActivationResult>> {
         let hashes = self.hashes_under(Path::new(path))?;
-        self.set_active(&hashes, active, confirm_unknown_license)
+        self.set_active(&hashes, active)
     }
 
     /// Auto-activate: turning it on also turns on what the folder already holds.
-    pub fn set_folder_auto(&self, path: &str, on: bool, confirm_unknown_license: bool) -> Result<Vec<ActivationResult>> {
-        let results = if on { self.set_folder_active(path, true, confirm_unknown_license)? } else { Vec::new() };
+    pub fn set_folder_auto(&self, path: &str, on: bool) -> Result<Vec<ActivationResult>> {
+        let results = if on { self.set_folder_active(path, true)? } else { Vec::new() };
         let sql = if on { "INSERT OR IGNORE INTO auto_folders (path) VALUES (?1)" } else { "DELETE FROM auto_folders WHERE path = ?1" };
         self.db().execute(sql, [path])?;
         self.library_changed("activation");

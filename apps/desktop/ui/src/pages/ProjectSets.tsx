@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import { api, type Family, type ProjectSet } from '../api'
 import { familyStyle } from '../fonts'
-import { collapse, cssStagger, dur, easeOut } from '../motion'
+import { cssStagger, dur, easeOut } from '../motion'
 import { useApp } from '../state'
 import { ago, Badge, Dialog, errMsg, LicenseBadge, plural, SelectRing, Skel } from '../ui'
 
@@ -40,7 +40,7 @@ export function ProjectSets() {
   const meta = (s: ProjectSet) => [s.note, plural(s.familyKeys.length, 'font'), s.lastUsed ? `last used ${ago(s.lastUsed)}` : 'never used'].filter(Boolean).join(' · ')
 
   async function toggle(s: ProjectSet) {
-    const res = await activate((confirm) => api.toggleProjectSet(s.id, !s.on, confirm))
+    const res = await activate(() => api.toggleProjectSet(s.id, !s.on))
     if (res) loadSets()
   }
   async function save(e: FormEvent) {
@@ -68,7 +68,6 @@ export function ProjectSets() {
   }
   const openDraft = (d: Draft) => (setDraft(d), setDraftError(null), setPick(''))
 
-  const unknown = current?.familyKeys.map((k) => byKey.get(k)).filter((f) => f?.license === 'unknown') ?? []
 
   return (
     <div className="page" style={{ gap: 20 }}>
@@ -118,19 +117,6 @@ export function ProjectSets() {
                 <button type="button" className="btn" onClick={() => openDraft({ id: current.id, name: current.name, note: current.note, familyKeys: current.familyKeys })}>Edit</button>
               </div>
             </div>
-            <AnimatePresence initial={false}>
-            {unknown.length > 0 && (
-              <motion.div key="unknown" {...collapse} style={{ overflow: 'hidden' }}>
-              <div role="note" className="note warn">
-                <span aria-hidden="true" style={{ fontWeight: 700 }}>!</span>
-                <span>
-                  {plural(unknown.length, 'font')} in this set {unknown.length === 1 ? 'has' : 'have'} an unknown license. You’ll be asked to confirm before {unknown.length === 1 ? 'it’s' : 'they’re'} turned on.{' '}
-                  <Link to={`/family/${encodeURIComponent(unknown[0]!.key)}`} style={{ color: 'inherit' }}>Add a license label</Link>
-                </span>
-              </div>
-              </motion.div>
-            )}
-            </AnimatePresence>
             {/* Keyed by set so switching sets re-staggers; a set turning on/off ripples down the status labels. */}
             <div key={current.id} style={{ display: 'flex', flexDirection: 'column' }}>
               {current.familyKeys.map((k, i) => {

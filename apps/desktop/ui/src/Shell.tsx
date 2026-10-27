@@ -125,8 +125,8 @@ function Sidebar() {
 
   const fail = (e: unknown) => toast(errMsg(e))
   const saveCollections = (p: Promise<Collection[]>) => p.then((cs) => (setCollections(cs), bump()), fail)
-  /** Activation through the unknown-license confirm, then a refresh and a one-line result. */
-  async function turn(fn: (confirm: boolean) => Promise<ActivationResult[]>, done: string) {
+  /** Activation, then a refresh and a one-line result. */
+  async function turn(fn: () => Promise<ActivationResult[]>, done: string) {
     const res = await activate(fn)
     bump()
     if (res) toast(`${done} · ${plural(res.filter((r) => r.ok).length, 'font')}`)
@@ -186,8 +186,8 @@ function Sidebar() {
 
   function collectionMenu(e: ReactMouseEvent<Element>, col: Collection) {
     const items: MenuItem[] = [
-      { label: 'Activate all', disabled: !col.count, onSelect: () => turn((cf) => api.setCollectionActive(col.id, true, cf), `${col.name} turned on`) },
-      { label: 'Deactivate all', disabled: !col.count, onSelect: () => turn((cf) => api.setCollectionActive(col.id, false, cf), `${col.name} turned off`) },
+      { label: 'Activate all', disabled: !col.count, onSelect: () => turn(() => api.setCollectionActive(col.id, true), `${col.name} turned on`) },
+      { label: 'Deactivate all', disabled: !col.count, onSelect: () => turn(() => api.setCollectionActive(col.id, false), `${col.name} turned off`) },
       'sep',
       { label: 'Export as ZIP…', disabled: !col.count, onSelect: () => exportZip(col) },
       { label: 'Print / Save as PDF…', disabled: !col.count, onSelect: () => navigate(`/print/collection/${col.id}`) },
@@ -220,11 +220,11 @@ function Sidebar() {
   // Order and wording follow FontBase's folder menu.
   const folderMenu: NodeMenu = (e, node, folder) => {
     const items: MenuItem[] = [
-      { label: 'Activate', disabled: !node.fontCount, onSelect: () => turn((cf) => api.setFolderActive(node.path, true, cf), `${node.name} turned on`) },
-      { label: 'Deactivate', disabled: !node.activeCount, onSelect: () => turn((cf) => api.setFolderActive(node.path, false, cf), `${node.name} turned off`) },
+      { label: 'Activate', disabled: !node.fontCount, onSelect: () => turn(() => api.setFolderActive(node.path, true), `${node.name} turned on`) },
+      { label: 'Deactivate', disabled: !node.activeCount, onSelect: () => turn(() => api.setFolderActive(node.path, false), `${node.name} turned off`) },
       {
         label: `Autoactivate: ${node.autoActivate ? 'Disable' : 'Enable'}`,
-        onSelect: () => turn((cf) => api.setFolderAuto(node.path, !node.autoActivate, cf), node.autoActivate ? 'Autoactivate off' : 'Autoactivate on'),
+        onSelect: () => turn(() => api.setFolderAuto(node.path, !node.autoActivate), node.autoActivate ? 'Autoactivate off' : 'Autoactivate on'),
       },
       'sep',
       {

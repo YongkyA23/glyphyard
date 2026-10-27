@@ -672,7 +672,7 @@ impl Engine {
 
     /// Turns every family in the collection and its sub-collections on or off. Turning on leaves a
     /// font alone when another version of it is already on.
-    pub fn set_collection_active(&self, id: i64, active: bool, confirm_unknown_license: bool) -> Result<Vec<ActivationResult>> {
+    pub fn set_collection_active(&self, id: i64, active: bool) -> Result<Vec<ActivationResult>> {
         let hashes = {
             let db = self.db();
             let keys = collection_keys(&db, id)?;
@@ -688,7 +688,7 @@ impl Engine {
             }
             hashes
         };
-        self.set_active(&hashes, active, confirm_unknown_license)
+        self.set_active(&hashes, active)
     }
 
     /// Zips one copy of every font file in the collection (and below), leaving out OS font folders.
@@ -856,7 +856,7 @@ impl Engine {
             .optional()?
             .ok_or_else(|| not_found("project set"))?;
         if on {
-            self.toggle_project_set(id, false, true)?;
+            self.toggle_project_set(id, false)?;
         }
         self.db().execute("DELETE FROM project_sets WHERE id = ?1", [id])?;
         self.list_project_sets()

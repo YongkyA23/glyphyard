@@ -31,7 +31,7 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
   async function setActive(fams: Family[], on: boolean) {
     const hashes = editable(fams)
     if (!hashes.length) return
-    const res = await activate((confirm) => api.setActive(hashes, on, confirm))
+    const res = await activate(() => api.setActive(hashes, on))
     if (res?.some((r) => r.ok)) toast(`${on ? 'Turned on' : 'Turned off'} ${famNames(fams)}`)
     onChanged(false)
   }

@@ -33,7 +33,7 @@ export function Quick() {
   }, [q])
 
   async function toggle(face: Face) {
-    const res = await activate((confirm) => api.setActive([face.hash], !face.active, confirm))
+    const res = await activate(() => api.setActive([face.hash], !face.active))
     if (res?.[0]?.ok) setRows((rs) => rs.map((r) => (r.hash === face.hash ? { ...r, active: !face.active } : r)))
   }
   function close() {

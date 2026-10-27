@@ -102,13 +102,13 @@ pub async fn folder_tree(ctx: St<'_>) -> R<Vec<FolderNode>> {
 }
 
 #[tauri::command]
-pub async fn set_folder_active(ctx: St<'_>, path: String, active: bool, confirm_unknown_license: Option<bool>) -> R<Vec<ActivationResult>> {
-    ctx.run(move |e| e.set_folder_active(&path, active, confirm_unknown_license.unwrap_or(false))).await
+pub async fn set_folder_active(ctx: St<'_>, path: String, active: bool) -> R<Vec<ActivationResult>> {
+    ctx.run(move |e| e.set_folder_active(&path, active)).await
 }
 
 #[tauri::command]
-pub async fn set_folder_auto(ctx: St<'_>, path: String, on: bool, confirm_unknown_license: Option<bool>) -> R<Vec<ActivationResult>> {
-    ctx.run(move |e| e.set_folder_auto(&path, on, confirm_unknown_license.unwrap_or(false))).await
+pub async fn set_folder_auto(ctx: St<'_>, path: String, on: bool) -> R<Vec<ActivationResult>> {
+    ctx.run(move |e| e.set_folder_auto(&path, on)).await
 }
 
 #[tauri::command]
@@ -117,8 +117,8 @@ pub async fn get_family(ctx: St<'_>, key: String) -> R<FamilyDetail> {
 }
 
 #[tauri::command]
-pub async fn set_active(ctx: St<'_>, hashes: Vec<String>, active: bool, confirm_unknown_license: Option<bool>) -> R<Vec<ActivationResult>> {
-    ctx.run(move |e| e.set_active(&hashes, active, confirm_unknown_license.unwrap_or(false))).await
+pub async fn set_active(ctx: St<'_>, hashes: Vec<String>, active: bool) -> R<Vec<ActivationResult>> {
+    ctx.run(move |e| e.set_active(&hashes, active)).await
 }
 
 #[tauri::command]
@@ -221,8 +221,8 @@ pub async fn remove_from_collection(ctx: St<'_>, id: i64, family_keys: Vec<Strin
 }
 
 #[tauri::command]
-pub async fn set_collection_active(ctx: St<'_>, id: i64, active: bool, confirm_unknown_license: Option<bool>) -> R<Vec<ActivationResult>> {
-    ctx.run(move |e| e.set_collection_active(id, active, confirm_unknown_license.unwrap_or(false))).await
+pub async fn set_collection_active(ctx: St<'_>, id: i64, active: bool) -> R<Vec<ActivationResult>> {
+    ctx.run(move |e| e.set_collection_active(id, active)).await
 }
 
 #[tauri::command]
@@ -285,8 +285,8 @@ pub async fn delete_project_set(ctx: St<'_>, id: i64) -> R<Vec<ProjectSet>> {
 }
 
 #[tauri::command]
-pub async fn toggle_project_set(ctx: St<'_>, id: i64, on: bool, confirm_unknown_license: Option<bool>) -> R<Vec<ActivationResult>> {
-    ctx.run(move |e| e.toggle_project_set(id, on, confirm_unknown_license.unwrap_or(false))).await
+pub async fn toggle_project_set(ctx: St<'_>, id: i64, on: bool) -> R<Vec<ActivationResult>> {
+    ctx.run(move |e| e.toggle_project_set(id, on)).await
 }
 
 // ---- Organize, history, health ----

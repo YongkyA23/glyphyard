@@ -2,7 +2,7 @@
 //! checks, project sets and self-repair. The OS is reached only through [`OsFonts`].
 
 use crate::{
-    store, ActivationErrorCode, ActivationResult, Engine, EngineError, Health, Problem, Result, UiEvent,
+    store, ActivationErrorCode, ActivationResult, Engine, Health, Problem, Result, UiEvent,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -243,27 +243,6 @@ impl Engine {
         Ok(false)
     }
 
-    /// Families (display names) among `hashes` whose license is unknown and that would be turned on.
-    fn unlicensed_families(&self, conn: &Connection, hashes: &[String]) -> rusqlite::Result<Vec<String>> {
-        let mut names = Vec::new();
-        for h in hashes {
-            let row: Option<String> = conn
-                .query_row(
-                    "SELECT f.family FROM faces f LEFT JOIN licenses l ON l.family_key = f.family_key
-                     WHERE f.hash = ?1 AND f.idx = (SELECT MIN(idx) FROM faces WHERE hash = ?1)
-                       AND COALESCE(l.label, 'unknown') = 'unknown'
-                       AND NOT EXISTS (SELECT 1 FROM activations WHERE hash = ?1)",
-                    [h],
-                    |r| r.get(0),
-                )
-                .optional()?;
-            if let Some(n) = row.filter(|n| !names.contains(n)) {
-                names.push(n);
-            }
-        }
-        Ok(names)
-    }
-
     /// Turns on `hashes`, at most one file per PostScript name: when the batch has several, the newest
     /// version wins; a single pick (the user chose it) replaces whatever version is active.
     pub(crate) fn activate_hashes(&self, conn: &Connection, hashes: &[String], source: Source) -> Result<Vec<ActivationResult>> {
@@ -431,10 +410,10 @@ impl Engine {
     /// soon as the ledger says so and the OS registration (≈6–10 ms per font on Windows) runs on a
     /// background thread; failures are switched back off and reported with `activation-done`.
     /// Turning off is fast and stays direct.
-    pub fn set_active(&self, hashes: &[String], active: bool, confirm_unknown_license: bool) -> Result<Vec<ActivationResult>> {
+    pub fn set_active(&self, hashes: &[String], active: bool) -> Result<Vec<ActivationResult>> {
         match self.me.get().and_then(std::sync::Weak::upgrade) {
-            Some(me) if active => me.set_active_queued(hashes, confirm_unknown_license),
-            _ => self.set_active_now(hashes, active, confirm_unknown_license),
+            Some(me) if active => me.set_active_queued(hashes),
+            _ => self.set_active_now(hashes, active),
         }
     }
 
@@ -452,15 +431,9 @@ impl Engine {
         }
     }
 
-    fn set_active_queued(self: &Arc<Self>, hashes: &[String], confirm_unknown_license: bool) -> Result<Vec<ActivationResult>> {
+    fn set_active_queued(self: &Arc<Self>, hashes: &[String]) -> Result<Vec<ActivationResult>> {
         let (results, queued, changed) = {
             let db = self.db();
-            if !confirm_unknown_license {
-                let families = self.unlicensed_families(&db, hashes)?;
-                if !families.is_empty() {
-                    return Err(unknown_license(families));
-                }
-            }
             self.claim_activations(&db, hashes, Source::User)?
         };
         if changed {
@@ -584,16 +557,10 @@ impl Engine {
     /// Big selections go in chunks, releasing the database between them so the rest of the app keeps
     /// working, with `activation-progress` events; apps get one font-change broadcast at the end
     /// (Photoshop rebuilds its font list on every one).
-    pub fn set_active_now(&self, hashes: &[String], active: bool, confirm_unknown_license: bool) -> Result<Vec<ActivationResult>> {
+    pub fn set_active_now(&self, hashes: &[String], active: bool) -> Result<Vec<ActivationResult>> {
         const CHUNK: usize = 64;
         let chunks: Vec<Vec<String>> = {
             let db = self.db();
-            if active && !confirm_unknown_license {
-                let families = self.unlicensed_families(&db, hashes)?;
-                if !families.is_empty() {
-                    return Err(unknown_license(families));
-                }
-            }
             if active { ps_grouped_chunks(&db, hashes, CHUNK)? } else { hashes.chunks(CHUNK).map(<[String]>::to_vec).collect() }
         };
         let total = hashes.len();
@@ -622,7 +589,7 @@ impl Engine {
     }
 
     /// Turning a set off keeps fonts that another active set or an admin still needs.
-    pub fn toggle_project_set(&self, id: i64, on: bool, confirm_unknown_license: bool) -> Result<Vec<ActivationResult>> {
+    pub fn toggle_project_set(&self, id: i64, on: bool) -> Result<Vec<ActivationResult>> {
         let results = {
             let db = self.db();
             let name: String = db
@@ -642,12 +609,6 @@ impl Engine {
                     hashes.extend(stmt.query_map([k], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?);
                 }
                 drop(stmt);
-                if !confirm_unknown_license {
-                    let families = self.unlicensed_families(&db, &hashes)?;
-                    if !families.is_empty() {
-                        return Err(unknown_license(families));
-                    }
-                }
                 self.activate_hashes(&db, &hashes, Source::ProjectSet)?
             } else {
                 let mut stmt = db.prepare(
@@ -756,10 +717,6 @@ impl Engine {
 
 fn is_otf(f: &FontFile) -> bool {
     f.path.as_ref().and_then(|p| p.extension()).is_some_and(|e| e.eq_ignore_ascii_case("otf"))
-}
-
-fn unknown_license(families: Vec<String>) -> EngineError {
-    EngineError::new("unknown_license", format!("{} has no license label", families.join(", "))).with("families", families)
 }
 
 pub(crate) fn set_keys(conn: &Connection, id: i64) -> rusqlite::Result<Vec<String>> {
