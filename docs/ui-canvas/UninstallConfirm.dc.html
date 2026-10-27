@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typeshelf · Remove</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400&amp;family=Instrument+Serif:ital@0;1&amp;family=Fraunces:opsz,wght@9..144,600&amp;family=Space+Grotesk:wght@600&amp;family=Bebas+Neue&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+button,input{font:inherit;color:inherit}
+a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid #2547D0;outline-offset:2px}
+@media (prefers-reduced-motion: no-preference){
+  .rise{animation:rise .5s cubic-bezier(.2,.8,.2,1) both}
+  .rise.d2{animation-delay:.08s}.rise.d3{animation-delay:.16s}.rise.d4{animation-delay:.24s}
+  .warn{animation:rise .3s ease both}
+}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.btn{transition:transform .15s ease}
+.btn:hover{transform:translateY(-1px)}
+.btn:active{transform:scale(.97)}
+</style>
+</helmet>
+<div style="width: 760px; height: 480px; display: flex; overflow: hidden; border-radius: 12px; background: #FFFFFF; color: #1C1917; font-family: 'Geist', system-ui, sans-serif; font-size: 14px; box-shadow: 0 0 0 1px rgba(0,0,0,.08);">
+  <aside aria-label="Typeshelf" style="width: 300px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 28px; background: #141210; color: #F5F5F4;">
+    <span style="font-weight: 600; font-size: 14px;">Typeshelf</span>
+    <div aria-hidden="true" style="display: flex; flex-direction: column; gap: 10px; opacity: .55;">
+      <div style="height: 96px; display: flex; align-items: flex-end; justify-content: center; gap: 8px;">
+        <span style="font-family: 'Instrument Serif', serif; font-size: 92px; line-height: .9;">A</span>
+        <span style="font-family: 'Fraunces', serif; font-weight: 600; font-size: 80px; line-height: .9;">g</span>
+        <span style="font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 76px; line-height: .9;">R</span>
+        <span style="font-family: 'Bebas Neue', sans-serif; font-size: 88px; line-height: .9;">3</span>
+      </div>
+      <div style="height: 2px; border-radius: 1px; background: linear-gradient(90deg, transparent, #57534E 10%, #57534E 90%, transparent);"></div>
+    </div>
+    <span style="font-family: 'Instrument Serif', serif; font-style: italic; font-size: 22px; line-height: 1.25; color: #D6D3D1;">Leaving the shelf<br>tidier than we found it.</span>
+  </aside>
+  <main style="flex: 1; position: relative; display: flex; flex-direction: column; padding: 40px 40px 28px;">
+    <button type="button" aria-label="Close" class="btn" style="position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: #57534E; cursor: pointer; font-size: 18px;">×</button>
+    <h1 class="rise" style="margin: 0; font-size: 30px; font-weight: 600; letter-spacing: -.5px;">Remove Typeshelf?</h1>
+    <ul class="rise d2" style="list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px;">
+      <sc-for list="{{facts}}" as="f" hint-placeholder-count="3">
+        <li style="display: flex; gap: 10px; align-items: flex-start; line-height: 1.45;">
+          <span aria-hidden="true" style="margin-top: 2px; width: 18px; height: 18px; flex-shrink: 0; border-radius: 9px; background: #E7F6EC; color: #166534; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;">✓</span>
+          <span>{{f}}</span>
+        </li>
+      </sc-for>
+    </ul>
+    <label class="rise d3" style="margin-top: 20px; display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border: 1px solid #E7E5E4; border-radius: 10px; cursor: pointer;">
+      <input type="checkbox" checked="{{wipe}}" onChange="{{toggleWipe}}" style="margin-top: 2px; width: 16px; height: 16px; accent-color: #B42318;">
+      <span style="display: flex; flex-direction: column; gap: 2px;">
+        <span>Also delete my library data</span>
+        <span style="font-size: 12px; color: #6F6A65;">Collections, tags, project sets, license labels and settings</span>
+      </span>
+    </label>
+    <sc-if value="{{wipe}}" hint-placeholder-val="{{false}}">
+      <p class="warn" role="note" style="margin: 10px 0 0; font-size: 12px; color: #912018;">This can’t be undone. Make a backup first in Settings › Backup.</p>
+    </sc-if>
+    <div class="rise d4" style="margin-top: auto; display: flex; justify-content: flex-end; gap: 8px;">
+      <button type="button" class="btn" style="height: 44px; padding: 0 18px; border: 1px solid #D6D3D1; border-radius: 10px; background: #FFFFFF; cursor: pointer;">Keep Typeshelf</button>
+      <a href="UninstallDone.dc.html" class="btn" style="height: 44px; display: flex; align-items: center; padding: 0 24px; border-radius: 10px; background: #B42318; color: #FFFFFF; text-decoration: none; font-weight: 500;">Remove</a>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":760,"height":480}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { wipe: false };
+  }
+  renderVals() {
+    return {
+      facts: [
+        'The 86 fonts Typeshelf turned on are turned off, cleanly.',
+        'Your font files stay exactly where they are.',
+        'The Adobe plug-ins are removed too.'
+      ],
+      wipe: this.state.wipe,
+      toggleWipe: () => this.setState({ wipe: !this.state.wipe })
+    };
+  }
+}
+</script>
+</body>
+</html>

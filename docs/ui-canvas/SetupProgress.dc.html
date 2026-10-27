@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typeshelf Setup · Installing</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400&amp;family=Instrument+Serif:ital@0;1&amp;family=Fraunces:opsz,wght@9..144,600&amp;family=Space+Grotesk:wght@600&amp;family=Syne:wght@700&amp;family=Bebas+Neue&amp;family=DM+Serif+Display&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+a:focus-visible{outline:2px solid #2547D0;outline-offset:2px}
+@media (prefers-reduced-motion: no-preference){
+  .drop{animation:drop .7s cubic-bezier(.3,1.5,.5,1) both}
+  .bar{transition:width .25s linear}
+  .pop{animation:pop .35s cubic-bezier(.3,1.5,.5,1) both}
+  .spin{animation:spin .8s linear infinite}
+  .rise{animation:rise .4s ease both}
+}
+@keyframes drop{0%{opacity:0;transform:translateY(-70px) rotate(-8deg)}60%{opacity:1}100%{opacity:1;transform:none}}
+@keyframes pop{from{opacity:0;transform:scale(.5)}to{opacity:1;transform:none}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+</style>
+</helmet>
+<div style="width: 760px; height: 480px; display: flex; overflow: hidden; border-radius: 12px; background: #FFFFFF; color: #1C1917; font-family: 'Geist', system-ui, sans-serif; font-size: 14px; box-shadow: 0 0 0 1px rgba(0,0,0,.08);">
+  <aside aria-label="Typeshelf" style="width: 300px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 28px; background: #141210; color: #F5F5F4;">
+    <span style="font-weight: 600; font-size: 14px;">Typeshelf</span>
+    <div aria-hidden="true" style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="height: 96px; display: flex; align-items: flex-end; justify-content: center; gap: 6px;">
+        <sc-for list="{{glyphs}}" as="g" hint-placeholder-count="6">
+          <sc-if value="{{g.shown}}" hint-placeholder-val="{{true}}">
+            <span class="drop" style="font-family: {{g.css}}; font-size: {{g.size}}px; line-height: .9; color: {{g.color}};">{{g.ch}}</span>
+          </sc-if>
+        </sc-for>
+      </div>
+      <div style="height: 2px; border-radius: 1px; background: linear-gradient(90deg, transparent, #57534E 10%, #57534E 90%, transparent);"></div>
+      <span style="text-align: center; font-family: 'Geist Mono', monospace; font-size: 11px; color: #A8A29E;">Putting things on the shelf…</span>
+    </div>
+    <span style="font-family: 'Instrument Serif', serif; font-style: italic; font-size: 22px; line-height: 1.25; color: #D6D3D1;">Every font,<br>on the right shelf.</span>
+  </aside>
+  <main style="flex: 1; display: flex; flex-direction: column; padding: 40px 40px 28px;">
+    <span style="font-size: 12px; font-weight: 500; letter-spacing: 1.2px; text-transform: uppercase; color: #2547D0;">Installing</span>
+    <div style="margin-top: 8px; display: flex; align-items: baseline; gap: 6px;" role="status" aria-live="polite">
+      <span style="font-size: 64px; font-weight: 600; letter-spacing: -2px; font-variant-numeric: tabular-nums; line-height: 1;">{{pct}}</span>
+      <span style="font-size: 24px; font-weight: 500; color: #6F6A65;">%</span>
+    </div>
+    <div role="progressbar" aria-label="Install progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{pct}}" style="margin-top: 18px; height: 6px; border-radius: 3px; background: #EEEDEC; overflow: hidden;">
+      <div class="bar" style="height: 6px; border-radius: 3px; background: #2547D0; width: {{pct}}%;"></div>
+    </div>
+    <ol style="list-style: none; margin: 26px 0 0; padding: 0; display: flex; flex-direction: column; gap: 14px;">
+      <sc-for list="{{steps}}" as="s" hint-placeholder-count="4">
+        <li style="display: flex; align-items: center; gap: 12px; color: {{s.color}};">
+          <span style="width: 20px; height: 20px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
+            <sc-if value="{{s.done}}" hint-placeholder-val="{{false}}">
+              <span class="pop" style="width: 20px; height: 20px; border-radius: 10px; background: #E7F6EC; color: #166534; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;">✓</span>
+            </sc-if>
+            <sc-if value="{{s.active}}" hint-placeholder-val="{{false}}">
+              <span class="spin" style="width: 16px; height: 16px; border-radius: 8px; border: 2px solid #C9D4FA; border-top-color: #2547D0;"></span>
+            </sc-if>
+            <sc-if value="{{s.pending}}" hint-placeholder-val="{{true}}">
+              <span style="width: 8px; height: 8px; border-radius: 4px; background: #D6D3D1;"></span>
+            </sc-if>
+          </span>
+          <span>{{s.label}}</span>
+        </li>
+      </sc-for>
+    </ol>
+    <div style="margin-top: auto; display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+      <span style="font-size: 12px; color: #6F6A65;">Nothing outside your user folder is changed.</span>
+      <sc-if value="{{finished}}" hint-placeholder-val="{{false}}">
+        <a href="SetupDone.dc.html" class="rise" style="height: 44px; display: flex; align-items: center; padding: 0 22px; border-radius: 10px; background: #2547D0; color: #FFFFFF; text-decoration: none; font-weight: 500;">Continue</a>
+      </sc-if>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":760,"height":480}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { pct: 0 };
+  }
+  componentDidMount() {
+    this.timer = setInterval(() => {
+      const next = Math.min(100, this.state.pct + 1 + Math.round(Math.random() * 2));
+      this.setState({ pct: next });
+      if (next >= 100) clearInterval(this.timer);
+    }, 90);
+  }
+  componentWillUnmount() {
+    clearInterval(this.timer);
+  }
+  renderVals() {
+    const p = this.state.pct;
+    const labels = [
+      ['Copying Typeshelf', 45],
+      ['Checking WebView2', 62],
+      ['Preparing Adobe plug-ins', 84],
+      ['Creating shortcuts', 100]
+    ];
+    let prev = 0;
+    const steps = labels.map(([label, end]) => {
+      const done = p >= end;
+      const active = !done && p >= prev;
+      prev = end;
+      return { label, done, active, pending: !done && !active, color: done || active ? '#1C1917' : '#8A847E' };
+    });
+    const glyphs = [
+      ['A', "'Instrument Serif', serif", 92, '#F5F5F4'],
+      ['g', "'Fraunces', serif", 80, '#C7D2FE'],
+      ['R', "'Space Grotesk', sans-serif", 76, '#F5F5F4'],
+      ['&', "'DM Serif Display', serif", 80, '#FDE68A'],
+      ['3', "'Bebas Neue', sans-serif", 88, '#F5F5F4'],
+      ['f', "'Syne', sans-serif", 78, '#A7F3D0']
+    ].map(([ch, css, size, color], i) => ({ ch, css, size, color, shown: p >= i * 17 + 4 }));
+    return { pct: p, steps, glyphs, finished: p >= 100 };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typeshelf Setup · Welcome</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400&amp;family=Instrument+Serif:ital@0;1&amp;family=Fraunces:opsz,wght@9..144,600&amp;family=Space+Grotesk:wght@600&amp;family=Syne:wght@700&amp;display=swap">
+<style>
+body{margin:0}
+*{box-sizing:border-box}
+button{font:inherit;color:inherit}
+a:focus-visible,button:focus-visible{outline:2px solid #7C93F0;outline-offset:2px}
+.cyc{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;opacity:0}
+.cyc:first-child{opacity:1}
+@media (prefers-reduced-motion: no-preference){
+  .cyc{animation:cyc 10s infinite both}
+  .cyc:first-child{opacity:0}
+  .cyc:nth-child(2){animation-delay:2.5s}
+  .cyc:nth-child(3){animation-delay:5s}
+  .cyc:nth-child(4){animation-delay:7.5s}
+  .rise{animation:rise .6s cubic-bezier(.2,.8,.2,1) both}
+  .rise.d2{animation-delay:.08s}.rise.d3{animation-delay:.16s}.rise.d4{animation-delay:.24s}.rise.d5{animation-delay:.32s}
+}
+@keyframes cyc{0%{opacity:0;transform:translateY(18px);filter:blur(6px)}4%{opacity:1;transform:none;filter:none}21%{opacity:1;transform:none;filter:none}25%{opacity:0;transform:translateY(-14px);filter:blur(6px)}100%{opacity:0}}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.btn{transition:transform .15s ease, background-color .2s ease, box-shadow .2s ease}
+.btn:hover{transform:translateY(-1px)}
+.btn:active{transform:scale(.97)}
+</style>
+</helmet>
+<div style="width: 760px; height: 480px; display: flex; overflow: hidden; border-radius: 12px; background: #FFFFFF; color: #1C1917; font-family: 'Geist', system-ui, sans-serif; font-size: 14px; box-shadow: 0 0 0 1px rgba(0,0,0,.08);">
+  <aside aria-label="Typeshelf" style="width: 300px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 28px; background: #141210; color: #F5F5F4;">
+    <span style="font-weight: 600; font-size: 14px; letter-spacing: .2px;">Typeshelf</span>
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 14px;">
+      <div aria-hidden="true" style="position: relative; width: 100%; height: 170px;">
+        <span class="cyc" style="font-family: 'Instrument Serif', serif; font-size: 150px; line-height: 1;">Aa</span>
+        <span class="cyc" style="font-family: 'Fraunces', serif; font-weight: 600; font-size: 132px; line-height: 1;">Aa</span>
+        <span class="cyc" style="font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 132px; line-height: 1;">Aa</span>
+        <span class="cyc" style="font-family: 'Syne', sans-serif; font-weight: 700; font-size: 124px; line-height: 1;">Aa</span>
+      </div>
+      <div aria-hidden="true" style="width: 100%; height: 2px; border-radius: 1px; background: linear-gradient(90deg, transparent, #57534E 15%, #57534E 85%, transparent);"></div>
+      <div aria-hidden="true" style="position: relative; width: 100%; height: 16px; font-family: 'Geist Mono', monospace; font-size: 11px; color: #A8A29E;">
+        <span class="cyc" style="align-items: center;">Instrument Serif</span>
+        <span class="cyc" style="align-items: center;">Fraunces</span>
+        <span class="cyc" style="align-items: center;">Space Grotesk</span>
+        <span class="cyc" style="align-items: center;">Syne</span>
+      </div>
+    </div>
+    <span style="font-family: 'Instrument Serif', serif; font-style: italic; font-size: 22px; line-height: 1.25; color: #D6D3D1;">Every font,<br>on the right shelf.</span>
+  </aside>
+  <main style="flex: 1; position: relative; display: flex; flex-direction: column; padding: 40px 40px 28px;">
+    <button type="button" aria-label="Close setup" class="btn" style="position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: #57534E; cursor: pointer; font-size: 18px; line-height: 1;">×</button>
+    <span class="rise" style="font-size: 12px; font-weight: 500; letter-spacing: 1.2px; text-transform: uppercase; color: #2547D0;">Setup · 0.1.0</span>
+    <h1 class="rise d2" style="margin: 10px 0 0; font-size: 32px; font-weight: 600; letter-spacing: -.6px;">Install Typeshelf</h1>
+    <p class="rise d3" style="margin: 10px 0 0; color: #57534E; line-height: 1.55; max-width: 360px;">A calm home for your fonts. Turn them on and off, keep duplicates in check, and never leave a mess behind.</p>
+    <ul class="rise d4" style="list-style: none; margin: 24px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px;">
+      <li style="display: flex; gap: 12px; align-items: center;">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2547D0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"></path></svg>
+        <span>Just for you. No admin password needed.</span>
+      </li>
+      <li style="display: flex; gap: 12px; align-items: center;">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2547D0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"></rect><rect x="3" y="13" width="18" height="7" rx="2"></rect><path d="M7 7.5h.01M7 16.5h.01"></path></svg>
+        <span>Connects to <span style="font-family: 'Geist Mono', monospace; font-size: 12px;">[your server address]</span></span>
+      </li>
+      <li style="display: flex; gap: 12px; align-items: center;">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2547D0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"></path></svg>
+        <span>About 20 MB · takes a few seconds</span>
+      </li>
+    </ul>
+    <div class="rise d5" style="margin-top: auto; display: flex; flex-direction: column; gap: 12px;">
+      <a href="SetupProgress.dc.html" class="btn" style="height: 48px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: #2547D0; color: #FFFFFF; text-decoration: none; font-weight: 500; font-size: 15px; box-shadow: 0 6px 18px rgba(37,71,208,.28);">Install</a>
+      <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #6F6A65;">
+        <a href="SetupOptions.dc.html" style="color: #2547D0; text-decoration: none; font-size: 13px;">Install options</a>
+        <span>By installing you agree to the <a href="#license" style="color: #57534E;">license</a>.</span>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":760,"height":480}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
