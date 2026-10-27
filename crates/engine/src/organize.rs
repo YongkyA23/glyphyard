@@ -24,10 +24,11 @@ fn change_id(c: &typeshelf_core::organize::Change) -> i64 {
     i64::from_str_radix(&file_hash(&json)[..13], 16).unwrap_or(0)
 }
 
-fn to_trash(path: &Path) -> std::io::Result<()> {
+/// Sends a file or a folder to the Recycle Bin / Trash.
+pub(crate) fn to_trash(path: &Path) -> std::io::Result<()> {
     // Tests must not fill the real Recycle Bin.
     if cfg!(test) {
-        return std::fs::remove_file(path);
+        return if path.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
     }
     trash::delete(path).map_err(std::io::Error::other)
 }
@@ -71,6 +72,7 @@ fn scanned_files(conn: &Connection) -> rusqlite::Result<Vec<ScannedFile>> {
                 axes: serde_json::from_str(&r.get::<_, String>(12)?).unwrap_or_default(),
                 features: serde_json::from_str(&r.get::<_, String>(13)?).unwrap_or_default(),
                 glyph_count: r.get(14)?,
+                metrics: Default::default(),
             },
         ))
     })?;

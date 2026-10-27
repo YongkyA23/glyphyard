@@ -130,6 +130,11 @@ impl Fixture {
         h
     }
 
+    fn hashes_where(&self, filter: FamilyFilter) -> Vec<String> {
+        let q = FamilyQuery { filter, ..Default::default() };
+        self.engine.list_families(&q).unwrap().into_iter().flat_map(|f| f.faces).map(|f| f.hash).collect()
+    }
+
     fn license_all(&self) {
         for f in self.engine.list_families(&FamilyQuery::default()).unwrap() {
             self.engine.set_license(&f.key, License::Licensed, None, None).unwrap();
@@ -743,4 +748,211 @@ fn folder_tree_and_folder_activation() {
     fx.engine.rescan().unwrap();
     assert_eq!(fx.os.registered().len(), 2, "only the new file inside the auto folder is turned on");
     assert!(fx.engine.folder_tree().unwrap()[0].children[0].children[0].auto_activate);
+}
+
+/// Puts arial/times/consola/verdana (those present) in the library; false when one of the first three is missing.
+fn put_mixed(fx: &Fixture) -> bool {
+    for (rel, file) in [("sans/arial.ttf", "arial.ttf"), ("serif/times.ttf", "times.ttf"), ("mono/consola.ttf", "consola.ttf"), ("sans/verdana.ttf", "verdana.ttf")] {
+        match system_font(file) {
+            Some(b) => {
+                fx.put(rel, &b);
+            }
+            None if file != "verdana.ttf" => return false,
+            None => {}
+        }
+    }
+    fx.engine.add_folder(&fx.root).unwrap();
+    true
+}
+
+#[test]
+fn categories_similar_and_random_order() {
+    let fx = fixture!();
+    if !put_mixed(&fx) {
+        return;
+    }
+    assert_eq!(fx.family("Arial").category, Some(Category::Sans));
+    assert_eq!(fx.family("Times New Roman").category, Some(Category::Serif));
+    assert_eq!(fx.family("Consolas").category, Some(Category::Mono));
+    let q = FamilyQuery { category: Some(Category::Mono), ..Default::default() };
+    let mono: Vec<String> = fx.engine.list_families(&q).unwrap().into_iter().map(|f| f.family).collect();
+    assert_eq!(mono, vec!["Consolas"]);
+    assert_eq!(serde_json::to_value(fx.family("Arial")).unwrap()["category"], "sans");
+
+    let arial = fx.family("Arial");
+    let similar = fx.engine.similar_families(&arial.key, 10).unwrap();
+    assert!(!similar.iter().any(|f| f.key == arial.key));
+    assert_ne!(similar[0].family, "Consolas");
+    if system_font("verdana.ttf").is_some() {
+        assert_eq!(similar[0].family, "Verdana");
+    }
+
+    let order = |seed: f64| -> Vec<String> {
+        let q = FamilyQuery { sort: SortBy::Random, seed: Some(seed), ..Default::default() };
+        fx.engine.list_families(&q).unwrap().into_iter().map(|f| f.key).collect()
+    };
+    assert_eq!(order(0.42), order(0.42), "same seed, same order");
+    let mut a = order(0.42);
+    let mut b = order(7.0);
+    a.sort();
+    b.sort();
+    assert_eq!(a, b);
+}
+
+#[test]
+fn hidden_folders_leave_lists() {
+    let fx = fixture!();
+    if !put_mixed(&fx) {
+        return;
+    }
+    let before = fx.engine.library_counts().unwrap().library;
+    let serif = fx.root.join("serif").to_string_lossy().into_owned();
+    let tree = fx.engine.set_folder_hidden(&serif, true).unwrap();
+    assert!(tree[0].children.iter().any(|c| c.name == "serif" && c.hidden));
+    let names = |q: FamilyQuery| -> Vec<String> { fx.engine.list_families(&q).unwrap().into_iter().map(|f| f.family).collect() };
+    let times = "Times New Roman".to_string();
+    assert!(!names(FamilyQuery::default()).contains(&times));
+    assert!(names(FamilyQuery { include_hidden: true, ..Default::default() }).contains(&times));
+    assert_eq!(names(FamilyQuery { path: Some(serif.clone()), ..Default::default() }), vec![times]);
+    assert_eq!(fx.engine.library_counts().unwrap().library, before - 1);
+    fx.engine.set_folder_hidden(&serif, false).unwrap();
+    assert_eq!(fx.engine.library_counts().unwrap().library, before);
+}
+
+#[test]
+fn family_override_survives_reparse() {
+    let fx = fixture!();
+    fx.put("arial.ttf", &system_font("arial.ttf").unwrap());
+    fx.engine.add_folder(&fx.root).unwrap();
+    fx.license_all();
+    let arial = fx.family("Arial");
+    let cols = fx.engine.create_collection("Picks", None).unwrap();
+    let id = cols.iter().find(|c| c.name == "Picks").unwrap().id;
+    fx.engine.add_to_collection(id, std::slice::from_ref(&arial.key)).unwrap();
+    let hashes = fx.hashes("Arial");
+
+    fx.engine.set_family_name(&hashes, Some("My Sans")).unwrap();
+    let mine = fx.family("My Sans");
+    assert_eq!(mine.license, License::Licensed, "a family moved as a whole keeps its license");
+    let q = FamilyQuery { collection_id: Some(id), ..Default::default() };
+    assert_eq!(fx.engine.list_families(&q).unwrap()[0].family, "My Sans");
+    assert_eq!(fx.engine.quick_search("my sans").unwrap().len(), 1);
+
+    // A forced re-read (as after an upgrade) keeps the override.
+    fx.engine.db().execute("UPDATE files SET mtime = -1", []).unwrap();
+    fx.engine.rescan().unwrap();
+    assert_eq!(fx.family("My Sans").key, mine.key);
+    assert!(fx.engine.set_family_name(&hashes, Some("  ")).is_err());
+
+    fx.engine.set_family_name(&hashes, None).unwrap();
+    assert_eq!(fx.family("Arial").key, arial.key);
+    assert_eq!(fx.engine.list_families(&q).unwrap()[0].family, "Arial");
+}
+
+#[test]
+fn reparse_does_not_count_as_arrival() {
+    let fx = fixture!();
+    fx.put("a/arial.ttf", &system_font("arial.ttf").unwrap());
+    fx.engine.add_folder(&fx.root).unwrap();
+    let a = fx.root.join("a").to_string_lossy().into_owned();
+    fx.engine.set_folder_auto(&a, true, true).unwrap();
+    fx.engine.set_folder_active(&a, false, true).unwrap();
+    fx.engine.db().execute("UPDATE files SET mtime = -1", []).unwrap();
+    fx.engine.rescan().unwrap();
+    assert!(fx.os.registered().is_empty(), "same bytes re-read: not turned back on");
+}
+
+#[test]
+fn import_paths_copies_into_imported_fonts() {
+    let fx = fixture!();
+    let Some(times) = system_font("times.ttf") else { return };
+    fx.put("arial.ttf", &system_font("arial.ttf").unwrap());
+    fx.engine.add_folder(&fx.root).unwrap();
+    let drop = fx.root.parent().unwrap().join("drop");
+    std::fs::create_dir_all(drop.join("Kit/sub")).unwrap();
+    std::fs::write(drop.join("Kit/sub/times.ttf"), &times).unwrap();
+    std::fs::write(drop.join("Kit/arial-copy.ttf"), system_font("arial.ttf").unwrap()).unwrap();
+    std::fs::write(drop.join("Kit/readme.txt"), b"x").unwrap();
+    std::fs::write(drop.join("loose.ttf"), &times).unwrap();
+
+    let paths = [drop.join("Kit").to_string_lossy().into_owned(), drop.join("loose.ttf").to_string_lossy().into_owned()];
+    let res = fx.engine.import_paths(&paths).unwrap();
+    assert_eq!((res.imported, res.skipped), (1, 2), "arial is already in the library; loose.ttf has the same bytes as times");
+    let folder = PathBuf::from(&res.folder);
+    assert!(folder.join("Kit/sub/times.ttf").is_file());
+    fx.family("Times New Roman");
+    assert!(fx.engine.folder_tree().unwrap().iter().any(|n| Path::new(&n.path) == folder));
+
+    // Nothing is overwritten: a different file with the same name gets " (2)".
+    let (v2, _) = with_version(&times, "9.99");
+    std::fs::write(drop.join("Kit/sub/times.ttf"), &v2).unwrap();
+    let res = fx.engine.import_paths(&paths[..1]).unwrap();
+    assert_eq!((res.imported, res.skipped), (1, 1));
+    assert!(folder.join("Kit/sub/times (2).ttf").is_file());
+}
+
+#[test]
+fn delete_fonts_and_folders() {
+    let fx = fixture!();
+    if !put_mixed(&fx) {
+        return;
+    }
+    fx.license_all();
+    let arial = fx.hashes("Arial");
+    fx.engine.set_active(&arial, true, false).unwrap();
+    let res = fx.engine.delete_fonts(&arial).unwrap();
+    assert_eq!((res.trashed, res.failed.len()), (1, 0));
+    assert!(fx.os.registered().is_empty());
+    assert!(!fx.root.join("sans/arial.ttf").exists());
+    assert!(!fx.engine.list_families(&FamilyQuery::default()).unwrap().iter().any(|f| f.family == "Arial"));
+
+    // A subfolder: turned off, trashed, root rescanned.
+    let serif = fx.root.join("serif");
+    fx.engine.set_folder_active(&serif.to_string_lossy(), true, false).unwrap();
+    let res = fx.engine.delete_folder(&serif.to_string_lossy()).unwrap();
+    assert_eq!(res.trashed, 1);
+    assert!(!serif.exists() && fx.os.registered().is_empty());
+    assert!(!fx.engine.list_families(&FamilyQuery::default()).unwrap().iter().any(|f| f.family == "Times New Roman"));
+
+    // The watched root goes from the library too; system folders are refused and never touched.
+    fx.engine.delete_folder(&fx.root.to_string_lossy()).unwrap();
+    assert!(fx.engine.list_folders().unwrap().is_empty() && !fx.root.exists());
+    let sys = fx.data.join("os-fonts");
+    std::fs::create_dir_all(&sys).unwrap();
+    std::fs::write(sys.join("arial.ttf"), system_font("arial.ttf").unwrap()).unwrap();
+    *fx.os.0.font_dirs.lock().unwrap() = vec![sys.clone()];
+    fx.engine.rescan().unwrap();
+    assert_eq!(fx.engine.delete_folder(&sys.to_string_lossy()).unwrap_err().code, "not_allowed");
+    assert_eq!(fx.engine.delete_fonts(&fx.hashes_where(FamilyFilter::System)).unwrap().trashed, 0);
+    assert!(sys.join("arial.ttf").is_file());
+}
+
+#[test]
+fn collection_activate_and_export() {
+    let fx = fixture!();
+    if !put_mixed(&fx) {
+        return;
+    }
+    fx.license_all();
+    let cols = fx.engine.create_collection("Parent", None).unwrap();
+    let parent = cols.iter().find(|c| c.name == "Parent").unwrap().id;
+    let cols = fx.engine.create_collection("Child", Some(parent)).unwrap();
+    let child = cols.iter().find(|c| c.name == "Child").unwrap().id;
+    fx.engine.add_to_collection(parent, &[fx.family("Arial").key]).unwrap();
+    fx.engine.add_to_collection(child, &[fx.family("Consolas").key]).unwrap();
+
+    let res = fx.engine.set_collection_active(parent, true, false).unwrap();
+    assert!(res.iter().all(|r| r.ok));
+    assert_eq!(fx.os.registered().len(), 2, "the sub-collection's family too");
+    fx.engine.set_collection_active(parent, false, false).unwrap();
+    assert!(fx.os.registered().is_empty());
+
+    let dest = fx.data.join("out.zip");
+    let res = fx.engine.export_collection(parent, &dest.to_string_lossy()).unwrap();
+    assert_eq!(res.files, 2);
+    let zip = zip::ZipArchive::new(std::fs::File::open(&dest).unwrap()).unwrap();
+    let mut names: Vec<String> = zip.file_names().map(|n| n.unwrap().into_owned()).collect();
+    names.sort();
+    assert_eq!(names, vec!["arial.ttf", "consola.ttf"]);
+    assert_eq!(fx.engine.export_collection(9999, &dest.to_string_lossy()).unwrap_err().code, "not_found");
 }

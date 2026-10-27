@@ -1,22 +1,38 @@
 //! Folders (identity, offline/online, relocation) and incremental scanning.
 
-use crate::{not_found, store, Engine, EngineError, Folder, FolderStatus, Result, UiEvent};
+use crate::organize::to_trash;
+use crate::{not_found, store, DeleteResult, Engine, EngineError, Folder, FolderStatus, ImportResult, Result, UiEvent};
 use notify_debouncer_full::file_id::{get_file_id, FileId};
 use rayon::prelude::*;
 use rusqlite::{params, Connection, OptionalExtension};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use typeshelf_core::organize::is_junk_path;
 use typeshelf_core::{file_hash, parse_faces, FaceInfo};
 use walkdir::WalkDir;
 
-const FONT_EXTS: [&str; 6] = ["ttf", "otf", "ttc", "otc", "woff", "woff2"];
+pub(crate) const FONT_EXTS: [&str; 6] = ["ttf", "otf", "ttc", "otc", "woff", "woff2"];
 /// `folders.managed` for the OS font folders: read-only, always on, never organized.
 pub(crate) const SYSTEM: &str = "system";
+/// `folders.managed` for the app's "Imported fonts" folder (`import_paths`).
+const IMPORTED: &str = "imported";
 
 /// Families are grouped by family name + foundry.
 pub(crate) fn family_key(family: &str, foundry: &str) -> String {
     format!("{}|{}", family.trim().to_lowercase(), foundry.trim().to_lowercase())
+}
+
+/// `name.ext` -> `name (n).ext`; n = 1 leaves the name as it is.
+pub(crate) fn numbered(path: &Path, n: u32) -> PathBuf {
+    if n <= 1 {
+        return path.to_path_buf();
+    }
+    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+    let name = match path.extension() {
+        Some(ext) => format!("{stem} ({n}).{}", ext.to_string_lossy()),
+        None => format!("{stem} ({n})"),
+    };
+    path.with_file_name(name)
 }
 
 fn folder_file_id(path: &Path) -> Option<String> {
@@ -91,19 +107,32 @@ pub(crate) fn prune_faces(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// Inserts or refreshes the faces of one file; a family override (`set_family_name`) wins over the
+/// parsed family name.
 fn insert_faces(conn: &Connection, hash: &str, faces: &[FaceInfo]) -> rusqlite::Result<()> {
+    let over: Option<String> = conn
+        .prepare_cached("SELECT family FROM family_overrides WHERE hash = ?1")?
+        .query_row([hash], |r| r.get(0))
+        .optional()?;
     let mut stmt = conn.prepare_cached(
-        "INSERT OR IGNORE INTO faces (hash, idx, family_key, ps_name, family, style, full_name, version, foundry,
-         designer, weight, italic, is_variable, axes_json, features_json, glyph_count)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+        "INSERT INTO faces (hash, idx, family_key, ps_name, family, style, full_name, version, foundry,
+         designer, weight, italic, is_variable, axes_json, features_json, glyph_count, category, metrics_json, real_family)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+         ON CONFLICT (hash, idx) DO UPDATE SET family_key = excluded.family_key, ps_name = excluded.ps_name,
+           family = excluded.family, style = excluded.style, full_name = excluded.full_name, version = excluded.version,
+           foundry = excluded.foundry, designer = excluded.designer, weight = excluded.weight, italic = excluded.italic,
+           is_variable = excluded.is_variable, axes_json = excluded.axes_json, features_json = excluded.features_json,
+           glyph_count = excluded.glyph_count, category = excluded.category, metrics_json = excluded.metrics_json,
+           real_family = excluded.real_family",
     )?;
     for f in faces {
+        let family = over.as_deref().unwrap_or(&f.family);
         stmt.execute(params![
             hash,
             f.index,
-            family_key(&f.family, &f.foundry),
+            family_key(family, &f.foundry),
             f.ps_name,
-            f.family,
+            family,
             f.style,
             f.full_name,
             f.version,
@@ -115,6 +144,9 @@ fn insert_faces(conn: &Connection, hash: &str, faces: &[FaceInfo]) -> rusqlite::
             serde_json::to_string(&f.axes).unwrap_or_default(),
             serde_json::to_string(&f.features).unwrap_or_default(),
             f.glyph_count,
+            f.metrics.category.map(|c| c.as_str()),
+            serde_json::to_string(&f.metrics).unwrap_or_default(),
+            f.family,
         ])?;
     }
     Ok(())
@@ -299,9 +331,9 @@ impl Engine {
         let (folder, existing) = {
             let db = self.db();
             let folder = folder_row(&db, id)?;
-            let mut stmt = db.prepare("SELECT rel_path, size, mtime FROM files WHERE folder_id = ?1")?;
-            let existing: HashMap<String, (i64, i64)> = stmt
-                .query_map([id], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?
+            let mut stmt = db.prepare("SELECT rel_path, size, mtime, hash FROM files WHERE folder_id = ?1")?;
+            let existing: HashMap<String, (i64, i64, String)> = stmt
+                .query_map([id], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?, r.get(3)?))))?
                 .collect::<rusqlite::Result<_>>()?;
             let dto = folder_dto(&db, &folder, Some(FolderStatus::Scanning))?;
             drop(stmt);
@@ -338,7 +370,7 @@ impl Engine {
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map_or(0, |d| d.as_secs() as i64);
-            if existing.get(&rel) != Some(&(size, mtime)) {
+            if existing.get(&rel).is_none_or(|e| (e.0, e.1) != (size, mtime)) {
                 todo.push((rel.clone(), entry.into_path(), size, mtime));
             }
             seen.insert(rel);
@@ -391,8 +423,12 @@ impl Engine {
             folder_dto(&db, &row, None)?
         };
         self.ui(UiEvent::FolderStatus(dto));
-        let arrived: Vec<(PathBuf, String)> =
-            scanned.iter().filter(|s| !s.faces.is_empty()).map(|s| (root.join(&s.rel), s.hash.clone())).collect();
+        // A file re-read with the same bytes (touched, or a re-parse after an upgrade) did not arrive.
+        let arrived: Vec<(PathBuf, String)> = scanned
+            .iter()
+            .filter(|s| !s.faces.is_empty() && existing.get(&s.rel).is_none_or(|e| e.2 != s.hash))
+            .map(|s| (root.join(&s.rel), s.hash.clone()))
+            .collect();
         if !arrived.is_empty() {
             self.auto_activate(&arrived)?;
         }
@@ -403,6 +439,82 @@ impl Engine {
     pub(crate) fn folders_containing(&self, paths: &[PathBuf]) -> Result<Vec<i64>> {
         let rows = folder_rows(&self.db())?;
         Ok(rows.into_iter().filter(|f| paths.iter().any(|p| p.starts_with(&f.path))).map(|f| f.id).collect())
+    }
+
+    /// Copies dropped font files and folders (recursively; a folder keeps its name as a subfolder)
+    /// into "Imported fonts", skipping files whose bytes are already in the library and never
+    /// overwriting, then scans it.
+    pub fn import_paths(&self, paths: &[String]) -> Result<ImportResult> {
+        let (id, root) = self.managed_folder(IMPORTED, "Imported fonts")?;
+        let mut known: HashSet<String> =
+            self.db().prepare("SELECT DISTINCT hash FROM files")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        let mut res = ImportResult { imported: 0, skipped: 0, folder: root.to_string_lossy().into_owned() };
+        for p in paths.iter().map(Path::new) {
+            let (base, dest_dir) = if p.is_dir() {
+                (p, root.join(p.file_name().unwrap_or_default()))
+            } else {
+                (p.parent().unwrap_or(p), root.clone())
+            };
+            for entry in WalkDir::new(p).into_iter().filter_map(|e| e.ok()).filter(|e| e.file_type().is_file()) {
+                let ext = entry.path().extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                if !FONT_EXTS.contains(&ext.as_str()) {
+                    continue;
+                }
+                let Ok(bytes) = std::fs::read(entry.path()) else {
+                    res.skipped += 1;
+                    continue;
+                };
+                if parse_faces(&bytes).is_err() || !known.insert(file_hash(&bytes)) {
+                    res.skipped += 1;
+                    continue;
+                }
+                let dest = dest_dir.join(entry.path().strip_prefix(base).unwrap_or(entry.path()));
+                let dest = (1..).map(|n| numbered(&dest, n)).find(|d| !d.exists()).unwrap_or(dest);
+                if let Some(parent) = dest.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&dest, &bytes)?;
+                res.imported += 1;
+            }
+        }
+        if res.imported > 0 {
+            self.scan_folder(id)?;
+            self.library_changed("scan");
+        }
+        Ok(res)
+    }
+
+    /// Turns the files off, then sends every copy in the user's folders (and the Imported / Google
+    /// folders) to the Recycle Bin. OS font folders and the shared library are never touched.
+    pub fn delete_fonts(&self, hashes: &[String]) -> Result<DeleteResult> {
+        let copies: Vec<(i64, PathBuf)> = {
+            let db = self.db();
+            self.deactivate_hashes(&db, hashes, typeshelf_protocol::Source::User)?;
+            let mut stmt = db.prepare(
+                "SELECT fo.id, fo.path, fi.rel_path FROM files fi JOIN folders fo ON fo.id = fi.folder_id
+                 WHERE fi.hash = ?1 AND (fo.managed IS NULL OR fo.managed IN ('imported', 'google'))",
+            )?;
+            let mut copies = Vec::new();
+            for h in hashes {
+                let rows = stmt.query_map([h], |r| Ok((r.get(0)?, Path::new(&r.get::<_, String>(1)?).join(r.get::<_, String>(2)?))))?;
+                copies.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+            }
+            copies
+        };
+        let mut res = DeleteResult { trashed: 0, failed: Vec::new() };
+        let mut folders = BTreeSet::new();
+        for (id, path) in copies {
+            folders.insert(id);
+            match to_trash(&path) {
+                Ok(()) => res.trashed += 1,
+                Err(e) => res.failed.push(format!("{}: {e}", path.display())),
+            }
+        }
+        for id in folders {
+            self.scan_folder(id)?;
+        }
+        self.library_changed("scan");
+        Ok(res)
     }
 
     pub(crate) fn managed_folder(&self, kind: &str, dir_name: &str) -> Result<(i64, PathBuf)> {

@@ -368,6 +368,7 @@ mod tests {
             axes: vec![],
             features: vec![],
             glyph_count: 500,
+            metrics: Default::default(),
         }
     }
 

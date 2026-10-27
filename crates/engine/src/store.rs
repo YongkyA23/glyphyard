@@ -97,6 +97,16 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 "#,
     // 2: folders whose new fonts are turned on as they arrive.
     "CREATE TABLE auto_folders (path TEXT PRIMARY KEY);",
+    // 3: metrics + category (mtime -1 makes the next scan re-read every file), hidden folders and
+    // FontBase-style family overrides (`real_family` keeps the parsed name while one applies).
+    r#"
+ALTER TABLE faces ADD COLUMN category TEXT;
+ALTER TABLE faces ADD COLUMN metrics_json TEXT NOT NULL DEFAULT '';
+ALTER TABLE faces ADD COLUMN real_family TEXT;
+CREATE TABLE hidden_folders (path TEXT PRIMARY KEY);
+CREATE TABLE family_overrides (hash TEXT PRIMARY KEY, family TEXT NOT NULL);
+UPDATE files SET mtime = -1;
+"#,
 ];
 
 pub(crate) fn open(path: &Path) -> rusqlite::Result<Connection> {

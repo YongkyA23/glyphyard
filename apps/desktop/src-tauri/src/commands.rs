@@ -21,10 +21,12 @@ type St<'a> = State<'a, Ctx>;
 pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         get_app_state, complete_onboarding, change_name,
-        list_families, family_page, library_counts, get_faces, get_family, set_active,
-        folder_tree, set_folder_active, set_folder_auto,
+        list_families, family_page, library_counts, get_faces, get_family, set_active, similar_families,
+        set_family_name, delete_fonts, import_paths,
+        folder_tree, set_folder_active, set_folder_auto, set_folder_hidden, delete_folder,
         list_folders, add_folder, remove_folder, locate_folder,
         list_collections, create_collection, rename_collection, delete_collection, add_to_collection, remove_from_collection,
+        set_collection_active, export_collection,
         list_tags, set_tags, set_license,
         list_project_sets, save_project_set, delete_project_set, toggle_project_set,
         organize_plan, organize_apply, list_history, undo_history,
@@ -35,7 +37,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         get_connection, test_connection, save_connection, reset_connection,
         quick_search, show_in_folder,
         adobe_status, adobe_install, adobe_remove, adobe_pair_respond, indesign_running,
-        pick_folder, pick_file,
+        pick_folder, pick_file, pick_save_file,
     ]
 }
 
@@ -120,11 +122,41 @@ pub async fn set_active(ctx: St<'_>, hashes: Vec<String>, active: bool, confirm_
 }
 
 #[tauri::command]
+pub async fn similar_families(ctx: St<'_>, key: String, limit: usize) -> R<Vec<Family>> {
+    ctx.run(move |e| e.similar_families(&key, limit)).await
+}
+
+#[tauri::command]
+pub async fn set_family_name(ctx: St<'_>, hashes: Vec<String>, name: Option<String>) -> R<()> {
+    ctx.run(move |e| e.set_family_name(&hashes, name.as_deref())).await
+}
+
+#[tauri::command]
+pub async fn delete_fonts(ctx: St<'_>, hashes: Vec<String>) -> R<DeleteResult> {
+    ctx.run(move |e| e.delete_fonts(&hashes)).await
+}
+
+#[tauri::command]
+pub async fn import_paths(ctx: St<'_>, paths: Vec<String>) -> R<ImportResult> {
+    ctx.run(move |e| e.import_paths(&paths)).await
+}
+
+#[tauri::command]
 pub async fn quick_search(ctx: St<'_>, query: String) -> R<Vec<Face>> {
     ctx.run(move |e| e.quick_search(&query)).await
 }
 
 // ---- Folders ----
+
+#[tauri::command]
+pub async fn set_folder_hidden(ctx: St<'_>, path: String, hidden: bool) -> R<Vec<FolderNode>> {
+    ctx.run(move |e| e.set_folder_hidden(&path, hidden)).await
+}
+
+#[tauri::command]
+pub async fn delete_folder(ctx: St<'_>, path: String) -> R<DeleteResult> {
+    ctx.run(move |e| e.delete_folder(&path)).await
+}
 
 #[tauri::command]
 pub async fn list_folders(ctx: St<'_>) -> R<Vec<Folder>> {
@@ -176,6 +208,16 @@ pub async fn add_to_collection(ctx: St<'_>, id: i64, family_keys: Vec<String>) -
 #[tauri::command]
 pub async fn remove_from_collection(ctx: St<'_>, id: i64, family_keys: Vec<String>) -> R<Vec<Collection>> {
     ctx.run(move |e| e.remove_from_collection(id, &family_keys)).await
+}
+
+#[tauri::command]
+pub async fn set_collection_active(ctx: St<'_>, id: i64, active: bool, confirm_unknown_license: Option<bool>) -> R<Vec<ActivationResult>> {
+    ctx.run(move |e| e.set_collection_active(id, active, confirm_unknown_license.unwrap_or(false))).await
+}
+
+#[tauri::command]
+pub async fn export_collection(ctx: St<'_>, id: i64, dest: String) -> R<ExportResult> {
+    ctx.run(move |e| e.export_collection(id, &dest)).await
 }
 
 #[tauri::command]
@@ -421,9 +463,7 @@ pub async fn pick_folder(app: AppHandle) -> R<Option<String>> {
     Ok(rx.await.ok().flatten().and_then(|p| p.into_path().ok()).map(|p| p.display().to_string()))
 }
 
-#[tauri::command]
-pub async fn pick_file(app: AppHandle, filters: Option<Vec<FileFilter>>) -> R<Option<String>> {
-    let (tx, rx) = oneshot::channel();
+fn file_dialog(app: &AppHandle, filters: Option<Vec<FileFilter>>) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
     let mut dialog = app.dialog().file();
     if let Some(w) = app.get_webview_window("main") {
         dialog = dialog.set_parent(&w);
@@ -432,7 +472,26 @@ pub async fn pick_file(app: AppHandle, filters: Option<Vec<FileFilter>>) -> R<Op
         let ext: Vec<&str> = f.extensions.iter().map(String::as_str).collect();
         dialog = dialog.add_filter(f.name, &ext);
     }
-    dialog.pick_file(move |p| {
+    dialog
+}
+
+#[tauri::command]
+pub async fn pick_file(app: AppHandle, filters: Option<Vec<FileFilter>>) -> R<Option<String>> {
+    let (tx, rx) = oneshot::channel();
+    file_dialog(&app, filters).pick_file(move |p| {
+        let _ = tx.send(p);
+    });
+    Ok(rx.await.ok().flatten().and_then(|p| p.into_path().ok()).map(|p| p.display().to_string()))
+}
+
+#[tauri::command]
+pub async fn pick_save_file(app: AppHandle, default_name: Option<String>, filters: Option<Vec<FileFilter>>) -> R<Option<String>> {
+    let (tx, rx) = oneshot::channel();
+    let mut dialog = file_dialog(&app, filters);
+    if let Some(name) = default_name {
+        dialog = dialog.set_file_name(name);
+    }
+    dialog.save_file(move |p| {
         let _ = tx.send(p);
     });
     Ok(rx.await.ok().flatten().and_then(|p| p.into_path().ok()).map(|p| p.display().to_string()))

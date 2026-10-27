@@ -1,13 +1,17 @@
 //! Library queries: families, detail, collections, tags, licenses, project sets.
 
 use crate::activation::{parse_source_opt, set_keys, version_key};
+use crate::scan::{family_key, numbered};
 use crate::{
-    not_found, store, ActiveState, Axis, Builtin, Collection, Engine, EngineError, Face, Family, FamilyDetail,
-    FamilyFilter, FamilyPage, FamilyQuery, FileRow, FileStatus, LibraryCounts, License, LicenseInfo, ProjectSet, Result, SortBy, TagCount,
+    not_found, store, ActivationResult, ActiveState, Axis, Builtin, Category, Collection, Engine, EngineError, ExportResult, Face,
+    Family, FamilyDetail, FamilyFilter, FamilyPage, FamilyQuery, FileRow, FileStatus, LibraryCounts, License, LicenseInfo,
+    ProjectSet, Result, SortBy, TagCount,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::path::Path;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::path::{Path, PathBuf};
+use typeshelf_core::Metrics;
 use typeshelf_protocol::Source;
 
 /// One face of one file copy.
@@ -35,6 +39,7 @@ struct Row {
     active_path: Option<String>,
     /// The copy lives in an OS font folder, so the OS has it on regardless of the ledger.
     system: bool,
+    category: Option<Category>,
 }
 
 impl Row {
@@ -48,7 +53,7 @@ fn load_rows(conn: &Connection, key: Option<&str>) -> rusqlite::Result<Vec<Row>>
         "SELECT f.hash, f.idx, f.family_key, f.ps_name, f.family, f.style, COALESCE(d.display_name, f.full_name),
                 f.version, f.foundry, f.designer, f.weight, f.italic, f.is_variable, f.glyph_count, f.axes_json,
                 f.features_json, fo.path, fi.rel_path, fi.folder_id, fi.added_at, a.source, a.path,
-                fo.managed IS 'system'
+                fo.managed IS 'system', f.category
          FROM faces f
          JOIN files fi ON fi.hash = f.hash
          JOIN folders fo ON fo.id = fi.folder_id
@@ -81,9 +86,15 @@ fn load_rows(conn: &Connection, key: Option<&str>) -> rusqlite::Result<Vec<Row>>
             source: parse_source_opt(r.get(20)?),
             active_path: r.get(21)?,
             system: r.get(22)?,
+            category: r.get::<_, Option<String>>(23)?.as_deref().and_then(Category::parse),
         })
     })?;
     rows.collect()
+}
+
+/// Rank of the face that stands for its family (lowest wins): upright, weight nearest 400.
+fn rep_rank(weight: f32, italic: bool) -> (bool, u32) {
+    (italic, (weight - 400.0).abs() as u32)
 }
 
 fn licenses(conn: &Connection) -> rusqlite::Result<HashMap<String, License>> {
@@ -157,6 +168,7 @@ fn build_family(key: &str, rows: &[&Row], license: License) -> Family {
         admin_set: faces.iter().any(|f| f.source == Some(Source::Admin)),
         has_duplicates: hashes_by_ps.values().any(|h| h.len() > 1) || paths_by_hash.values().any(|p| p.len() > 1),
         system: rows.iter().all(|r| r.system),
+        category: rows.iter().min_by_key(|r| rep_rank(r.weight, r.italic)).and_then(|r| r.category),
         faces,
     }
 }
@@ -165,6 +177,59 @@ fn matches_search(f: &Family, needle: &str) -> bool {
     f.family.to_lowercase().contains(needle)
         || f.foundry.to_lowercase().contains(needle)
         || f.faces.iter().any(|x| x.ps_name.to_lowercase().contains(needle) || x.full_name.to_lowercase().contains(needle))
+}
+
+/// The shape of a family's representative face, for [`distance`].
+struct Shape {
+    weight: f32,
+    italic: bool,
+    metrics: Metrics,
+}
+
+/// Weighted L1 distance between two families. Every term is about 0-1 over the usual range; a
+/// different category counts double so a sans never ranks behind a mono that happens to be close.
+// ponytail: hand-tuned weights over font metadata; add glyph-outline features (stroke contrast,
+// terminals) if the matches feel off.
+fn distance(a: &Shape, b: &Shape) -> f32 {
+    let (ma, mb) = (&a.metrics, &b.metrics);
+    let flag = |differ: bool, w: f32| if differ { w } else { 0.0 };
+    let mut d = match (ma.category, mb.category) {
+        (Some(x), Some(y)) => flag(x != y, 2.0),
+        (None, None) => 0.0,
+        _ => 1.0,
+    };
+    d += (a.weight - b.weight).abs() / 300.0 + flag(a.italic != b.italic, 0.5);
+    d += (ma.width_class as f32 - mb.width_class as f32).abs() / 4.0;
+    for (x, y, range) in [(ma.x_height, mb.x_height, 0.1), (ma.cap_height, mb.cap_height, 0.1), (ma.avg_width, mb.avg_width, 0.15)] {
+        if x > 0.0 && y > 0.0 {
+            d += (x - y).abs() / range;
+        }
+    }
+    // PANOSE Latin text: serif style, proportion, contrast.
+    let (pa, pb) = (&ma.panose, &mb.panose);
+    if pa[0] == 2 && pb[0] == 2 {
+        d += flag(pa[1] != pb[1], 0.5) + flag(pa[3] != pb[3], 0.5) + (pa[4] as f32 - pb[4] as f32).abs() / 8.0;
+    }
+    d
+}
+
+/// Family keys of a collection and every collection below it.
+fn collection_keys(conn: &Connection, id: i64) -> Result<Vec<String>> {
+    if conn.query_row("SELECT 1 FROM collections WHERE id = ?1", [id], |_| Ok(())).optional()?.is_none() {
+        return Err(not_found("collection"));
+    }
+    let mut stmt = conn.prepare(
+        "WITH RECURSIVE c(id) AS (SELECT ?1 UNION SELECT k.id FROM collections k JOIN c ON k.parent_id = c.id)
+         SELECT DISTINCT family_key FROM collection_items WHERE collection_id IN (SELECT id FROM c)",
+    )?;
+    let keys = stmt.query_map([id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    Ok(keys)
+}
+
+pub(crate) fn hidden_dirs(conn: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare_cached("SELECT path FROM hidden_folders")?;
+    let rows = stmt.query_map([], |r| r.get(0))?;
+    rows.collect()
 }
 
 fn keys_where(conn: &Connection, sql: &str, arg: impl rusqlite::ToSql) -> rusqlite::Result<HashSet<String>> {
@@ -226,6 +291,9 @@ impl Engine {
             None => None,
         };
         let needle = q.search.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_lowercase);
+        let hidden = hidden_dirs(&db)?;
+        let in_hidden = |p: &str| hidden.iter().any(|h| Path::new(p).starts_with(h));
+        let show_hidden = q.include_hidden || q.keys.is_some() || q.path.as_deref().is_some_and(in_hidden);
 
         let mut groups: BTreeMap<&str, Vec<&Row>> = BTreeMap::new();
         for r in &rows {
@@ -238,6 +306,7 @@ impl Engine {
                 || q.keys.as_ref().is_some_and(|k| !k.iter().any(|k| k == key))
                 || q.folder_id.is_some_and(|id| !rows.iter().any(|r| r.folder_id == id))
                 || q.path.as_deref().is_some_and(|p| !rows.iter().any(|r| Path::new(&r.path).starts_with(p)))
+                || (!show_hidden && !hidden.is_empty() && rows.iter().all(|r| in_hidden(&r.path)))
             {
                 continue;
             }
@@ -255,7 +324,10 @@ impl Engine {
                 FamilyFilter::UnknownLicense => fam.license == License::Unknown,
                 FamilyFilter::Duplicates => fam.has_duplicates,
             };
-            if !keep || q.license.is_some_and(|l| l != fam.license) || needle.as_deref().is_some_and(|n| !matches_search(&fam, n)) {
+            if !keep
+                || q.license.is_some_and(|l| l != fam.license)
+                || q.category.is_some_and(|c| fam.category != Some(c))
+                || needle.as_deref().is_some_and(|n| !matches_search(&fam, n)) {
                 continue;
             }
             let added = rows.iter().map(|r| r.added_at.as_str()).max().unwrap_or("");
@@ -267,6 +339,14 @@ impl Engine {
             SortBy::NameDesc => out.sort_by_key(|(f, _)| std::cmp::Reverse(name(f))),
             SortBy::Date => out.sort_by(|a, b| b.1.cmp(a.1).then_with(|| name(&a.0).cmp(&name(&b.0)))),
             SortBy::Foundry => out.sort_by_key(|(f, _)| (f.foundry.to_lowercase(), name(f))),
+            SortBy::Random => {
+                let seed = q.seed.unwrap_or(0.0).to_bits();
+                out.sort_by_cached_key(|(f, _)| {
+                    let mut h = DefaultHasher::new();
+                    (seed, &f.key).hash(&mut h);
+                    h.finish()
+                });
+            }
         }
         Ok(out.into_iter().map(|(f, _)| f).collect())
     }
@@ -293,6 +373,34 @@ impl Engine {
             system,
             licenses,
         })
+    }
+
+    /// Families that look most like `key`, nearest first (system fonts included). See [`distance`].
+    pub fn similar_families(&self, key: &str, limit: usize) -> Result<Vec<Family>> {
+        let shapes: HashMap<String, Shape> = {
+            let db = self.db();
+            let mut stmt = db.prepare(
+                "SELECT family_key, weight, italic, metrics_json FROM faces f WHERE EXISTS (SELECT 1 FROM files WHERE hash = f.hash)",
+            )?;
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, f32>(1)?, r.get::<_, bool>(2)?, r.get::<_, String>(3)?)))?;
+            let mut best: HashMap<String, (f32, bool, String)> = HashMap::new();
+            for row in rows {
+                let (k, weight, italic, json) = row?;
+                if best.get(&k).is_none_or(|b| rep_rank(weight, italic) < rep_rank(b.0, b.1)) {
+                    best.insert(k, (weight, italic, json));
+                }
+            }
+            best.into_iter()
+                .map(|(k, (weight, italic, json))| (k, Shape { weight, italic, metrics: serde_json::from_str(&json).unwrap_or_default() }))
+                .collect()
+        };
+        let me = shapes.get(key).ok_or_else(|| not_found("family"))?;
+        let mut ranked: Vec<(f32, &String)> = shapes.iter().filter(|(k, _)| *k != key).map(|(k, s)| (distance(me, s), k)).collect();
+        ranked.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(b.1)));
+        let keys: Vec<String> = ranked.into_iter().take(limit.min(50)).map(|(_, k)| k.clone()).collect();
+        let mut families = self.list_families(&FamilyQuery { keys: Some(keys.clone()), ..Default::default() })?;
+        families.sort_by_key(|f| keys.iter().position(|k| *k == f.key));
+        Ok(families)
     }
 
     /// Faces by file hash (for previews of fonts found elsewhere, e.g. in a PDF).
@@ -430,6 +538,110 @@ impl Engine {
             }
         }
         self.list_collections()
+    }
+
+    /// Turns every family in the collection and its sub-collections on or off. Turning on leaves a
+    /// font alone when another version of it is already on.
+    pub fn set_collection_active(&self, id: i64, active: bool, confirm_unknown_license: bool) -> Result<Vec<ActivationResult>> {
+        let hashes = {
+            let db = self.db();
+            let keys = collection_keys(&db, id)?;
+            let mut stmt = db.prepare(
+                "SELECT DISTINCT f.hash FROM faces f WHERE f.family_key = ?1
+                   AND EXISTS (SELECT 1 FROM files WHERE hash = f.hash)
+                   AND (?2 = 0 OR NOT EXISTS (SELECT 1 FROM activations a JOIN faces g ON g.hash = a.hash
+                                              WHERE g.ps_name = f.ps_name COLLATE NOCASE))",
+            )?;
+            let mut hashes = Vec::new();
+            for k in &keys {
+                hashes.extend(stmt.query_map(params![k, active], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?);
+            }
+            hashes
+        };
+        self.set_active(&hashes, active, confirm_unknown_license)
+    }
+
+    /// Zips one copy of every font file in the collection (and below), leaving out OS font folders.
+    pub fn export_collection(&self, id: i64, dest: &str) -> Result<ExportResult> {
+        let files: Vec<PathBuf> = {
+            let db = self.db();
+            let keys = collection_keys(&db, id)?;
+            let mut stmt = db.prepare(
+                "SELECT fi.hash, fo.path, fi.rel_path FROM files fi JOIN folders fo ON fo.id = fi.folder_id
+                 WHERE fi.hash IN (SELECT hash FROM faces WHERE family_key = ?1) AND fo.managed IS NOT 'system'
+                 ORDER BY fi.id",
+            )?;
+            let mut seen = HashSet::new();
+            let mut files = Vec::new();
+            for k in &keys {
+                let rows = stmt.query_map([k], |r| Ok((r.get::<_, String>(0)?, Path::new(&r.get::<_, String>(1)?).join(r.get::<_, String>(2)?))))?;
+                for row in rows {
+                    let (hash, path) = row?;
+                    if !seen.contains(&hash) && path.is_file() {
+                        seen.insert(hash);
+                        files.push(path);
+                    }
+                }
+            }
+            files
+        };
+        let zip_err = |e: zip::result::ZipError| EngineError::new("io", e.to_string());
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(dest)?);
+        let mut names = HashSet::new();
+        for path in &files {
+            let file_name = Path::new(path.file_name().unwrap_or_default());
+            let name = (1..)
+                .map(|n| numbered(file_name, n).to_string_lossy().into_owned())
+                .find(|n| names.insert(n.to_lowercase()))
+                .unwrap_or_default();
+            zip.start_file(name, zip::write::SimpleFileOptions::default()).map_err(zip_err)?;
+            std::io::copy(&mut std::fs::File::open(path)?, &mut zip)?;
+        }
+        zip.finish().map_err(zip_err)?;
+        Ok(ExportResult { files: files.len() as u32, path: dest.into() })
+    }
+
+    /// FontBase "override family": these files are listed under `name` (None restores the parsed
+    /// family). Kept in `family_overrides`, so rescans keep it; the font files are never touched.
+    /// A family that moves as a whole takes its collections, tags, license and project sets along.
+    pub fn set_family_name(&self, hashes: &[String], name: Option<&str>) -> Result<()> {
+        let name = name.map(non_empty).transpose()?;
+        {
+            let mut db = self.db();
+            let tx = db.transaction()?;
+            let mut moves = HashSet::new();
+            for h in hashes {
+                match name {
+                    Some(n) => tx.execute("INSERT OR REPLACE INTO family_overrides (hash, family) VALUES (?1, ?2)", params![h, n])?,
+                    None => tx.execute("DELETE FROM family_overrides WHERE hash = ?1", [h])?,
+                };
+                let faces: Vec<(i64, String, String, String)> = tx
+                    .prepare_cached("SELECT idx, family_key, COALESCE(real_family, family), foundry FROM faces WHERE hash = ?1")?
+                    .query_map([h], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+                    .collect::<rusqlite::Result<_>>()?;
+                for (idx, old_key, real, foundry) in faces {
+                    let family = name.unwrap_or(&real);
+                    let key = family_key(family, &foundry);
+                    tx.execute(
+                        "UPDATE faces SET real_family = COALESCE(real_family, family), family = ?3, family_key = ?4
+                         WHERE hash = ?1 AND idx = ?2",
+                        params![h, idx, family, key],
+                    )?;
+                    moves.insert((old_key, key));
+                }
+            }
+            for (old, new) in moves.into_iter().filter(|(o, n)| o != n) {
+                let left: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM faces WHERE family_key = ?1)", [&old], |r| r.get(0))?;
+                if !left {
+                    for table in ["collection_items", "family_tags", "licenses", "project_set_items"] {
+                        tx.execute(&format!("UPDATE OR IGNORE {table} SET family_key = ?2 WHERE family_key = ?1"), params![old, new])?;
+                    }
+                }
+            }
+            tx.commit()?;
+        }
+        self.library_changed("scan");
+        Ok(())
     }
 
     pub fn list_tags(&self) -> Result<Vec<TagCount>> {

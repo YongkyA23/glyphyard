@@ -5,7 +5,7 @@ pub mod face;
 pub mod name_rule;
 pub mod organize;
 
-pub use face::{parse_faces, Axis, FaceInfo, ParseError};
+pub use face::{parse_faces, Axis, Category, FaceInfo, Metrics, ParseError};
 
 /// Content identity of a font file. Two files are "the same font file" only if this matches.
 pub fn file_hash(bytes: &[u8]) -> String {

@@ -31,6 +31,56 @@ pub struct FaceInfo {
     /// OpenType feature tags from GSUB and GPOS, sorted, deduplicated.
     pub features: Vec<String>,
     pub glyph_count: u32,
+    /// Classification and proportions, for the category filter and "similar fonts".
+    #[serde(default)]
+    pub metrics: Metrics,
+}
+
+/// FontBase's font categories.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Category {
+    Serif,
+    Sans,
+    Display,
+    Handwriting,
+    Mono,
+}
+
+impl Category {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Category::Serif => "serif",
+            Category::Sans => "sans",
+            Category::Display => "display",
+            Category::Handwriting => "handwriting",
+            Category::Mono => "mono",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Category> {
+        Some(match s {
+            "serif" => Category::Serif,
+            "sans" => Category::Sans,
+            "display" => Category::Display,
+            "handwriting" => Category::Handwriting,
+            "mono" => Category::Mono,
+            _ => return None,
+        })
+    }
+}
+
+/// OS/2 / post / head numbers; lengths are divided by unitsPerEm (0 when the font does not say).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Metrics {
+    pub category: Option<Category>,
+    pub x_height: f32,
+    pub cap_height: f32,
+    pub avg_width: f32,
+    /// usWidthClass, 1 (ultra-condensed) to 9 (ultra-expanded); 5 is normal.
+    pub width_class: u16,
+    pub panose: [u8; 10],
+    pub fixed_pitch: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -123,12 +173,60 @@ fn face_info(font: &FontRef, index: u32) -> FaceInfo {
         axes,
         features,
         glyph_count: font.maxp().map(|m| m.num_glyphs() as u32).unwrap_or(0),
+        metrics: metrics(font, &family),
         ps_name,
         family,
         style,
         version,
         foundry,
     }
+}
+
+fn metrics(font: &FontRef, family: &str) -> Metrics {
+    let upm = font.head().map(|h| h.units_per_em()).unwrap_or(0).max(1) as f32;
+    let mut m = Metrics {
+        fixed_pitch: font.post().is_ok_and(|p| p.is_fixed_pitch() != 0),
+        width_class: 5,
+        ..Default::default()
+    };
+    let mut family_class = 0;
+    if let Ok(os2) = font.os2() {
+        m.x_height = os2.sx_height().unwrap_or(0).max(0) as f32 / upm;
+        m.cap_height = os2.s_cap_height().unwrap_or(0).max(0) as f32 / upm;
+        m.avg_width = os2.x_avg_char_width().max(0) as f32 / upm;
+        m.width_class = os2.us_width_class().clamp(1, 9);
+        m.panose.iter_mut().zip(os2.panose_10()).for_each(|(d, s)| *d = *s);
+        family_class = (os2.s_family_class() >> 8) as u8;
+    }
+    m.category = category(m.fixed_pitch, &m.panose, family_class, family);
+    m
+}
+
+/// post.isFixedPitch, then PANOSE, then the OS/2 IBM family class, then words in the family name.
+// ponytail: metadata only, no glyph analysis; fonts with blank PANOSE/class and a plain name stay uncategorized.
+pub fn category(fixed_pitch: bool, panose: &[u8; 10], family_class: u8, family: &str) -> Option<Category> {
+    if fixed_pitch || (panose[0] == 2 && panose[3] == 9) {
+        return Some(Category::Mono);
+    }
+    match (panose[0], panose[1]) {
+        (3, _) => return Some(Category::Handwriting),
+        (4 | 5, _) => return Some(Category::Display),
+        (2, 11..=15) => return Some(Category::Sans),
+        (2, 2..=10) => return Some(Category::Serif),
+        _ => {}
+    }
+    match family_class {
+        1..=7 => return Some(Category::Serif),
+        8 => return Some(Category::Sans),
+        9 | 12 => return Some(Category::Display),
+        10 => return Some(Category::Handwriting),
+        _ => {}
+    }
+    let name = family.to_lowercase();
+    [("mono", Category::Mono), ("sans", Category::Sans), ("serif", Category::Serif), ("script", Category::Handwriting), ("hand", Category::Handwriting)]
+        .into_iter()
+        .find(|(word, _)| name.contains(word))
+        .map(|(_, c)| c)
 }
 
 /// "Version 2.005;PS 002.005;hotconv" → "2.005". Falls back to head.fontRevision.
@@ -180,5 +278,27 @@ mod tests {
         assert!(!f.family.is_empty());
         assert!(f.glyph_count > 100);
         assert!(f.weight >= 100.0);
+        assert!(f.metrics.x_height > 0.3 && f.metrics.x_height < 0.7);
+    }
+
+    #[test]
+    fn categories_from_metadata() {
+        let p = |b: [u8; 4]| [b[0], b[1], 0, b[3], 0, 0, 0, 0, 0, 0];
+        assert_eq!(category(true, &[0; 10], 0, "X"), Some(Category::Mono));
+        assert_eq!(category(false, &p([2, 11, 0, 3]), 0, "Arial"), Some(Category::Sans));
+        assert_eq!(category(false, &p([2, 2, 0, 3]), 0, "Times"), Some(Category::Serif));
+        assert_eq!(category(false, &p([2, 2, 0, 9]), 0, "Courier"), Some(Category::Mono));
+        assert_eq!(category(false, &p([3, 0, 0, 0]), 0, "X"), Some(Category::Handwriting));
+        assert_eq!(category(false, &[0; 10], 8, "X"), Some(Category::Sans));
+        assert_eq!(category(false, &[0; 10], 0, "Noto Sans Mono"), Some(Category::Mono));
+        assert_eq!(category(false, &[0; 10], 0, "Plain"), None);
+    }
+
+    #[test]
+    fn categories_of_windows_fonts() {
+        for (file, want) in [("arial.ttf", Category::Sans), ("times.ttf", Category::Serif), ("consola.ttf", Category::Mono)] {
+            let Ok(bytes) = std::fs::read(format!("C:\\Windows\\Fonts\\{file}")) else { continue };
+            assert_eq!(parse_faces(&bytes).unwrap()[0].metrics.category, Some(want), "{file}");
+        }
     }
 }

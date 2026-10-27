@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 pub use typeshelf_core::organize::Change;
-pub use typeshelf_core::Axis;
+pub use typeshelf_core::{Axis, Category};
 pub use typeshelf_protocol::Source;
 
 /// Rejection sent to the UI as `{ code, message, ...extra }`.
@@ -128,6 +128,8 @@ pub struct Family {
     pub has_duplicates: bool,
     /// Every copy is in an OS font folder.
     pub system: bool,
+    /// From the upright, regular-weight face when there is one.
+    pub category: Option<Category>,
     pub faces: Vec<Face>,
 }
 
@@ -192,6 +194,8 @@ pub enum SortBy {
     NameDesc,
     Date,
     Foundry,
+    /// Shuffled by `FamilyQuery::seed`: the same seed gives the same order, so pages line up.
+    Random,
 }
 
 /// Arguments of `list_families`.
@@ -207,8 +211,13 @@ pub struct FamilyQuery {
     pub sort: SortBy,
     /// Only families with a file in this folder or below it (a node of `folder_tree`).
     pub path: Option<String>,
-    /// Only these families (system families included).
+    /// Only these families (system and hidden families included).
     pub keys: Option<Vec<String>>,
+    pub category: Option<Category>,
+    /// For `SortBy::Random`. A JS number, so any float works.
+    pub seed: Option<f64>,
+    /// Also families whose every file is in a hidden folder (implied when `path` is inside one).
+    pub include_hidden: bool,
 }
 
 /// One page of `list_families`.
@@ -238,7 +247,31 @@ pub struct FolderNode {
     pub active_count: u32,
     /// New fonts in this folder are turned on automatically.
     pub auto_activate: bool,
+    /// Hidden by `set_folder_hidden` (its subfolders are hidden with it).
+    pub hidden: bool,
     pub children: Vec<FolderNode>,
+}
+
+/// `export_collection`: the zip written.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ExportResult {
+    pub files: u32,
+    pub path: String,
+}
+
+/// `import_paths`: font files copied into "Imported fonts" and those already in the library.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ImportResult {
+    pub imported: u32,
+    pub skipped: u32,
+    pub folder: String,
+}
+
+/// `delete_fonts` / `delete_folder`: files sent to the Recycle Bin, and "path: reason" for the rest.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DeleteResult {
+    pub trashed: u32,
+    pub failed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
