@@ -1,0 +1,303 @@
+// What you can do to one or more families: the right-click menu, the selection bar's actions and their dialogs,
+// plus dragging families onto a sidebar collection.
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { createPortal } from 'react-dom'
+import { useNavigate } from 'react-router'
+import { AnimatePresence, motion, useMotionValue } from 'motion/react'
+import { api, tagsOf, type Collection, type Family } from './api'
+import type { MenuItem } from './menu'
+import { spring } from './motion'
+import { useApp } from './state'
+import { andList, collectionTree, Dialog, errMsg, plural, PromptDialog, Spinner } from './ui'
+
+const editable = (fams: Family[]) => fams.flatMap((f) => f.faces.filter((x) => !x.system).map((x) => x.hash))
+const allHashes = (fams: Family[]) => fams.flatMap((f) => f.faces.map((x) => x.hash))
+export const famNames = (fams: Family[]) => (fams.length === 1 ? fams[0].family : plural(fams.length, 'family', 'families'))
+
+/** `onChanged(clear)`: refetch; `clear` = the selection no longer matches (fonts deleted or regrouped). */
+export function useFontActions(onChanged: (clear: boolean) => void) {
+  const { app, activate, toast, bump, libVersion } = useApp()
+  const navigate = useNavigate()
+  const [collections, setCollections] = useState<Collection[]>([])
+  const [tagging, setTagging] = useState<Family[] | null>(null)
+  const [renaming, setRenaming] = useState<Family[] | null>(null)
+  const [deleting, setDeleting] = useState<Family[] | null>(null)
+  const [newColl, setNewColl] = useState<Family[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => void api.listCollections().then(setCollections, () => {}), [libVersion])
+  const bin = app.platform === 'macos' ? 'Trash' : 'Recycle Bin'
+  const mod = app.platform === 'macos' ? '⌘' : 'Ctrl+'
+
+  async function setActive(fams: Family[], on: boolean) {
+    const hashes = editable(fams)
+    if (!hashes.length) return
+    const res = await activate((confirm) => api.setActive(hashes, on, confirm))
+    if (res?.some((r) => r.ok)) toast(`${on ? 'Turned on' : 'Turned off'} ${famNames(fams)}`)
+    onChanged(false)
+  }
+  async function addTo(c: { id: number; name: string }, fams: Family[]) {
+    try {
+      await api.addToCollection(c.id, fams.map((f) => f.key))
+      toast(`Added ${famNames(fams)} to ${c.name}`)
+      bump()
+    } catch (e) {
+      toast(errMsg(e))
+    }
+  }
+  async function createAndAdd(name: string, fams: Family[]) {
+    try {
+      const all = await api.createCollection(name, null)
+      const made = all.filter((c) => c.name === name).sort((a, b) => b.id - a.id)[0]
+      if (made) await addTo(made, fams)
+    } catch (e) {
+      toast(errMsg(e))
+    }
+  }
+
+  const collectionItems = (fams: Family[]): MenuItem[] => [
+    ...collectionTree(collections).filter(({ c }) => c.builtin !== 'recent')
+      .map(({ c, depth }): MenuItem => ({ label: `${' '.repeat(depth)}${c.name}`, onSelect: () => addTo(c, fams) })),
+    'sep',
+    { label: 'New collection…', onSelect: () => setNewColl(fams) },
+  ]
+
+  /** The right-click menu for these families. */
+  const menuItems = (fams: Family[]): MenuItem[] => {
+    const one = fams.length === 1 ? fams[0] : null
+    const locked = !editable(fams).length
+    return [
+      { label: 'Activate', hint: `${mod}Shift+A`, disabled: locked || fams.every((f) => f.activeState === 'all'), onSelect: () => setActive(fams, true) },
+      { label: 'Deactivate', hint: `${mod}Shift+D`, disabled: locked || fams.every((f) => f.activeState === 'none'), onSelect: () => setActive(fams, false) },
+      { label: 'Show in folder', disabled: !fams[0]?.faces[0], onSelect: () => api.showInFolder(fams[0].faces[0].path).catch((e) => toast(errMsg(e))) },
+      'sep',
+      { label: 'Add to collection', items: collectionItems(fams) },
+      { label: 'Tags…', onSelect: () => setTagging(fams) },
+      { label: one ? 'Rename family…' : 'Show as one family…', onSelect: () => setRenaming(fams) },
+      'sep',
+      { label: 'Use as Playground font A', disabled: !one, onSelect: () => navigate(`/playground?a=${encodeURIComponent(fams[0].key)}`) },
+      { label: 'Use as Playground font B', disabled: !one, onSelect: () => navigate(`/playground?b=${encodeURIComponent(fams[0].key)}`) },
+      'sep',
+      { label: 'Delete from disk…', danger: true, disabled: locked, onSelect: () => setDeleting(fams) },
+    ]
+  }
+
+  async function rename(name: string | null) {
+    if (!renaming) return
+    try {
+      await api.setFamilyName(allHashes(renaming), name)
+      toast(name ? `Now shown as “${name}”` : 'Back to the font’s own family name')
+      setRenaming(null)
+      onChanged(true)
+    } catch (e) {
+      toast(errMsg(e))
+    }
+  }
+  async function remove() {
+    if (!deleting) return
+    setBusy(true)
+    try {
+      const res = await api.deleteFonts(editable(deleting))
+      toast(`Moved ${plural(res.trashed, 'file')} to the ${bin}${res.failed.length ? ` · ${plural(res.failed.length, 'file')} couldn’t be moved` : ''}`)
+      setDeleting(null)
+      onChanged(true)
+    } catch (e) {
+      toast(errMsg(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const delFiles = deleting ? editable(deleting).length : 0
+  const dialogs = (
+    <>
+      <TagsDialog fams={tagging} onClose={() => setTagging(null)} />
+      <PromptDialog
+        open={!!renaming} onClose={() => setRenaming(null)} onSubmit={rename} confirm="Rename"
+        title={renaming && renaming.length > 1 ? `Show ${famNames(renaming)} as one family` : 'Rename family'}
+        label="Family name in Typeshelf (the font files don’t change)" initial={renaming?.[0]?.family ?? ''}
+      >
+        <button type="button" className="btn link" style={{ marginRight: 'auto', paddingLeft: 0 }} onClick={() => rename(null)}>Reset family name</button>
+      </PromptDialog>
+      <PromptDialog
+        open={!!newColl} onClose={() => setNewColl(null)} title="New collection" label="Name" confirm="Create and add"
+        onSubmit={(name) => (newColl && createAndAdd(name, newColl), setNewColl(null))}
+      />
+      <Dialog open={!!deleting} onClose={() => !busy && setDeleting(null)} title={`Delete ${plural(delFiles, 'font file')} from disk?`}>
+        <p>
+          {andList((deleting ?? []).slice(0, 3).map((f) => f.family))}{(deleting?.length ?? 0) > 3 && ` and ${(deleting?.length ?? 0) - 3} more`}:
+          {' '}{delFiles === 1 ? 'the file is' : `all ${plural(delFiles, 'file')} are`} turned off and moved to the {bin}, including copies in other folders.
+          Fonts in system font folders aren’t touched.
+        </p>
+        <div className="dialog-actions">
+          <button type="button" className="btn" onClick={() => setDeleting(null)} disabled={busy}>Cancel</button>
+          <button type="button" className="btn primary danger-fill" onClick={remove} disabled={busy} aria-busy={busy}>
+            {busy && <Spinner />}Move to {bin}
+          </button>
+        </div>
+      </Dialog>
+    </>
+  )
+  return { menuItems, collectionItems, setActive, addTo, openTags: setTagging, collections, dialogs }
+}
+
+/** Tags for one or more families. Tags only some of them have show as mixed and stay as they are unless clicked. */
+function TagsDialog({ fams, onClose }: { fams: Family[] | null; onClose: () => void }) {
+  const { toast, bump } = useApp()
+  const [cur, setCur] = useState<Map<string, string[]> | null>(null)
+  const [names, setNames] = useState<string[]>([])
+  /** true = every family gets it, false = none, null = leave as is (mixed). */
+  const [want, setWant] = useState<Record<string, boolean | null>>({})
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (!fams) return
+    setCur(null)
+    setDraft('')
+    Promise.all([tagsOf(fams.map((f) => f.key)), api.listTags()]).then(([m, all]) => {
+      const n = fams.length
+      setCur(m)
+      setNames(all.map((t) => t.name))
+      setWant(Object.fromEntries(all.map((t) => {
+        const has = fams.filter((f) => m.get(f.key)?.includes(t.name)).length
+        return [t.name, has === n ? true : has === 0 ? false : null]
+      })))
+    }, (e) => (toast(errMsg(e)), onClose()))
+  }, [fams]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const add = () => {
+    const t = draft.trim()
+    if (!t) return
+    if (!names.includes(t)) setNames((ns) => [...ns, t])
+    setWant((w) => ({ ...w, [t]: true }))
+    setDraft('')
+  }
+  async function save() {
+    if (!fams || !cur) return
+    setBusy(true)
+    try {
+      await Promise.all(fams.map((f) => {
+        const had = cur.get(f.key) ?? []
+        const next = names.filter((t) => want[t] === true || (want[t] === null && had.includes(t)))
+        return next.join('\n') === [...had].sort().join('\n') ? null : api.setTags(f.key, next)
+      }))
+      toast(`Updated tags on ${famNames(fams)}`)
+      bump()
+      onClose()
+    } catch (e) {
+      toast(errMsg(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const count = (t: string) => fams?.filter((f) => cur?.get(f.key)?.includes(t)).length ?? 0
+  return (
+    <Dialog open={!!fams} onClose={onClose} title={fams ? `Tags for ${famNames(fams)}` : 'Tags'}>
+      {!cur ? (
+        <p className="muted" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Spinner /> Loading tags…</p>
+      ) : (
+        <>
+          {names.length > 0 ? (
+            <div className="check-list" role="group" aria-label="Tags">
+              {names.map((t) => (
+                <label key={t} className="check-row">
+                  <input
+                    type="checkbox" checked={want[t] === true} ref={(el) => void (el && (el.indeterminate = want[t] === null))}
+                    onChange={() => setWant((w) => ({ ...w, [t]: w[t] !== true }))}
+                  />
+                  <span style={{ flex: 1 }}>{t}</span>
+                  {want[t] === null && <span className="faint" style={{ fontSize: 12 }}>{count(t)} of {fams?.length}</span>}
+                </label>
+              ))}
+            </div>
+          ) : <p className="muted">No tags yet. Add the first one below.</p>}
+          <form style={{ display: 'flex', gap: 8 }} onSubmit={(e) => (e.preventDefault(), add())}>
+            <label htmlFor="new-tag" className="sr-only">New tag</label>
+            <input id="new-tag" className="input" style={{ flex: 1 }} placeholder="New tag" value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus />
+            <button type="submit" className="btn" disabled={!draft.trim()}>Add</button>
+          </form>
+        </>
+      )}
+      <div className="dialog-actions">
+        <button type="button" className="btn" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn primary" onClick={save} disabled={!cur || busy}>Save tags</button>
+      </div>
+    </Dialog>
+  )
+}
+
+/**
+ * Drag families onto a sidebar collection (`[data-drop-collection]`). Pointer events rather than HTML5 drag and drop:
+ * Tauri's native file drop (used for importing) disables HTML5 drag and drop inside the window on Windows.
+ */
+export function useFamilyDrag(onDrop: (collection: { id: number; name: string }, fams: Family[]) => void) {
+  const [label, setLabel] = useState<string | null>(null)
+  const x = useMotionValue(0), y = useMotionValue(0)
+  const drop = useRef(onDrop)
+  drop.current = onDrop
+
+  const start = useCallback((e: ReactPointerEvent, getFams: () => Family[]) => {
+    if (e.button !== 0 || e.pointerType === 'touch' || (e.target as Element).closest('button, input, select, textarea, label')) return
+    const sx = e.clientX, sy = e.clientY
+    let fams: Family[] | null = null
+    let over: HTMLElement | null = null
+    const setOver = (el: HTMLElement | null) => {
+      if (el === over) return
+      over?.classList.remove('drop-over')
+      el?.classList.add('drop-over')
+      over = el
+    }
+    const move = (ev: PointerEvent) => {
+      if (!fams) {
+        if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 6) return
+        fams = getFams()
+        setLabel(fams.length === 1 ? fams[0].family : `${fams.length} families`)
+        document.body.classList.add('dragging-fonts')
+        getSelection()?.removeAllRanges()
+      }
+      x.set(ev.clientX + 14)
+      y.set(ev.clientY + 10)
+      setOver(document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>('[data-drop-collection]') ?? null)
+    }
+    const end = (ev: Event) => {
+      removeEventListener('pointermove', move)
+      removeEventListener('pointerup', end)
+      removeEventListener('pointercancel', end)
+      removeEventListener('keydown', esc, true)
+      if (!fams) return
+      const target = ev.type === 'pointerup' ? over : null
+      setOver(null)
+      setLabel(null)
+      document.body.classList.remove('dragging-fonts')
+      // The pointerup can still become a click on the row or its link; swallow that one.
+      const stop = (c: Event) => (c.preventDefault(), c.stopPropagation())
+      addEventListener('click', stop, true)
+      setTimeout(() => removeEventListener('click', stop, true), 0)
+      if (target) drop.current({ id: Number(target.dataset.dropCollection), name: target.dataset.dropName ?? '' }, fams)
+    }
+    const esc = (k: KeyboardEvent) => {
+      if (k.key !== 'Escape' || !fams) return
+      k.stopPropagation()
+      end(k)
+    }
+    addEventListener('pointermove', move)
+    addEventListener('pointerup', end)
+    addEventListener('pointercancel', end)
+    addEventListener('keydown', esc, true)
+  }, [x, y])
+
+  const ghost = createPortal(
+    <AnimatePresence>
+      {label && (
+        <motion.div
+          className="drag-ghost" style={{ x, y }} aria-hidden="true"
+          initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }} transition={spring.pop}
+        >
+          {label}
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body,
+  )
+  return { start, ghost }
+}

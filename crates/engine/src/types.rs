@@ -130,6 +130,7 @@ pub struct Family {
     pub system: bool,
     /// From the upright, regular-weight face when there is one.
     pub category: Option<Category>,
+    pub tags: Vec<String>,
     pub faces: Vec<Face>,
 }
 

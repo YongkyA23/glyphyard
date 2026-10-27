@@ -15,6 +15,7 @@ type FontCategory = "serif" | "sans" | "display" | "handwriting" | "mono";
 type Family = { key: string; family: string; foundry: string; styles: number; isVariable: boolean; license: License;
   activeState: "all" | "some" | "none"; adminSet: boolean; hasDuplicates: boolean; system: boolean;
   category: FontCategory | null;  // from the upright regular face: post/PANOSE/OS/2 family class, then name words
+  tags: string[];
   faces: Face[] };
 type Axis = { tag: string; min: number; default: number; max: number };
 type FileRow = { path: string; version: string; status: "active" | "older_version" | "alternate" | "grouped" | "inactive" | "system" };

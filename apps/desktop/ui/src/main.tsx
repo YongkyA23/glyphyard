@@ -20,6 +20,7 @@ import { PdfFonts } from './pages/PdfFonts'
 import { GoogleFonts } from './pages/GoogleFonts'
 import { SettingsPage } from './pages/Settings'
 import { Quick } from './pages/Quick'
+import { PrintCollection } from './pages/Print'
 import { pop, spring } from './motion'
 
 function MainRoutes() {
@@ -29,6 +30,7 @@ function MainRoutes() {
   return (
     <Routes>
       <Route path="/onboarding" element={app.onboarded ? <Navigate to="/" replace /> : <Onboarding />} />
+      <Route path="/print/collection/:id" element={<PrintCollection />} />
       <Route element={<Shell />}>
         <Route index element={<Library />} />
         <Route path="/family/:key" element={<FamilyPage />} />

@@ -12,11 +12,15 @@ export type Face = {
   /** Installed in an OS font folder: always on. */
   system: boolean
 }
+export type FontCategory = 'serif' | 'sans' | 'display' | 'handwriting' | 'mono'
 export type Family = {
   key: string; family: string; foundry: string; styles: number; isVariable: boolean; license: License
   activeState: 'all' | 'some' | 'none'; adminSet: boolean; hasDuplicates: boolean; faces: Face[]
   /** Every copy is in an OS font folder. */
   system: boolean
+  /** From the family's representative face. */
+  category: FontCategory | null
+  tags: string[]
 }
 export type Axis = { tag: string; min: number; default: number; max: number }
 export type FileRow = { path: string; version: string; status: 'active' | 'older_version' | 'alternate' | 'grouped' | 'inactive' | 'system' }
@@ -43,14 +47,17 @@ export type ActivationResult = {
 }
 
 export type FamilyFilter = 'all' | 'active' | 'inactive' | 'admin' | 'unknown_license' | 'duplicates' | 'system'
-export type FamilySort = 'name' | 'name_desc' | 'date' | 'foundry'
+export type FamilySort = 'name' | 'name_desc' | 'date' | 'foundry' | 'random'
 export type ListFamiliesArgs = {
   search?: string; filter?: FamilyFilter; collectionId?: number; folderId?: number; tag?: string; license?: License; sort?: FamilySort
   /** Folder or subfolder path from folderTree. */ path?: string; keys?: string[]
+  category?: FontCategory
+  /** With sort 'random': same seed, same order, so paging is stable. */ seed?: number
+  /** Default false: fonts in hidden folders are left out unless `path` points inside one. */ includeHidden?: boolean
 }
 export type FamilyPage = { items: Family[]; total: number }
 export type LibraryCounts = { library: number; active: number; system: number; licenses: Partial<Record<License, number>> }
-export type FolderNode = { path: string; name: string; fontCount: number; activeCount: number; autoActivate: boolean; children: FolderNode[] }
+export type FolderNode = { path: string; name: string; fontCount: number; activeCount: number; autoActivate: boolean; hidden: boolean; children: FolderNode[] }
 export type Tag = { name: string; count: number }
 export type OrganizePlan = {
   /** What Apply will do. */ changes: OrganizeChange[]
@@ -176,6 +183,27 @@ export const api = {
 
   pickFolder: () => call<string | null>('pick_folder'),
   pickFile: (filters: FileFilter[]) => call<string | null>('pick_file', { filters }),
+  pickSaveFile: (defaultName: string, filters: FileFilter[]) => call<string | null>('pick_save_file', { defaultName, filters }),
+
+  similarFamilies: (key: string, limit: number) => call<Family[]>('similar_families', { key, limit }),
+  setCollectionActive: (id: number, active: boolean, confirmUnknownLicense?: boolean) =>
+    call<ActivationResult[]>('set_collection_active', { id, active, confirmUnknownLicense }),
+  exportCollection: (id: number, dest: string) => call<{ files: number; path: string }>('export_collection', { id, dest }),
+  importPaths: (paths: string[]) => call<{ imported: number; skipped: number; folder: string }>('import_paths', { paths }),
+  /** Show these files under family `name`; null restores the real family. Never edits the files. */
+  setFamilyName: (hashes: string[], name: string | null) => call<void>('set_family_name', { hashes, name }),
+  deleteFonts: (hashes: string[]) => call<{ trashed: number; failed: string[] }>('delete_fonts', { hashes }),
+  setFolderHidden: (path: string, hidden: boolean) => call<FolderNode[]>('set_folder_hidden', { path, hidden }),
+  /** Turns the fonts off and moves the whole folder to the Recycle Bin / Trash; a watched root also leaves the library. */
+  deleteFolder: (path: string) => call<{ trashed: number; failed: string[] }>('delete_folder', { path }),
+}
+
+/** Each family's tags. The contract has no per-family read, so this asks once per existing tag. */
+// ponytail: one list_families per tag; add `tags` to Family/FamilyDetail if tag lists grow large.
+export async function tagsOf(keys: string[]): Promise<Map<string, string[]>> {
+  const out = new Map(keys.map((k) => [k, [] as string[]]))
+  for (const f of await api.listFamilies({ keys, includeHidden: true })) out.set(f.key, f.tags)
+  return out
 }
 
 // ---- Events ----

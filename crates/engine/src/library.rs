@@ -97,6 +97,18 @@ fn rep_rank(weight: f32, italic: bool) -> (bool, u32) {
     (italic, (weight - 400.0).abs() as u32)
 }
 
+/// Tags per family key, sorted.
+// ponytail: reads every tag row; fine for thousands of tags.
+fn tags_of(conn: &Connection) -> rusqlite::Result<HashMap<String, Vec<String>>> {
+    let mut stmt = conn.prepare_cached("SELECT family_key, tag FROM family_tags ORDER BY tag COLLATE NOCASE")?;
+    let mut out: HashMap<String, Vec<String>> = HashMap::new();
+    for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+        let (k, t) = row?;
+        out.entry(k).or_default().push(t);
+    }
+    Ok(out)
+}
+
 fn licenses(conn: &Connection) -> rusqlite::Result<HashMap<String, License>> {
     let mut stmt = conn.prepare_cached("SELECT family_key, label FROM licenses")?;
     let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, License::parse(&r.get::<_, String>(1)?))))?;
@@ -169,6 +181,7 @@ fn build_family(key: &str, rows: &[&Row], license: License) -> Family {
         has_duplicates: hashes_by_ps.values().any(|h| h.len() > 1) || paths_by_hash.values().any(|p| p.len() > 1),
         system: rows.iter().all(|r| r.system),
         category: rows.iter().min_by_key(|r| rep_rank(r.weight, r.italic)).and_then(|r| r.category),
+        tags: Vec::new(), // filled by the caller, which has the tag table loaded
         faces,
     }
 }
@@ -282,6 +295,7 @@ impl Engine {
         let db = self.db();
         let rows = load_rows(&db, None)?;
         let licenses = licenses(&db)?;
+        let tags_by_key = tags_of(&db)?;
         let collection = match q.collection_id {
             Some(id) => Some(keys_where(&db, "SELECT family_key FROM collection_items WHERE collection_id = ?1", id)?),
             None => None,
@@ -310,7 +324,8 @@ impl Engine {
             {
                 continue;
             }
-            let fam = build_family(key, &rows, licenses.get(key).copied().unwrap_or(License::Unknown));
+            let mut fam = build_family(key, &rows, licenses.get(key).copied().unwrap_or(License::Unknown));
+            fam.tags = tags_by_key.get(key).cloned().unwrap_or_default();
             // System-only families stay out of the library lists unless asked for (or collected/tagged/picked).
             if fam.system && q.filter != FamilyFilter::System && collection.is_none() && tagged.is_none() && q.keys.is_none() {
                 continue;
@@ -420,7 +435,8 @@ impl Engine {
         }
         let rows: Vec<&Row> = rows.iter().collect();
         let info = license_info(&db, key)?;
-        let family = build_family(key, &rows, info.label);
+        let mut family = build_family(key, &rows, info.label);
+        family.tags = tags_of(&db)?.remove(key).unwrap_or_default();
         let axes: Vec<Axis> = rows
             .iter()
             .find(|r| r.is_variable)

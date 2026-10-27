@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { animate, AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { api, type Axis, type FamilyDetail, type FileRow, type License, type ProjectSet } from '../api'
+import { api, tagsOf, type Axis, type Family, type FamilyDetail, type FileRow, type License, type ProjectSet } from '../api'
 import { familyStyle } from '../fonts'
-import { cssStagger, dur, easeOut, rise, spring } from '../motion'
+import { cssStagger, dur, easeOut, pop, rise, spring } from '../motion'
 import { useApp } from '../state'
-import { Badge, basename, Chip, Dialog, dirname, errMsg, LicenseBadge, plural, Skel, type Tone } from '../ui'
+import { Badge, basename, CATEGORY_LABEL, Chip, Dialog, dirname, errMsg, LicenseBadge, plural, Skel, useSeen, type Tone } from '../ui'
 
 const AXIS_NAME: Record<string, string> = {
   wght: 'Weight', wdth: 'Width', opsz: 'Optical size', ital: 'Italic', slnt: 'Slant', SOFT: 'Softness', WONK: 'Wonky', GRAD: 'Grade', CASL: 'Casual', MONO: 'Monospace',
@@ -33,8 +33,73 @@ const WATERFALL = [72, 48, 32, 24, 16]
 const axisStep = (a: Axis) => (a.max - a.min > 2 ? 1 : a.max - a.min > 1 ? 0.1 : 1)
 /** Seconds the Play showcase spends sweeping one axis (max → min → default). */
 const SWEEP = 2.4
-const TABS = [['preview', 'Preview'], ['glyphs', 'Glyphs'], ['files', 'Files and versions'], ['license', 'License']] as const
+const TABS = [['preview', 'Preview'], ['glyphs', 'Glyphs'], ['similar', 'Similar'], ['files', 'Files and versions'], ['license', 'License']] as const
 type Tab = (typeof TABS)[number][0]
+
+/** Tag chips with remove buttons, plus an input that suggests existing tags. */
+function TagEditor({ familyKey }: { familyKey: string }) {
+  const { libVersion, toast, bump } = useApp()
+  const [tags, setTags] = useState<string[] | null>(null)
+  const [known, setKnown] = useState<string[]>([])
+  const [draft, setDraft] = useState('')
+  useEffect(() => {
+    tagsOf([familyKey]).then((m) => setTags(m.get(familyKey) ?? []), () => setTags([]))
+    api.listTags().then((t) => setKnown(t.map((x) => x.name)), () => {})
+  }, [familyKey, libVersion])
+
+  async function save(next: string[]) {
+    const prev = tags
+    setTags(next)
+    try {
+      setTags(await api.setTags(familyKey, next))
+      bump()
+    } catch (e) {
+      setTags(prev)
+      toast(errMsg(e))
+    }
+  }
+  if (!tags) return <Skel w={180} h={26} r={13} />
+  return (
+    <div className="tag-editor" role="group" aria-label="Tags">
+      <AnimatePresence initial={false} mode="popLayout">
+        {tags.map((t) => (
+          <motion.span key={t} layout className="tag-chip" {...pop} transition={spring.pop}>
+            <Link to={`/?tag=${encodeURIComponent(t)}`} className="plain-link">#{t}</Link>
+            <button type="button" aria-label={`Remove tag ${t}`} onClick={() => save(tags.filter((x) => x !== t))}>✕</button>
+          </motion.span>
+        ))}
+      </AnimatePresence>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          const t = draft.trim()
+          if (t && !tags.includes(t)) save([...tags, t])
+          setDraft('')
+        }}
+      >
+        <input
+          className="tag-input" list="tag-suggestions" aria-label="Add a tag" placeholder={tags.length ? '+ Tag' : '+ Add a tag'}
+          value={draft} onChange={(e) => setDraft(e.target.value)}
+        />
+        <datalist id="tag-suggestions">{known.filter((t) => !tags.includes(t)).map((t) => <option key={t} value={t} />)}</datalist>
+      </form>
+    </div>
+  )
+}
+
+function SimilarCard({ f, i }: { f: Family; i: number }) {
+  const [ref, seen] = useSeen<HTMLAnchorElement>()
+  const style = seen ? familyStyle(f) : {}
+  return (
+    <Link ref={ref} to={`/family/${encodeURIComponent(f.key)}`} className="select-card similar-card enter" style={cssStagger(i)}>
+      <span aria-hidden="true" style={{ ...style, fontSize: 44, lineHeight: 1.1 }}>Ag</span>
+      <span className="ellipsis" style={{ ...style, fontSize: 18, color: 'var(--ink-2)' }}>{f.family}</span>
+      <span className="faint" style={{ fontSize: 12 }}>
+        {plural(f.styles, 'style')}{f.category && ` · ${CATEGORY_LABEL[f.category]}`} · {f.foundry}
+      </span>
+    </Link>
+  )
+}
 
 export function FamilyPage() {
   const { key = '' } = useParams()
@@ -50,9 +115,14 @@ export function FamilyPage() {
   const [setsOpen, setSetsOpen] = useState(false)
   const [sets, setSets] = useState<ProjectSet[]>([])
   const [playing, setPlaying] = useState(false)
+  const [similar, setSimilar] = useState<Family[] | null>(null)
   const stopPlay = useRef<(() => void) | null>(null)
   const reduce = useReducedMotion()
   useEffect(() => () => stopPlay.current?.(), [key, tab])
+  useEffect(() => {
+    if (tab !== 'similar' || similar) return
+    api.similarFamilies(key, 12).then(setSimilar, (e) => (toast(errMsg(e)), setSimilar([])))
+  }, [tab, key, similar, toast])
 
   useEffect(() => {
     api.getFamily(key).then((f) => {
@@ -143,7 +213,9 @@ export function FamilyPage() {
             <LicenseBadge license={fam.license} />
             {fam.system && <Badge tone="neutral">System font · always on</Badge>}
             {fam.adminSet && <Badge tone="accent">Set by admin</Badge>}
+            {fam.category && <Badge tone="neutral">{CATEGORY_LABEL[fam.category]}</Badge>}
           </div>
+          <TagEditor familyKey={fam.key} />
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           <button type="button" className={allOn ? 'btn primary' : 'btn'} aria-pressed={allOn} onClick={toggleFamily} disabled={fam.system} style={{ fontWeight: 500 }}>
@@ -233,6 +305,17 @@ export function FamilyPage() {
                 <div key={g} className="glyph" style={{ ...previewStyle, ...cssStagger(i) }} title={`U+${g.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`}>{g}</div>
               ))}
             </div>
+          </div>
+        )}
+
+        {tab === 'similar' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>Fonts in your library that look close to {fam.family}, most similar first.</p>
+            <div className="similar-grid">
+              {similar === null && [0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="select-card similar-card"><Skel w={60} h={40} /><Skel w="70%" h={14} /><Skel w="50%" h={10} /></div>)}
+              {similar?.map((f, i) => <SimilarCard key={f.key} f={f} i={i} />)}
+            </div>
+            {similar?.length === 0 && <p className="faint" style={{ margin: 0 }}>No similar fonts found.</p>}
           </div>
         )}
 

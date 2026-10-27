@@ -1,11 +1,15 @@
 // Small shared pieces: switches, chips, badges, dialog, formatting.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { animate, AnimatePresence, motion, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
-import { api, type Family, type License } from './api'
+import { api, type Collection, type Family, type FontCategory, type License } from './api'
 import { dur, easeOut, pop, spring } from './motion'
 
 export const LICENSE_LABEL: Record<License, string> = {
   licensed: 'Licensed', personal: 'Personal use', client: 'Client-provided', unknown: 'Unknown license',
+}
+
+export const CATEGORY_LABEL: Record<FontCategory, string> = {
+  serif: 'Serif', sans: 'Sans', display: 'Display', handwriting: 'Handwriting', mono: 'Mono',
 }
 
 export const num = (n: number) => n.toLocaleString('en-US')
@@ -41,6 +45,14 @@ export function formatShortcut(s: string, platform: 'windows' | 'macos') {
     .replace(/\bAlt\b/i, mac ? 'Option' : 'Alt')
     .split('+')
     .join(' + ')
+}
+
+/** Collections in tree order (each parent followed by its sub-collections) with their depth. */
+export function collectionTree(all: Collection[]): { c: Collection; depth: number }[] {
+  const ids = new Set(all.map((c) => c.id))
+  const walk = (parent: number | null, depth: number): { c: Collection; depth: number }[] =>
+    all.filter((c) => (parent === null ? c.parentId === null || !ids.has(c.parentId) : c.parentId === parent)).flatMap((c) => [{ c, depth }, ...walk(c.id, depth + 1)])
+  return walk(null, 0)
 }
 
 /** "A", "A and B", "A, B and C" */
@@ -131,6 +143,36 @@ export function Dialog({ open, onClose, title, children, wide }: { open: boolean
         )}
       </AnimatePresence>
     </dialog>
+  )
+}
+
+/** Dialog that asks for one line of text (names). Submits trimmed, non-empty values only. */
+export function PromptDialog({ open, title, label, initial = '', confirm, onClose, onSubmit, children }: {
+  open: boolean; title: string; label: string; initial?: string; confirm: string; onClose: () => void; onSubmit: (value: string) => void; children?: ReactNode
+}) {
+  return (
+    <Dialog open={open} onClose={onClose} title={title}>
+      <PromptForm {...{ label, initial, confirm, onClose, onSubmit, children }} />
+    </Dialog>
+  )
+}
+/** Mounts each time the dialog opens, so the field starts at `initial` with the text selected. */
+function PromptForm({ label, initial, confirm, onClose, onSubmit, children }: {
+  label: string; initial: string; confirm: string; onClose: () => void; onSubmit: (value: string) => void; children?: ReactNode
+}) {
+  const [value, setValue] = useState(initial)
+  return (
+    <form style={{ display: 'contents' }} onSubmit={(e) => (e.preventDefault(), value.trim() && onSubmit(value.trim()))}>
+      <label className="field-label">
+        {label}
+        <input className="input" value={value} onChange={(e) => setValue(e.target.value)} autoFocus onFocus={(e) => e.target.select()} />
+      </label>
+      <div className="dialog-actions">
+        {children}
+        <button type="button" className="btn" onClick={onClose}>Cancel</button>
+        <button type="submit" className="btn primary" disabled={!value.trim()}>{confirm}</button>
+      </div>
+    </form>
   )
 }
 

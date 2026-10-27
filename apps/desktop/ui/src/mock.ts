@@ -1,7 +1,7 @@
 // In-memory backend used when the UI runs in a normal browser (no Tauri). Sample data comes from the design mockups.
 // Dev helpers on window.typeshelfMock: emit(event, payload), setOffline(bool).
 import type {
-  ActivationResult, AdobeRow, AppState, Collection, Connection, Face, Family, FamilyDetail, FileRow, Folder,
+  ActivationResult, AdobeRow, AppState, Collection, Connection, Face, Family, FamilyDetail, FileRow, Folder, FolderNode, FontCategory,
   GoogleFont, HistoryEntry, License, ListFamiliesArgs, OrganizeChange, PdfFont, ProjectSet, Settings,
 } from './api'
 
@@ -15,32 +15,34 @@ const WEIGHT_NAMES: Record<number, string> = { 100: 'Thin', 200: 'ExtraLight', 3
 type Seed = {
   family: string; foundry: string; designer: string; license: License; folder: string; weights: number[]; italics?: boolean
   variable?: boolean; admin?: boolean; dupe?: boolean; on: boolean; addedDaysAgo: number; axes?: FamilyDetail['axes']; features: string[]
+  category: FontCategory
 }
 const SEEDS: Seed[] = [
-  { family: 'Fraunces', foundry: 'Undercase Type', designer: 'Phaedra Charles, Flavia Zimbardi', license: 'licensed', folder: 'D:\\Fonts\\Licensed', weights: [400], italics: true, variable: true, admin: true, on: true, addedDaysAgo: 2,
+  { family: 'Fraunces', category: 'serif', foundry: 'Undercase Type', designer: 'Phaedra Charles, Flavia Zimbardi', license: 'licensed', folder: 'D:\\Fonts\\Licensed', weights: [400], italics: true, variable: true, admin: true, on: true, addedDaysAgo: 2,
     axes: [{ tag: 'wght', min: 100, default: 600, max: 900 }, { tag: 'opsz', min: 9, default: 72, max: 144 }, { tag: 'SOFT', min: 0, default: 50, max: 100 }, { tag: 'WONK', min: 0, default: 0, max: 1 }],
     features: ['liga', 'onum', 'frac', 'smcp'] },
-  { family: 'Space Grotesk', foundry: 'Florian Karsten', designer: 'Florian Karsten', license: 'licensed', folder: 'D:\\Fonts\\Licensed', weights: [300, 400, 500, 600, 700], admin: true, on: true, addedDaysAgo: 2, features: ['liga', 'ss01', 'ss02', 'tnum'] },
-  { family: 'Instrument Serif', foundry: 'Instrument', designer: 'Rodrigo Fuenzalida', license: 'personal', folder: 'D:\\Fonts\\Client work', weights: [400], italics: true, on: false, addedDaysAgo: 30, features: ['liga', 'onum'] },
-  { family: 'DM Serif Display', foundry: 'Colophon', designer: 'Colophon Foundry', license: 'client', folder: 'D:\\Fonts\\Client work', weights: [400], italics: true, on: true, addedDaysAgo: 12, features: ['liga', 'dlig'] },
-  { family: 'Archivo Black', foundry: 'Omnibus-Type', designer: 'Héctor Gatti', license: 'unknown', folder: 'E:\\Archive', weights: [400], on: false, addedDaysAgo: 120, features: ['liga'] },
-  { family: 'IBM Plex Mono', foundry: 'IBM', designer: 'Mike Abbink, Bold Monday', license: 'licensed', folder: 'D:\\Fonts\\Licensed', weights: [100, 200, 300, 400, 500, 600, 700], italics: true, on: true, addedDaysAgo: 60, features: ['zero', 'ss01', 'frac'] },
-  { family: 'Bebas Neue', foundry: 'Dharma Type', designer: 'Ryoichi Tsunekawa', license: 'unknown', folder: 'D:\\Fonts\\Client work', weights: [400], dupe: true, on: false, addedDaysAgo: 8, features: ['kern'] },
-  { family: 'Syne', foundry: 'Bonjour Monde', designer: 'Lucas Descroix', license: 'licensed', folder: 'D:\\Fonts\\Licensed', weights: [400, 500, 600, 700, 800], admin: true, on: true, addedDaysAgo: 2, features: ['liga', 'ss01'] },
-  { family: 'Bricolage Grotesque', foundry: 'Mathieu Triay', designer: 'Mathieu Triay', license: 'licensed', folder: 'D:\\Fonts\\Licensed', weights: [400], variable: true, on: false, addedDaysAgo: 40,
+  { family: 'Space Grotesk', category: 'sans', foundry: 'Florian Karsten', designer: 'Florian Karsten', license: 'licensed', folder: 'D:\\Fonts\\Licensed', weights: [300, 400, 500, 600, 700], admin: true, on: true, addedDaysAgo: 2, features: ['liga', 'ss01', 'ss02', 'tnum'] },
+  { family: 'Instrument Serif', category: 'serif', foundry: 'Instrument', designer: 'Rodrigo Fuenzalida', license: 'personal', folder: 'D:\\Fonts\\Client work', weights: [400], italics: true, on: false, addedDaysAgo: 30, features: ['liga', 'onum'] },
+  { family: 'DM Serif Display', category: 'display', foundry: 'Colophon', designer: 'Colophon Foundry', license: 'client', folder: 'D:\\Fonts\\Client work', weights: [400], italics: true, on: true, addedDaysAgo: 12, features: ['liga', 'dlig'] },
+  { family: 'Archivo Black', category: 'display', foundry: 'Omnibus-Type', designer: 'Héctor Gatti', license: 'unknown', folder: 'E:\\Archive', weights: [400], on: false, addedDaysAgo: 120, features: ['liga'] },
+  { family: 'IBM Plex Mono', category: 'mono', foundry: 'IBM', designer: 'Mike Abbink, Bold Monday', license: 'licensed', folder: 'D:\\Fonts\\Licensed', weights: [100, 200, 300, 400, 500, 600, 700], italics: true, on: true, addedDaysAgo: 60, features: ['zero', 'ss01', 'frac'] },
+  { family: 'Bebas Neue', category: 'display', foundry: 'Dharma Type', designer: 'Ryoichi Tsunekawa', license: 'unknown', folder: 'D:\\Fonts\\Client work', weights: [400], dupe: true, on: false, addedDaysAgo: 8, features: ['kern'] },
+  { family: 'Syne', category: 'display', foundry: 'Bonjour Monde', designer: 'Lucas Descroix', license: 'licensed', folder: 'D:\\Fonts\\Licensed', weights: [400, 500, 600, 700, 800], admin: true, on: true, addedDaysAgo: 2, features: ['liga', 'ss01'] },
+  { family: 'Bricolage Grotesque', category: 'sans', foundry: 'Mathieu Triay', designer: 'Mathieu Triay', license: 'licensed', folder: 'D:\\Fonts\\Licensed', weights: [400], variable: true, on: false, addedDaysAgo: 40,
     axes: [{ tag: 'wght', min: 200, default: 400, max: 800 }, { tag: 'opsz', min: 12, default: 14, max: 96 }], features: ['liga', 'ss01'] },
-  { family: 'Familjen Grotesk', foundry: 'Familjen STHLM', designer: 'Familjen STHLM', license: 'licensed', folder: 'D:\\Fonts\\Licensed', weights: [400, 500, 600, 700], on: false, addedDaysAgo: 50, features: ['liga'] },
-  { family: 'Schibsted Grotesk', foundry: 'Bakken & Bæck', designer: 'Bakken & Bæck', license: 'personal', folder: 'D:\\Fonts\\Client work', weights: [400], variable: true, on: false, addedDaysAgo: 70,
+  { family: 'Familjen Grotesk', category: 'sans', foundry: 'Familjen STHLM', designer: 'Familjen STHLM', license: 'licensed', folder: 'D:\\Fonts\\Licensed', weights: [400, 500, 600, 700], on: false, addedDaysAgo: 50, features: ['liga'] },
+  { family: 'Schibsted Grotesk', category: 'sans', foundry: 'Bakken & Bæck', designer: 'Bakken & Bæck', license: 'personal', folder: 'D:\\Fonts\\Client work', weights: [400], variable: true, on: false, addedDaysAgo: 70,
     axes: [{ tag: 'wght', min: 400, default: 400, max: 900 }], features: ['liga', 'tnum'] },
-  { family: 'Hanken Grotesk', foundry: 'Hanken Design Co.', designer: 'Alfredo Marco Pradil', license: 'unknown', folder: 'D:\\Fonts\\Client work', weights: [400], variable: true, on: false, addedDaysAgo: 90,
+  { family: 'Hanken Grotesk', category: 'sans', foundry: 'Hanken Design Co.', designer: 'Alfredo Marco Pradil', license: 'unknown', folder: 'D:\\Fonts\\Client work', weights: [400], variable: true, on: false, addedDaysAgo: 90,
     axes: [{ tag: 'wght', min: 100, default: 400, max: 900 }], features: ['liga'] },
+  { family: 'Caveat', category: 'handwriting', foundry: 'Impallari Type', designer: 'Pablo Impallari', license: 'licensed', folder: 'D:\\Fonts\\Client work', weights: [400, 700], on: false, addedDaysAgo: 15, features: ['liga', 'calt'] },
 ]
 
 let hashN = 0
 const nextHash = () => (++hashN).toString(16).padStart(8, '0') + 'b3a1c9e2'
 const keyOf = (family: string) => family.toLowerCase().replace(/\s+/g, '-')
 
-type Fam = Family & Omit<FamilyDetail, keyof Family> & { addedAt: number; tags: string[] }
+type Fam = Family & Omit<FamilyDetail, keyof Family> & { addedAt: number; original: string }
 
 const families: Fam[] = SEEDS.map((s) => {
   const dir = `${s.folder}\\${s.foundry}\\${s.family}`
@@ -65,14 +67,14 @@ const families: Fam[] = SEEDS.map((s) => {
   if (s.family === 'Space Grotesk') files.push({ path: 'D:\\Fonts\\Client work\\SpaceGrotesk-Medium.ttf', version: '1.000', status: 'alternate' })
   return {
     key: keyOf(s.family), family: s.family, foundry: s.foundry, styles: faces.length, isVariable: !!s.variable,
-    license: s.license, activeState: s.on ? 'all' : 'none', adminSet: !!s.admin, hasDuplicates: !!s.dupe, system: false, faces,
+    license: s.license, activeState: s.on ? 'all' : 'none', adminSet: !!s.admin, hasDuplicates: !!s.dupe, system: false, faces, category: s.category,
     axes: s.axes ?? [], features: s.features, glyphCount: s.family === 'Fraunces' ? 612 : 380 + s.family.length * 11, designer: s.designer, files,
     licenseInfo: {
       label: s.license,
       file: s.license === 'licensed' ? `${dir}\\OFL.txt` : null,
       note: s.license === 'licensed' ? 'Free for commercial use, including logos.' : '',
     },
-    addedAt: Date.now() - s.addedDaysAgo * day, tags: [],
+    addedAt: Date.now() - s.addedDaysAgo * day, tags: s.category === 'display' ? ['headline'] : [], original: s.family,
   }
 })
 // Fraunces ships 9 static styles grouped with the variable one; the mockup counts them as "9 styles".
@@ -89,7 +91,7 @@ const refreshState = (f: Fam) => {
   })
 }
 const toFamily = (f: Fam): Family => {
-  const { axes: _a, features: _f, glyphCount: _g, designer: _d, files: _fi, licenseInfo: _l, addedAt: _ad, tags: _t, ...rest } = f
+  const { axes: _a, features: _f, glyphCount: _g, designer: _d, files: _fi, licenseInfo: _l, addedAt: _ad, original: _o, ...rest } = f
   return clone(rest)
 }
 
@@ -224,9 +226,37 @@ function activate(hashes: string[], active: boolean, confirm?: boolean): Activat
   return results
 }
 
+const hiddenPaths = new Set<string>()
+const autoPaths = new Set<string>()
+const inside = (path: string, dir: string) => path === dir || path.startsWith(dir + '\\')
+const isHidden = (path: string) => [...hiddenPaths].some((h) => inside(path, h))
+/** One level of subfolders (the foundry folders) under each watched folder. */
+function folderTree(): FolderNode[] {
+  const node = (path: string, name: string, faces: Face[], fontCount: number, children: FolderNode[]): FolderNode => ({
+    path, name, fontCount, activeCount: faces.filter((x) => x.active).length, autoActivate: autoPaths.has(path), hidden: hiddenPaths.has(path), children,
+  })
+  return folders.map((d) => {
+    const subs = new Map<string, Face[]>()
+    families.flatMap((f) => f.faces).filter((x) => x.path.startsWith(d.path + '\\')).forEach((x) => {
+      const p = d.path + '\\' + x.path.slice(d.path.length + 1).split('\\')[0]
+      if (p !== x.path) subs.set(p, [...(subs.get(p) ?? []), x])
+    })
+    return node(d.path, d.path, [...subs.values()].flat(), d.fontCount, [...subs].map(([p, fs]) => node(p, p.split('\\').pop()!, fs, fs.length, [])))
+  })
+}
+/** Deterministic shuffle key: a hash of family key + seed. */
+const seeded = (key: string, seed: number) => {
+  let h = seed | 0
+  for (const c of key) h = Math.imul(h ^ c.charCodeAt(0), 2654435761)
+  return (h ^ (h >>> 15)) >>> 0
+}
+
 function listFamilies(a: ListFamiliesArgs): Family[] {
   const q = a.search?.trim().toLowerCase()
+  const showHidden = a.includeHidden || (a.path != null && isHidden(a.path)) || a.keys != null
   let out = families.filter((f) => {
+    if (!showHidden && f.faces.every((x) => isHidden(x.path))) return false
+    if (a.category && f.category !== a.category) return false
     if (q && !`${f.family} ${f.foundry}`.toLowerCase().includes(q)) return false
     switch (a.filter) {
       case 'active': if (f.activeState === 'none') return false; break
@@ -248,9 +278,30 @@ function listFamilies(a: ListFamiliesArgs): Family[] {
     return true
   })
   const by = { name: (x: Fam, y: Fam) => x.family.localeCompare(y.family), name_desc: (x: Fam, y: Fam) => y.family.localeCompare(x.family),
-    date: (x: Fam, y: Fam) => y.addedAt - x.addedAt, foundry: (x: Fam, y: Fam) => x.foundry.localeCompare(y.foundry) }
+    date: (x: Fam, y: Fam) => y.addedAt - x.addedAt, foundry: (x: Fam, y: Fam) => x.foundry.localeCompare(y.foundry),
+    random: (x: Fam, y: Fam) => seeded(x.key, a.seed ?? 0) - seeded(y.key, a.seed ?? 0) }
   out = [...out].sort(by[a.sort ?? 'name'])
   return out.map(toFamily)
+}
+
+/** Drops matching faces (and families left empty); returns how many went. */
+function removeFaces(match: (x: Face) => boolean) {
+  let n = 0
+  for (let i = families.length - 1; i >= 0; i--) {
+    const f = families[i]
+    const keep = f.faces.filter((x) => !match(x))
+    if (keep.length === f.faces.length) continue
+    n += f.faces.length - keep.length
+    f.faces = keep
+    f.styles = keep.length
+    f.files = f.files.filter((r) => keep.some((x) => x.path === r.path))
+    if (keep.length) refreshState(f)
+    else {
+      families.splice(i, 1)
+      Object.values(collItems).forEach((set) => set.delete(f.key))
+    }
+  }
+  return n
 }
 
 const delay = () => new Promise((r) => setTimeout(r, 60 + Math.random() * 140))
@@ -287,14 +338,70 @@ const handlers: Record<string, (a: Args) => unknown> = {
     return { library: all.length, active: all.filter((f) => f.activeState !== 'none').length, system: 0, licenses }
   },
   get_faces: ({ hashes }) => families.flatMap((f) => f.faces).filter((x) => hashes.includes(x.hash)),
-  folder_tree: () => folders.map((d) => ({ path: d.path, name: d.path, fontCount: d.fontCount, activeCount: 0, autoActivate: false, children: [] })),
+  folder_tree: () => folderTree(),
   set_folder_active: ({ path, active, confirmUnknownLicense }) =>
     activate(families.flatMap((f) => f.faces).filter((x) => x.path.startsWith(path)).map((x) => x.hash), active, confirmUnknownLicense),
-  set_folder_auto: () => [],
+  set_folder_auto: ({ path, on: auto, confirmUnknownLicense }) => {
+    const res = auto ? activate(families.flatMap((f) => f.faces).filter((x) => inside(x.path, path)).map((x) => x.hash), true, confirmUnknownLicense) : []
+    if (auto) autoPaths.add(path)
+    else autoPaths.delete(path)
+    emit('library-changed', { reason: 'scan' })
+    return res
+  },
+  set_folder_hidden: ({ path, hidden }) => {
+    if (hidden) hiddenPaths.add(path)
+    else hiddenPaths.delete(path)
+    emit('library-changed', { reason: 'scan' })
+    return folderTree()
+  },
+  delete_folder: ({ path }) => {
+    const trashed = removeFaces((x) => inside(x.path, path))
+    folders = folders.filter((d) => !inside(d.path, path))
+    emit('library-changed', { reason: 'scan' })
+    return { trashed, failed: [] }
+  },
+  similar_families: ({ key, limit }) => {
+    const me = fam(key)
+    if (!me) throw err('not_found', 'This font family is no longer in your library.')
+    const score = (f: Fam) => (f.category === me.category ? 2 : 0) + (f.isVariable === me.isVariable ? 1 : 0)
+    return families.filter((f) => f.key !== key).sort((x, y) => score(y) - score(x) || x.family.localeCompare(y.family)).slice(0, limit).map(toFamily)
+  },
+  set_collection_active: ({ id, active, confirmUnknownLicense }) => {
+    const ids: number[] = [id], keys = new Set<string>()
+    for (let i = 0; i < ids.length; i++) collections.filter((c) => c.parentId === ids[i]).forEach((c) => ids.push(c.id))
+    ids.forEach((i) => collItems[i]?.forEach((k) => keys.add(k)))
+    return activate([...keys].flatMap((k) => fam(k)?.faces.map((x) => x.hash) ?? []), active, confirmUnknownLicense)
+  },
+  export_collection: ({ id, dest }) => ({ files: [...(collItems[id] ?? [])].reduce((n, k) => n + (fam(k)?.faces.length ?? 0), 0), path: dest }),
+  pick_save_file: ({ defaultName }) => `C:\\Users\\budi\\Documents\\${defaultName}`,
+  import_paths: ({ paths }) => {
+    const folder = 'C:\\Users\\budi\\AppData\\Roaming\\Typeshelf\\Imported fonts'
+    if (!folders.some((d) => d.path === folder))
+      folders = [...folders, { id: Math.max(0, ...folders.map((f) => f.id)) + 1, path: folder, status: 'watching', fontCount: 0, offlineSince: null }]
+    // ponytail: the mock copies nothing; a font file counts as one font, anything else (a folder) as six.
+    const imported = (paths as string[]).reduce((n, p) => n + (/\.(otf|ttf|ttc|woff2?)$/i.test(p) ? 1 : 6), 0)
+    folders = folders.map((d) => (d.path === folder ? { ...d, fontCount: d.fontCount + imported } : d))
+    emit('library-changed', { reason: 'scan' })
+    return { imported, skipped: 0, folder }
+  },
+  set_family_name: ({ hashes, name }) => {
+    // ponytail: renames whole families; the real backend can split some of a family's files off.
+    new Set((hashes as string[]).map(famOfHash)).forEach((f) => {
+      if (!f) return
+      f.family = name ?? f.original
+      f.faces.forEach((x) => (x.family = f.family))
+    })
+    emit('library-changed', { reason: 'scan' })
+  },
+  delete_fonts: ({ hashes }) => {
+    const trashed = removeFaces((x) => hashes.includes(x.hash) && !x.system)
+    emit('library-changed', { reason: 'scan' })
+    return { trashed, failed: [] }
+  },
   get_family: ({ key }) => {
     const f = fam(key)
     if (!f) throw err('not_found', 'This font family is no longer in your library.')
-    const { addedAt: _a, tags: _t, ...rest } = f
+    const { addedAt: _a, original: _o, ...rest } = f
     return rest
   },
   set_active: ({ hashes, active, confirmUnknownLicense }) => activate(hashes, active, confirmUnknownLicense),
@@ -326,7 +433,11 @@ const handlers: Record<string, (a: Args) => unknown> = {
     families.forEach((f) => f.tags.forEach((t) => counts.set(t, (counts.get(t) ?? 0) + 1)))
     return [...counts].map(([name, count]) => ({ name, count }))
   },
-  set_tags: ({ familyKey, tags }) => ((fam(familyKey)!.tags = tags), tags),
+  set_tags: ({ familyKey, tags }) => {
+    const clean = [...new Set((tags as string[]).map((t) => t.trim()).filter(Boolean))].sort()
+    fam(familyKey)!.tags = clean
+    return clean
+  },
   set_license: ({ familyKey, label, file, note }) => {
     const f = fam(familyKey)!
     f.license = label

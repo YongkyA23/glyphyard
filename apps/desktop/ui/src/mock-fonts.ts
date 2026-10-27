@@ -12,4 +12,5 @@ export const MOCK_GF: Record<string, string> = {
   'Familjen Grotesk': 'Familjen+Grotesk:wght@400..700',
   'Schibsted Grotesk': 'Schibsted+Grotesk:wght@400..900',
   'Hanken Grotesk': 'Hanken+Grotesk:wght@100..900',
+  Caveat: 'Caveat:wght@400..700',
 }

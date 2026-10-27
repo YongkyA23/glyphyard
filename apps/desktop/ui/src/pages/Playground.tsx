@@ -38,7 +38,7 @@ export function Playground() {
   // Only the two chosen families are loaded.
   useEffect(() => {
     const keys = [a, b].filter(Boolean)
-    if (keys.length) api.listFamilies({ keys }).then(setFamilies, () => {})
+    if (keys.length) api.listFamilies({ keys, includeHidden: true }).then(setFamilies, () => {})
   }, [a, b, libVersion])
 
   const fa = families.find((f) => f.key === a)
