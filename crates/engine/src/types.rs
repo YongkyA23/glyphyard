@@ -568,6 +568,8 @@ pub enum UiEvent {
     AdminChange { action: &'static str, fonts: Vec<FontLabel> },
     OrganizeRequested {},
     FolderStatus(Folder),
+    /// Progress of a big on/off batch (more than one chunk).
+    ActivationProgress { done: usize, total: usize, active: bool },
 }
 
 impl UiEvent {
@@ -577,6 +579,7 @@ impl UiEvent {
             UiEvent::AdminChange { .. } => "admin-change",
             UiEvent::OrganizeRequested {} => "organize-requested",
             UiEvent::FolderStatus(_) => "folder-status",
+            UiEvent::ActivationProgress { .. } => "activation-progress",
         }
     }
 

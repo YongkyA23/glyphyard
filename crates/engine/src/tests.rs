@@ -1089,3 +1089,46 @@ fn sample_text_presets_default_for_old_settings() {
     let s = fx.engine.update_settings(serde_json::json!({ "sampleTexts": ["One"] })).unwrap();
     assert_eq!(s.sample_texts, vec!["One"]);
 }
+
+#[test]
+fn big_batches_are_chunked_with_one_broadcast() {
+    let fx = fixture!();
+    // ~100 distinct fonts from the system folder, plus an older Arial that must lose to the newer one.
+    let windir = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".into());
+    let mut n = 0;
+    for e in std::fs::read_dir(Path::new(&windir).join("Fonts")).unwrap().flatten() {
+        let p = e.path();
+        let name = p.file_name().unwrap().to_string_lossy().to_lowercase();
+        if n < 100 && name.ends_with(".ttf") && !name.starts_with("arial") {
+            fx.put(&format!("many/{name}"), &std::fs::read(&p).unwrap());
+            n += 1;
+        }
+    }
+    let arial = system_font("arial.ttf").unwrap();
+    let (old, _) = with_version(&arial, "0.01");
+    let new_path = fx.put("arial.ttf", &arial);
+    fx.put("old/arial-old.ttf", &old);
+    fx.engine.add_folder(&fx.root).unwrap();
+    let progress = Arc::new(Mutex::new(Vec::new()));
+    let sink = progress.clone();
+    fx.engine.on_ui_event(move |e| {
+        if let UiEvent::ActivationProgress { done, total, .. } = e {
+            sink.lock().unwrap().push((done, total));
+        }
+    });
+    let before = *fx.os.0.notifies.lock().unwrap();
+
+    let all: Vec<String> = fx.engine.list_families(&FamilyQuery::default()).unwrap().iter().flat_map(|f| f.faces.iter().map(|x| x.hash.clone())).collect();
+    assert!(all.len() > 64, "needs more than one chunk, got {}", all.len());
+    let results = fx.engine.set_active(&all, true, true).unwrap();
+    assert_eq!(results.len(), all.len());
+    assert!(fx.os.registered().contains(&new_path), "newest Arial wins even though the batch was chunked");
+    assert_eq!(results.iter().filter(|r| r.error == Some(ActivationErrorCode::NameConflict)).count(), 1);
+    assert_eq!(*fx.os.0.notifies.lock().unwrap() - before, 1, "one font-change broadcast for the whole batch");
+    let p = progress.lock().unwrap().clone();
+    assert!(p.len() >= 2 && p.last().unwrap().0 == all.len(), "progress {p:?}");
+
+    fx.engine.set_active(&all, false, true).unwrap();
+    assert!(fx.os.registered().is_empty());
+    assert_eq!(*fx.os.0.notifies.lock().unwrap() - before, 2);
+}

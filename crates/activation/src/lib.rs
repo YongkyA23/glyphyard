@@ -24,6 +24,12 @@ mod sys {
     pub fn deactivate(_: &LedgerEntry) -> Result<(), ActivationError> {
         Err(ActivationError::Os("unsupported".into()))
     }
+    pub fn activate_many(e: &[LedgerEntry]) -> Vec<Result<(), ActivationError>> {
+        e.iter().map(activate).collect()
+    }
+    pub fn deactivate_many(e: &[LedgerEntry]) -> Vec<Result<(), ActivationError>> {
+        e.iter().map(deactivate).collect()
+    }
     pub fn reconcile(_: &[LedgerEntry]) -> ReconcileReport {
         ReconcileReport::default()
     }
@@ -82,6 +88,17 @@ pub fn activate(entry: &LedgerEntry) -> Result<(), ActivationError> {
 /// Unregisters the file. Succeeds if it was not registered.
 pub fn deactivate(entry: &LedgerEntry) -> Result<(), ActivationError> {
     sys::deactivate(entry)
+}
+
+/// [`activate`] for a batch, one result per entry in order. Windows registration takes ~40 ms per file
+/// but scales across threads, so a batch runs several at once.
+pub fn activate_many(entries: &[LedgerEntry]) -> Vec<Result<(), ActivationError>> {
+    sys::activate_many(entries)
+}
+
+/// [`deactivate`] for a batch, one result per entry in order.
+pub fn deactivate_many(entries: &[LedgerEntry]) -> Vec<Result<(), ActivationError>> {
+    sys::deactivate_many(entries)
 }
 
 /// Makes the OS match the ledger. Never touches registrations made by other apps.

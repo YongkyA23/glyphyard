@@ -74,6 +74,15 @@ pub fn deactivate(entry: &LedgerEntry) -> Result<(), ActivationError> {
     }
 }
 
+// ponytail: one by one; CoreText registration is fast. Batch with CTFontManagerRegisterFontURLs if it isn't.
+pub fn activate_many(entries: &[LedgerEntry]) -> Vec<Result<(), ActivationError>> {
+    entries.iter().map(activate).collect()
+}
+
+pub fn deactivate_many(entries: &[LedgerEntry]) -> Vec<Result<(), ActivationError>> {
+    entries.iter().map(deactivate).collect()
+}
+
 /// File paths of all persistent-scope registrations (one per file, even for collections).
 fn registered_paths() -> HashSet<PathBuf> {
     unsafe {

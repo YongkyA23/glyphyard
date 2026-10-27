@@ -6,7 +6,7 @@ use crate::{
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use typeshelf_activation::{ActivationError, LedgerEntry, ReconcileReport};
 use typeshelf_protocol::{ActiveFont, Event, FontRef, FontSnapshot, Source};
@@ -21,6 +21,14 @@ pub trait OsFonts: Send + Sync {
     /// Folders the OS installs fonts into; listed read-only as "System fonts".
     fn font_dirs(&self) -> Vec<PathBuf> {
         Vec::new()
+    }
+    /// A batch of [`OsFonts::activate`], one result per entry in order.
+    fn activate_many(&self, entries: &[LedgerEntry]) -> Vec<Result<(), ActivationError>> {
+        entries.iter().map(|e| self.activate(e)).collect()
+    }
+    /// A batch of [`OsFonts::deactivate`], one result per entry in order.
+    fn deactivate_many(&self, entries: &[LedgerEntry]) -> Vec<Result<(), ActivationError>> {
+        entries.iter().map(|e| self.deactivate(e)).collect()
     }
 }
 
@@ -44,6 +52,35 @@ impl OsFonts for SystemFonts {
     }
     fn font_dirs(&self) -> Vec<PathBuf> {
         typeshelf_activation::system_font_dirs()
+    }
+    fn activate_many(&self, entries: &[LedgerEntry]) -> Vec<Result<(), ActivationError>> {
+        typeshelf_activation::activate_many(entries)
+    }
+    fn deactivate_many(&self, entries: &[LedgerEntry]) -> Vec<Result<(), ActivationError>> {
+        typeshelf_activation::deactivate_many(entries)
+    }
+}
+
+enum Prepared {
+    /// Nothing for the OS to do: the result, and whether the OS font list changed (another version went off).
+    Done(ActivationResult, bool),
+    Register(PathBuf),
+}
+
+/// Groups a batch's writes into one SQLite savepoint, so hundreds of activations commit (and fsync) once
+/// instead of once per row. Always released, never rolled back: the OS side already happened.
+struct Batch<'a>(&'a Connection);
+
+impl<'a> Batch<'a> {
+    fn begin(conn: &'a Connection) -> rusqlite::Result<Self> {
+        conn.execute_batch("SAVEPOINT activation_batch")?;
+        Ok(Batch(conn))
+    }
+}
+
+impl Drop for Batch<'_> {
+    fn drop(&mut self) {
+        let _ = self.0.execute_batch("RELEASE activation_batch");
     }
 }
 
@@ -222,6 +259,15 @@ impl Engine {
     /// Turns on `hashes`, at most one file per PostScript name: when the batch has several, the newest
     /// version wins; a single pick (the user chose it) replaces whatever version is active.
     pub(crate) fn activate_hashes(&self, conn: &Connection, hashes: &[String], source: Source) -> Result<Vec<ActivationResult>> {
+        let (results, changed) = self.activate_batch(conn, hashes, source)?;
+        if changed {
+            self.os.notify_font_change();
+        }
+        Ok(results)
+    }
+
+    /// [`Engine::activate_hashes`] without the OS broadcast; also says whether the OS font list changed.
+    fn activate_batch(&self, conn: &Connection, hashes: &[String], source: Source) -> Result<(Vec<ActivationResult>, bool)> {
         let mut results = Vec::new();
         let mut by_ps: BTreeMap<String, Vec<FontFile>> = BTreeMap::new();
         let mut seen = HashSet::new();
@@ -231,7 +277,10 @@ impl Engine {
                 None => results.push(fail(h, ActivationErrorCode::FileMissing, "not in the library")),
             }
         }
+        let batch = Batch::begin(conn)?;
         let mut changed = false;
+        // 1. Checks, and other versions turned off, per font; 2. one OS batch; 3. the ledger rows.
+        let mut todo: Vec<(FontFile, PathBuf)> = Vec::new();
         for mut group in by_ps.into_values() {
             group.sort_by(|a, b| {
                 version_key(&b.version)
@@ -244,30 +293,63 @@ impl Engine {
                 let msg = format!("{} {} is used instead", winner.full_name, winner.version);
                 results.push(fail(&loser.hash, ActivationErrorCode::NameConflict, msg));
             }
-            let (result, did) = self.activate_one(conn, &winner, source)?;
-            changed |= did;
-            results.push(result);
+            match self.prepare_activation(conn, &winner, source)? {
+                Prepared::Done(result, did) => {
+                    changed |= did;
+                    results.push(result);
+                }
+                Prepared::Register(path) => todo.push((winner, path)),
+            }
         }
-        if changed {
-            self.os.notify_font_change();
+
+        let entries: Vec<LedgerEntry> =
+            todo.iter().map(|(f, path)| LedgerEntry { path: path.clone(), full_name: f.full_name.clone() }).collect();
+        let outcomes = self.os.activate_many(&entries);
+        let mut recent = BTreeSet::new();
+        for ((f, path), outcome) in todo.iter().zip(outcomes) {
+            if let Err(e) = outcome {
+                self.activation_failed(conn, &f.hash, &e);
+                let (code, msg) = error_code(&e);
+                results.push(fail(&f.hash, code, msg));
+                continue;
+            }
+            conn.execute(
+                "INSERT INTO activations (hash, path, full_name, source, activated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![f.hash, path.to_string_lossy(), f.full_name, source_str(source), store::now()],
+            )?;
+            if matches!(source, Source::User | Source::ProjectSet) {
+                recent.insert(f.family_key.as_str());
+            }
+            self.emit(Event::FontActivated { font: f.font.clone(), source });
+            let warning = f
+                .ps_names
+                .iter()
+                .any(|p| self.system_names().contains(p))
+                .then(|| format!("{} is also installed in the system", f.font.ps_name));
+            results.push(ok(&f.hash, warning));
+            changed = true;
         }
-        Ok(results)
+        add_recent(conn, recent)?;
+        drop(batch);
+        Ok((results, changed))
     }
 
-    fn activate_one(&self, conn: &Connection, f: &FontFile, source: Source) -> Result<(ActivationResult, bool)> {
+    /// Everything before the OS call for one font: already on, blocked, missing, and turning off any
+    /// other active version of it. `Register` means it should be handed to the OS.
+    fn prepare_activation(&self, conn: &Connection, f: &FontFile, source: Source) -> Result<Prepared> {
         if self.ledger_row(conn, &f.hash)?.is_some() {
-            return Ok((ok(&f.hash, None), false));
+            return Ok(Prepared::Done(ok(&f.hash, None), false));
         }
         if self.is_blocked(conn, f)? {
             self.emit(Event::ActivationFailed { font: f.font.clone(), reason: "blocked".into() });
-            return Ok((fail(&f.hash, ActivationErrorCode::Blocked, "blocked by your admin"), false));
+            return Ok(Prepared::Done(fail(&f.hash, ActivationErrorCode::Blocked, "blocked by your admin"), false));
         }
         let Some(path) = f.path.clone() else {
             if f.in_system {
-                return Ok((ok(&f.hash, Some(format!("{} is a system font, always on", f.font.ps_name))), false));
+                return Ok(Prepared::Done(ok(&f.hash, Some(format!("{} is a system font, always on", f.font.ps_name))), false));
             }
             self.emit(Event::ActivationFailed { font: f.font.clone(), reason: "file_missing".into() });
-            return Ok((fail(&f.hash, ActivationErrorCode::FileMissing, "the file is missing or its folder is offline"), false));
+            return Ok(Prepared::Done(fail(&f.hash, ActivationErrorCode::FileMissing, "the file is missing or its folder is offline"), false));
         };
 
         // One active file per PostScript name: turn off any other version first.
@@ -281,82 +363,98 @@ impl Engine {
         }
         for other in others {
             if let Some(row) = self.ledger_row(conn, &other)? {
-                let r = self.deactivate_one(conn, &row, source)?;
+                let r = self.deactivate_rows(conn, &[row], source)?.remove(0);
                 if !r.ok {
                     let msg = format!("another version could not be turned off: {}", r.message.unwrap_or_default());
-                    return Ok((fail(&f.hash, ActivationErrorCode::NameConflict, msg), true));
+                    return Ok(Prepared::Done(fail(&f.hash, ActivationErrorCode::NameConflict, msg), true));
                 }
             }
         }
-
-        let entry = LedgerEntry { path: path.clone(), full_name: f.full_name.clone() };
-        if let Err(e) = self.os.activate(&entry) {
-            self.activation_failed(conn, &f.hash, &e);
-            let (code, msg) = error_code(&e);
-            return Ok((fail(&f.hash, code, msg), false));
-        }
-        conn.execute(
-            "INSERT INTO activations (hash, path, full_name, source, activated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![f.hash, path.to_string_lossy(), f.full_name, source_str(source), store::now()],
-        )?;
-        if matches!(source, Source::User | Source::ProjectSet) {
-            add_recent(conn, &f.family_key)?;
-        }
-        self.emit(Event::FontActivated { font: f.font.clone(), source });
-        let warning = f
-            .ps_names
-            .iter()
-            .any(|p| self.system_names().contains(p))
-            .then(|| format!("{} is also installed in the system", f.font.ps_name));
-        Ok((ok(&f.hash, warning), true))
+        Ok(Prepared::Register(path))
     }
 
-    fn deactivate_one(&self, conn: &Connection, row: &LedgerRow, source: Source) -> Result<ActivationResult> {
-        if let Err(e) = self.os.deactivate(&row.entry()) {
-            self.activation_failed(conn, &row.hash, &e);
-            let (code, msg) = error_code(&e);
-            return Ok(fail(&row.hash, code, msg));
+    /// Turns off ledger rows with one OS batch; one result per row, in order.
+    fn deactivate_rows(&self, conn: &Connection, rows: &[LedgerRow], source: Source) -> Result<Vec<ActivationResult>> {
+        let entries: Vec<LedgerEntry> = rows.iter().map(LedgerRow::entry).collect();
+        let outcomes = self.os.deactivate_many(&entries);
+        let mut results = Vec::with_capacity(rows.len());
+        for (row, outcome) in rows.iter().zip(outcomes) {
+            if let Err(e) = outcome {
+                self.activation_failed(conn, &row.hash, &e);
+                let (code, msg) = error_code(&e);
+                results.push(fail(&row.hash, code, msg));
+                continue;
+            }
+            conn.execute("DELETE FROM activations WHERE hash = ?1", [&row.hash])?;
+            let was_admin = row.source == Source::Admin && source != Source::Admin;
+            self.emit(Event::FontDeactivated { font: font_ref(conn, &row.hash), source, was_admin });
+            results.push(ok(&row.hash, None));
         }
-        conn.execute("DELETE FROM activations WHERE hash = ?1", [&row.hash])?;
-        let was_admin = row.source == Source::Admin && source != Source::Admin;
-        self.emit(Event::FontDeactivated { font: font_ref(conn, &row.hash), source, was_admin });
-        Ok(ok(&row.hash, None))
+        Ok(results)
     }
 
     pub(crate) fn deactivate_hashes(&self, conn: &Connection, hashes: &[String], source: Source) -> Result<Vec<ActivationResult>> {
-        let mut results = Vec::new();
-        let mut changed = false;
-        for h in hashes {
-            match self.ledger_row(conn, h)? {
-                Some(row) => {
-                    let r = self.deactivate_one(conn, &row, source)?;
-                    changed |= r.ok;
-                    results.push(r);
-                }
-                None => results.push(ok(h, None)),
-            }
-        }
+        let (results, changed) = self.deactivate_batch(conn, hashes, source)?;
         if changed {
             self.os.notify_font_change();
         }
         Ok(results)
     }
 
-    pub fn set_active(&self, hashes: &[String], active: bool, confirm_unknown_license: bool) -> Result<Vec<ActivationResult>> {
-        let results = {
-            let db = self.db();
-            if active {
-                if !confirm_unknown_license {
-                    let families = self.unlicensed_families(&db, hashes)?;
-                    if !families.is_empty() {
-                        return Err(unknown_license(families));
-                    }
-                }
-                self.activate_hashes(&db, hashes, Source::User)?
-            } else {
-                self.deactivate_hashes(&db, hashes, Source::User)?
+    /// [`Engine::deactivate_hashes`] without the OS broadcast; also says whether the OS font list changed.
+    fn deactivate_batch(&self, conn: &Connection, hashes: &[String], source: Source) -> Result<(Vec<ActivationResult>, bool)> {
+        let batch = Batch::begin(conn)?;
+        let mut results = Vec::new();
+        let mut rows = Vec::new();
+        for h in hashes {
+            match self.ledger_row(conn, h)? {
+                Some(row) => rows.push(row),
+                None => results.push(ok(h, None)),
             }
+        }
+        let done = self.deactivate_rows(conn, &rows, source)?;
+        let changed = done.iter().any(|r| r.ok);
+        results.extend(done);
+        drop(batch);
+        Ok((results, changed))
+    }
+
+    /// Big selections go in chunks, releasing the database between them so the rest of the app keeps
+    /// working, with `activation-progress` events; apps get one font-change broadcast at the end
+    /// (Photoshop rebuilds its font list on every one).
+    pub fn set_active(&self, hashes: &[String], active: bool, confirm_unknown_license: bool) -> Result<Vec<ActivationResult>> {
+        const CHUNK: usize = 64;
+        let chunks: Vec<Vec<String>> = {
+            let db = self.db();
+            if active && !confirm_unknown_license {
+                let families = self.unlicensed_families(&db, hashes)?;
+                if !families.is_empty() {
+                    return Err(unknown_license(families));
+                }
+            }
+            if active { ps_grouped_chunks(&db, hashes, CHUNK)? } else { hashes.chunks(CHUNK).map(<[String]>::to_vec).collect() }
         };
+        let total = hashes.len();
+        let mut results = Vec::with_capacity(total);
+        let mut changed = false;
+        for chunk in chunks {
+            let (r, did) = {
+                let db = self.db();
+                if active {
+                    self.activate_batch(&db, &chunk, Source::User)?
+                } else {
+                    self.deactivate_batch(&db, &chunk, Source::User)?
+                }
+            };
+            changed |= did;
+            results.extend(r);
+            if total > CHUNK {
+                self.ui(UiEvent::ActivationProgress { done: results.len().min(total), total, active });
+            }
+        }
+        if changed {
+            self.os.notify_font_change();
+        }
         self.library_changed("activation");
         Ok(results)
     }
@@ -507,13 +605,21 @@ pub(crate) fn set_keys(conn: &Connection, id: i64) -> rusqlite::Result<Vec<Strin
     keys
 }
 
-fn add_recent(conn: &Connection, family_key: &str) -> rusqlite::Result<()> {
-    conn.execute(
-        "INSERT INTO collection_items (collection_id, family_key, added_at)
-         SELECT id, ?1, ?2 FROM collections WHERE builtin = 'recent'
-         ON CONFLICT (collection_id, family_key) DO UPDATE SET added_at = excluded.added_at",
-        params![family_key, store::now()],
-    )?;
+/// Puts these families at the top of Recent, then trims Recent to 30 (once per batch).
+fn add_recent<'a>(conn: &Connection, family_keys: impl IntoIterator<Item = &'a str>) -> rusqlite::Result<()> {
+    let mut any = false;
+    for family_key in family_keys {
+        any = true;
+        conn.execute(
+            "INSERT INTO collection_items (collection_id, family_key, added_at)
+             SELECT id, ?1, ?2 FROM collections WHERE builtin = 'recent'
+             ON CONFLICT (collection_id, family_key) DO UPDATE SET added_at = excluded.added_at",
+            params![family_key, store::now()],
+        )?;
+    }
+    if !any {
+        return Ok(());
+    }
     conn.execute(
         "DELETE FROM collection_items WHERE collection_id = (SELECT id FROM collections WHERE builtin = 'recent')
          AND family_key NOT IN (SELECT family_key FROM collection_items
@@ -522,4 +628,27 @@ fn add_recent(conn: &Connection, family_key: &str) -> rusqlite::Result<()> {
         [],
     )?;
     Ok(())
+}
+
+/// Chunks of about `size` hashes where every version of one PostScript name stays in the same chunk, so the
+/// newest-version rule in `activate_batch` still sees them together.
+fn ps_grouped_chunks(conn: &Connection, hashes: &[String], size: usize) -> rusqlite::Result<Vec<Vec<String>>> {
+    let mut stmt = conn.prepare_cached("SELECT lower(ps_name) FROM faces WHERE hash = ?1 ORDER BY idx LIMIT 1")?;
+    let mut keyed = Vec::with_capacity(hashes.len());
+    for h in hashes {
+        let ps: String = stmt.query_row([h], |r| r.get(0)).optional()?.unwrap_or_default();
+        keyed.push((ps, h.clone()));
+    }
+    keyed.sort();
+    let mut chunks: Vec<Vec<String>> = Vec::new();
+    let mut last: Option<String> = None;
+    for (ps, h) in keyed {
+        let same = !ps.is_empty() && last.as_deref() == Some(ps.as_str());
+        if !same && chunks.last().is_none_or(|c| c.len() >= size) {
+            chunks.push(Vec::new());
+        }
+        chunks.last_mut().expect("pushed above").push(h);
+        last = Some(ps);
+    }
+    Ok(chunks)
 }

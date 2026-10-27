@@ -37,6 +37,18 @@ export function AppProvider({ main, children }: { main: boolean; children: React
   const [adminChange, setAdminChange] = useState<Ctx['adminChange']>(null)
   const [pair, setPair] = useState<Events['adobe-pair-request'] | null>(null)
   const [organizeCount, setOrganizeCount] = useState<number | null>(null)
+  // Big on/off batches report progress; the pill hides shortly after the last chunk.
+  const [progress, setProgress] = useState<Events['activation-progress'] | null>(null)
+  useEffect(() => {
+    if (!main) return
+    let hide = 0
+    const off = on('activation-progress', (p) => {
+      window.clearTimeout(hide)
+      setProgress(p)
+      if (p.done >= p.total) hide = window.setTimeout(() => setProgress(null), 900)
+    })
+    return () => (off(), window.clearTimeout(hide))
+  }, [main])
   const toastId = useRef(0)
   const indesignNoted = useRef(0)
   const navigate = useNavigate()
@@ -156,6 +168,17 @@ export function AppProvider({ main, children }: { main: boolean; children: React
           <button type="button" className="btn primary" onClick={() => respondPair(true)}>Allow</button>
         </div>
       </Dialog>
+
+      <AnimatePresence>
+        {progress && (
+          <motion.div key="progress" className="progress-pill" role="status" {...pop} initial={{ opacity: 0, y: -12 }} transition={spring.pop}>
+            <span>{progress.active ? 'Turning on' : 'Turning off'} fonts… {progress.done.toLocaleString('en-US')} / {progress.total.toLocaleString('en-US')}</span>
+            <span className="progress-track" aria-hidden="true">
+              <motion.span className="progress-fill" animate={{ scaleX: progress.done / Math.max(1, progress.total) }} transition={spring.glide} />
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="toast-region" role="status" aria-live="polite">
         <AnimatePresence initial={false} mode="popLayout">

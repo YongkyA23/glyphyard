@@ -512,3 +512,8 @@ button.glyph:focus-visible { border-color: var(--accent); }
 
 .color-field { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
 .color-field input[type="color"] { width: 40px; height: 28px; padding: 0 2px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); cursor: pointer; }
+
+/* Progress of a big on/off batch, top centre */
+.progress-pill { position: fixed; top: 14px; left: 50%; translate: -50% 0; z-index: 60; display: flex; flex-direction: column; gap: 8px; min-width: 260px; padding: 10px 16px 12px; border-radius: 12px; background: var(--ink); color: #fff; font-size: 13px; box-shadow: 0 10px 30px rgb(28 25 23 / .25); font-variant-numeric: tabular-nums; }
+.progress-track { display: block; height: 4px; border-radius: 2px; background: rgb(255 255 255 / .2); overflow: hidden; }
+.progress-fill { display: block; height: 100%; background: #fff; transform-origin: left; }

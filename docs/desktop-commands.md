@@ -106,6 +106,7 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `organize-requested` | `{}` (admin asked; UI opens the auto-organize preview) |
 | `connection-changed` | `Connection` |
 | `folder-status` | `Folder` |
+| `activation-progress` | `{ done, total, active }`: a `set_active` batch bigger than one chunk (64 files) reports after each chunk; the database is free between chunks |
 | `name-changed` | `{ name, nextNameChange }` |
 | `adobe-pair-request` | `{ requestId, app, appVersion }` (UI asks "Allow Photoshop to turn on fonts automatically?") |
 | `adobe-activated` | `{ app, document, activated: string[], missing: string[] }` (UI shows a short notice) |

@@ -86,16 +86,70 @@ pub fn activate(entry: &LedgerEntry) -> Result<(), ActivationError> {
 }
 
 pub fn deactivate(entry: &LedgerEntry) -> Result<(), ActivationError> {
-    let path = absolute(&entry.path)?;
-    unload(&path);
-    let key = fonts_key()?;
-    let target = path_key(&path.to_string_lossy());
-    for (name, data) in our_values(&key)? {
-        if path_key(&data) == target {
-            key.remove_value(&name).map_err(os)?;
+    deactivate_many(std::slice::from_ref(entry)).pop().unwrap_or(Ok(()))
+}
+
+/// AddFontResourceW is slow (~40 ms per file) but scales across threads, so batches run on up to 8.
+pub fn activate_many(entries: &[LedgerEntry]) -> Vec<Result<(), ActivationError>> {
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(1, 8);
+    let chunk = entries.len().div_ceil(threads).max(1);
+    std::thread::scope(|s| {
+        let workers: Vec<_> = entries.chunks(chunk).map(|c| s.spawn(move || c.iter().map(activate).collect::<Vec<_>>())).collect();
+        workers
+            .into_iter()
+            .flat_map(|w| w.join().unwrap_or_else(|_| vec![Err(ActivationError::Os("activation thread panicked".into()))]))
+            .collect()
+    })
+}
+
+/// Removes each registration by its value name; only entries stored under another name (renamed font,
+/// shared full name) need a scan of the Fonts key, done once for the batch. Reading that key takes ~0.2 s,
+/// so scanning it per font made turning off hundreds of fonts take minutes.
+pub fn deactivate_many(entries: &[LedgerEntry]) -> Vec<Result<(), ActivationError>> {
+    let key = match fonts_key() {
+        Ok(k) => k,
+        Err(e) => return entries.iter().map(|_| Err(os(&e))).collect(),
+    };
+    let mut out = Vec::with_capacity(entries.len());
+    let mut unnamed = Vec::new(); // (index in out, path key)
+    for e in entries {
+        let path = match absolute(&e.path) {
+            Ok(p) => p,
+            Err(err) => {
+                out.push(Err(err));
+                continue;
+            }
+        };
+        unload(&path);
+        let target = path_key(&path.to_string_lossy());
+        let name = value_name(e);
+        match key.get_string(&name) {
+            Ok(data) if path_key(&data) == target => out.push(key.remove_value(&name).map_err(os)),
+            _ => {
+                unnamed.push((out.len(), target));
+                out.push(Ok(()));
+            }
         }
     }
-    Ok(())
+    if !unnamed.is_empty() {
+        match our_values(&key) {
+            Ok(values) => {
+                for (i, target) in unnamed {
+                    for (name, _) in values.iter().filter(|(_, d)| path_key(d) == target) {
+                        if let Err(e) = key.remove_value(name) {
+                            out[i] = Err(os(e));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                for (i, _) in unnamed {
+                    out[i] = Err(os(&e));
+                }
+            }
+        }
+    }
+    out
 }
 
 pub fn reconcile(ledger: &[LedgerEntry]) -> ReconcileReport {
