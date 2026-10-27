@@ -1,15 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { animate, AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { api, tagsOf, type Axis, type Family, type FamilyDetail, type FileRow, type License, type ProjectSet } from '../api'
-import { familyStyle } from '../fonts'
+import { api, tagsOf, type Face, type Family, type FamilyDetail, type FileRow, type FontDetails, type GlyphBlock, type License, type ProjectSet } from '../api'
+import { AXIS_NAME, axisStep, faceStyle, familyStyle, pickFace } from '../fonts'
 import { cssStagger, dur, easeOut, pop, rise, spring } from '../motion'
 import { useApp } from '../state'
-import { Badge, basename, CATEGORY_LABEL, Chip, Dialog, dirname, errMsg, LicenseBadge, plural, Skel, useSeen, type Tone } from '../ui'
+import { Badge, basename, CATEGORY_LABEL, Chip, Dialog, dirname, errMsg, LicenseBadge, num, plural, Skel, Switch, useSeen, type Tone } from '../ui'
 
-const AXIS_NAME: Record<string, string> = {
-  wght: 'Weight', wdth: 'Width', opsz: 'Optical size', ital: 'Italic', slnt: 'Slant', SOFT: 'Softness', WONK: 'Wonky', GRAD: 'Grade', CASL: 'Casual', MONO: 'Monospace',
-}
 const FEATURE_NAME: Record<string, string> = {
   liga: 'Ligatures', dlig: 'Discretionary ligatures', calt: 'Contextual alternates', kern: 'Kerning', onum: 'Old-style figures', lnum: 'Lining figures',
   tnum: 'Tabular figures', pnum: 'Proportional figures', frac: 'Fractions', smcp: 'Small caps', c2sc: 'Caps to small caps', zero: 'Slashed zero',
@@ -24,17 +21,167 @@ const FILE_STATUS: Record<FileRow['status'], [string, Tone]> = {
 }
 const LICENSE_OPTIONS: [License, string][] = [['licensed', 'Licensed'], ['personal', 'Personal use only'], ['client', 'Client-provided'], ['unknown', 'Unknown']]
 
-const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => String.fromCodePoint(a + i))
-const BLOCKS: Record<string, string[]> = {
-  'Basic Latin': range(0x21, 0x7e),
-  'Latin-1 Supplement': range(0xa1, 0xff).filter((c) => c !== '­'),
-}
 const WATERFALL = [72, 48, 32, 24, 16]
-const axisStep = (a: Axis) => (a.max - a.min > 2 ? 1 : a.max - a.min > 1 ? 0.1 : 1)
 /** Seconds the Play showcase spends sweeping one axis (max → min → default). */
 const SWEEP = 2.4
-const TABS = [['preview', 'Preview'], ['glyphs', 'Glyphs'], ['similar', 'Similar'], ['files', 'Files and versions'], ['license', 'License']] as const
+const TABS = [
+  ['styles', 'Styles'], ['preview', 'Preview'], ['glyphs', 'Glyphs'], ['similar', 'Similar'], ['details', 'Details'], ['files', 'Files and versions'], ['license', 'License'],
+] as const
 type Tab = (typeof TABS)[number][0]
+/** Weight order, each italic right after its upright. */
+const byWeight = (faces: Face[]) => [...faces].sort((a, b) => a.weight - b.weight || Number(a.italic) - Number(b.italic) || a.style.localeCompare(b.style))
+
+/** One face with its own preview line and on/off switch. The font file loads once the row is near the viewport. */
+function FaceRow({ face, i, sample, onToggle }: { face: Face; i: number; sample: string; onToggle: () => void }) {
+  const [ref, seen] = useSeen<HTMLDivElement>()
+  const on = face.active || face.system
+  return (
+    <div ref={ref} className="face-row enter" style={cssStagger(i)}>
+      <Switch on={on} disabled={face.system} onClick={onToggle} label={face.system ? `${face.fullName} is a system font, always on` : `${on ? 'Deactivate' : 'Activate'} ${face.fullName}`} />
+      <div className="face-meta">
+        <span className="ellipsis" style={{ fontWeight: 500 }}>{face.style}</span>
+        <span className="faint ellipsis" style={{ fontSize: 12 }}>
+          {face.weight}{face.italic && ' · italic'}{face.isVariable && ' · variable'} · v{face.version}
+        </span>
+      </div>
+      <div className="sample" style={{ ...(seen ? faceStyle(face) : {}), fontSize: 30, color: on ? 'var(--ink)' : 'var(--ink-2)' }}>{sample}</div>
+    </div>
+  )
+}
+
+/** Blocks show at most this many cells until "Show all". */
+const GLYPH_CAP = 512
+const uPlus = (cp: number) => `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`
+
+/** One Unicode block; its cells render only once it comes near the viewport. */
+function GlyphSection({ b, style, onPeek, onCopy }: { b: GlyphBlock; style: CSSProperties; onPeek: (cp: number) => void; onCopy: (cp: number) => void }) {
+  const [ref, seen] = useSeen<HTMLElement>('400px')
+  const [all, setAll] = useState(false)
+  const cps = all ? b.chars : b.chars.slice(0, GLYPH_CAP)
+  return (
+    <section ref={ref} className="glyph-block" aria-label={b.name}>
+      <h3 className="h-small" style={{ margin: 0 }}>
+        {b.name} <span className="faint" style={{ fontWeight: 400, fontSize: 12 }}>{num(b.chars.length)} · {uPlus(b.start)}–{uPlus(b.end)}</span>
+      </h3>
+      {seen ? (
+        <div className="glyph-grid">
+          {cps.map((cp, i) => {
+            const ch = String.fromCodePoint(cp)
+            return (
+              <button
+                key={cp} type="button" className="glyph" style={{ ...style, ...cssStagger(i) }} aria-label={`${ch} ${uPlus(cp)}, copy`}
+                onClick={() => onCopy(cp)} onMouseEnter={() => onPeek(cp)} onFocus={() => onPeek(cp)}
+              >{ch}</button>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="glyph-placeholder" style={{ height: Math.min(Math.ceil(b.chars.length / 10), 6) * 70 }} />
+      )}
+      {seen && b.chars.length > GLYPH_CAP && (
+        <button type="button" className="btn small" style={{ alignSelf: 'flex-start' }} onClick={() => setAll(!all)}>
+          {all ? `Show the first ${num(GLYPH_CAP)}` : `Show all ${num(b.chars.length)}`}
+        </button>
+      )}
+    </section>
+  )
+}
+
+/** Every character the chosen face maps, grouped by Unicode block. Click a cell to copy it. */
+function GlyphsTab({ fam, extra }: { fam: FamilyDetail; extra: CSSProperties }) {
+  const { toast } = useApp()
+  const faces = byWeight(fam.faces)
+  const [hash, setHash] = useState(() => pickFace(fam)?.hash ?? '')
+  const face = faces.find((x) => x.hash === hash) ?? faces[0]
+  const [data, setData] = useState<{ hash: string; total: number; blocks: GlyphBlock[] } | null>(null)
+  const [block, setBlock] = useState('')
+  const [peek, setPeek] = useState<number | null>(null)
+  useEffect(() => {
+    if (!face) return
+    let live = true
+    api.faceGlyphs(face.hash).then(
+      (g) => live && setData({ hash: face.hash, ...g }),
+      (e) => live && (toast(errMsg(e)), setData({ hash: face.hash, total: 0, blocks: [] })),
+    )
+    return () => void (live = false)
+  }, [face?.hash, toast]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (!face) return <p className="faint" style={{ margin: 0 }}>This family has no fonts left.</p>
+
+  const ready = data?.hash === face.hash ? data : null
+  const cur = ready?.blocks.some((b) => b.name === block) ? block : ''
+  const style = { ...faceStyle(face), ...extra }
+  const copy = (cp: number) => {
+    const ch = String.fromCodePoint(cp)
+    navigator.clipboard.writeText(ch).then(() => toast(`Copied ${ch} (${uPlus(cp)})`), () => toast('Couldn’t copy to the clipboard.'))
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div className="glyph-tools muted">
+        {faces.length > 1 && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            Style
+            <select className="select" value={face.hash} onChange={(e) => (setHash(e.target.value), setPeek(null))}>
+              {faces.map((x) => <option key={x.hash} value={x.hash}>{x.style}</option>)}
+            </select>
+          </label>
+        )}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          Unicode block
+          <select className="select" value={cur} onChange={(e) => setBlock(e.target.value)} disabled={!ready}>
+            <option value="">All blocks</option>
+            {ready?.blocks.map((b) => <option key={b.name} value={b.name}>{b.name} ({num(b.chars.length)})</option>)}
+          </select>
+        </label>
+        {ready && <span>{plural(ready.total, 'character')} mapped · {plural(fam.glyphCount, 'glyph')} in the font</span>}
+        <span className="glyph-info" aria-hidden="true">
+          <b style={style}>{peek !== null ? String.fromCodePoint(peek) : ''}</b>
+          <span className="mono" style={{ fontSize: 12 }}>{peek !== null ? uPlus(peek) : 'Hover a character'}</span>
+        </span>
+      </div>
+      {!ready ? (
+        <div className="glyph-grid" aria-busy="true">{Array.from({ length: 24 }, (_, i) => <Skel key={i} h={64} r={8} />)}</div>
+      ) : ready.blocks.length === 0 ? (
+        <p className="faint" style={{ margin: 0 }}>No characters found in this font’s character map.</p>
+      ) : (
+        <div onMouseLeave={() => setPeek(null)}>
+          {ready.blocks.filter((b) => !cur || b.name === cur).map((b) => (
+            <GlyphSection key={`${face.hash}-${b.name}`} b={b} style={style} onPeek={setPeek} onCopy={copy} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Only http(s) links leave the app; anything else from the font file shows as text. */
+function ExtLink({ url }: { url: string }) {
+  const href = /^https?:\/\//i.test(url) ? url : /^www\./i.test(url) ? `https://${url}` : null
+  if (!href) return <>{url}</>
+  // The webview can't open new windows; the browser is opened from Rust (open_url).
+  const open = (e: React.MouseEvent) => (e.preventDefault(), void api.openUrl(href).catch(() => {}))
+  return <a href={href} onClick={open} rel="noreferrer noopener">{url.replace(/^https?:\/\//i, '').replace(/\/$/, '')} <span aria-hidden="true">↗</span><span className="sr-only">(opens in your browser)</span></a>
+}
+const withLink = (text: string | null, url: string | null): ReactNode =>
+  text && url ? <>{text} · <ExtLink url={url} /></> : url ? <ExtLink url={url} /> : text
+
+function DetailsTab({ d }: { d: FontDetails }) {
+  const rows: [string, ReactNode][] = [
+    ['Copyright', d.copyright], ['Trademark', d.trademark], ['Manufacturer', withLink(d.manufacturer, d.vendorUrl)],
+    ['Designer', withLink(d.designer, d.designerUrl)], ['Description', d.description], ['License', withLink(d.license, d.licenseUrl)],
+    ['Version', d.version], ['Unique ID', d.uniqueId], ['Format', d.format], ['Units per em', d.upm != null ? num(d.upm) : null],
+    ['Glyphs', num(d.glyphCount)],
+  ]
+  return (
+    <dl className="details">
+      {rows.filter(([, v]) => v).map(([k, v], i) => (
+        <Fragment key={k}>
+          <dt className="enter" style={cssStagger(i)}>{k}</dt>
+          <dd className="enter" style={cssStagger(i)}>{v}</dd>
+        </Fragment>
+      ))}
+    </dl>
+  )
+}
 
 /** Tag chips with remove buttons, plus an input that suggests existing tags. */
 function TagEditor({ familyKey }: { familyKey: string }) {
@@ -107,10 +254,10 @@ export function FamilyPage() {
   const navigate = useNavigate()
   const [fam, setFam] = useState<FamilyDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState<Tab>('preview')
+  const [tab, setTab] = useState<Tab>('styles')
   const [axes, setAxes] = useState<Record<string, number>>({})
   const [feat, setFeat] = useState<Record<string, boolean>>({})
-  const [block, setBlock] = useState('Basic Latin')
+  const [sample, setSample] = useState('The quick brown fox jumps over the lazy dog')
   const [note, setNote] = useState('')
   const [setsOpen, setSetsOpen] = useState(false)
   const [sets, setSets] = useState<ProjectSet[]>([])
@@ -119,6 +266,7 @@ export function FamilyPage() {
   const stopPlay = useRef<(() => void) | null>(null)
   const reduce = useReducedMotion()
   useEffect(() => () => stopPlay.current?.(), [key, tab])
+  useEffect(() => void api.getSettings().then((s) => s.sampleText && setSample(s.sampleText), () => {}), [])
   useEffect(() => {
     if (tab !== 'similar' || similar) return
     api.similarFamilies(key, 12).then(setSimilar, (e) => (toast(errMsg(e)), setSimilar([])))
@@ -172,7 +320,11 @@ export function FamilyPage() {
   }
 
   const toggleFamily = async () => {
-    await activate((confirm) => api.setActive(fam.faces.map((x) => x.hash), !allOn, confirm))
+    await activate((confirm) => api.setActive(fam.faces.filter((x) => !x.system).map((x) => x.hash), !allOn, confirm))
+    api.getFamily(key).then(setFam, () => {})
+  }
+  const toggleFace = async (face: Face) => {
+    await activate((confirm) => api.setActive([face.hash], !face.active, confirm))
     api.getFamily(key).then(setFam, () => {})
   }
   const setLicense = async (label: License, file?: string | null, nextNote?: string) => {
@@ -214,12 +366,13 @@ export function FamilyPage() {
             {fam.system && <Badge tone="neutral">System font · always on</Badge>}
             {fam.adminSet && <Badge tone="accent">Set by admin</Badge>}
             {fam.category && <Badge tone="neutral">{CATEGORY_LABEL[fam.category]}</Badge>}
+            {fam.pinned && <Badge tone="accent">Pinned</Badge>}
           </div>
           <TagEditor familyKey={fam.key} />
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           <button type="button" className={allOn ? 'btn primary' : 'btn'} aria-pressed={allOn} onClick={toggleFamily} disabled={fam.system} style={{ fontWeight: 500 }}>
-            {allOn ? 'Active · turn off' : 'Activate family'}
+            {allOn ? 'All on · turn off' : fam.activeState === 'some' ? 'Turn all on' : 'Activate family'}
           </button>
           <button type="button" className="btn" onClick={openSets}>Add to project set</button>
           <button type="button" className="btn" onClick={() => fam.faces[0] && api.showInFolder(fam.faces[0].path).catch((e) => toast(errMsg(e)))}>Show in folder</button>
@@ -240,6 +393,13 @@ export function FamilyPage() {
         key={tab} role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}
         initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: dur.fast, ease: easeOut }}
       >
+        {tab === 'styles' && (
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {byWeight(fam.faces).map((x, i) => <FaceRow key={x.hash} face={x} i={i} sample={sample} onToggle={() => toggleFace(x)} />)}
+            {!fam.faces.length && <p className="faint" style={{ margin: 0 }}>This family has no fonts left.</p>}
+          </div>
+        )}
+
         {tab === 'preview' && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24 }}>
             <div style={{ flex: '2 1 440px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -291,22 +451,9 @@ export function FamilyPage() {
           </div>
         )}
 
-        {tab === 'glyphs' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div className="muted" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', fontSize: 13 }}>
-              <label htmlFor="block">Unicode block</label>
-              <select id="block" className="select" value={block} onChange={(e) => setBlock(e.target.value)}>
-                {Object.keys(BLOCKS).map((b) => <option key={b}>{b}</option>)}
-              </select>
-              <span>{fam.glyphCount.toLocaleString('en-US')} glyphs in this font</span>
-            </div>
-            <div className="glyph-grid">
-              {BLOCKS[block].map((g, i) => (
-                <div key={g} className="glyph" style={{ ...previewStyle, ...cssStagger(i) }} title={`U+${g.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`}>{g}</div>
-              ))}
-            </div>
-          </div>
-        )}
+        {tab === 'glyphs' && <GlyphsTab fam={fam} extra={{ fontVariationSettings: fvs, fontFeatureSettings: ffs }} />}
+
+        {tab === 'details' && (fam.details ? <DetailsTab d={fam.details} /> : <p className="faint" style={{ margin: 0 }}>No details available for this font.</p>)}
 
         {tab === 'similar' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

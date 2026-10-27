@@ -1,18 +1,33 @@
 import { memo, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { Link, useSearchParams } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   api, type ActivationResult, type Family, type FamilyFilter, type FamilyPage, type FamilySort, type Folder, type FolderNode, type FontCategory, type Health,
   type LibraryCounts, type License, type ListFamiliesArgs,
 } from '../api'
 import { familyStyle } from '../fonts'
-import { useFamilyDrag, useFontActions } from '../fontActions'
-import { useContextMenu } from '../menu'
+import { useAddFonts, useFamilyDrag, useFontActions } from '../fontActions'
+import { useContextMenu, type MenuItem } from '../menu'
 import { collapse, dur, easeOut, rise, spring, STAGGER_CAP, staggerDelay } from '../motion'
 import { useApp } from '../state'
 import {
-  ago, andList, Badge, CATEGORY_LABEL, Chip, errMsg, fmtWhen, LICENSE_LABEL, LicenseBadge, num, Pager, plural, Skel, Switch, useSeen,
+  ago, andList, Badge, CATEGORY_LABEL, Chip, errMsg, fmtWhen, keysBusy, LICENSE_LABEL, LicenseBadge, num, Pager, plural, Skel, Switch, useSeen,
 } from '../ui'
+
+/** SuperSearch tokens (the backend parses them); clicking one in the "?" menu adds it to the search. */
+const TOKENS: [string, string][] = [
+  ['tag:headline', 'Has this tag'], ['foundry:IBM', 'Foundry contains'], ['foundry:"Monotype Imaging"', 'Quotes for spaces'],
+  ['designer:Carter', 'Designer contains'], ['category:serif', 'Or sans, display, mono…'],
+  ['license:personal', 'Or licensed, client…'], ['weight:700', 'Has this weight'], ['weight:>600', 'Heavier (or < lighter)'],
+  ['weight:300-500', 'Weight range'], ['italic', 'Has italics'], ['variable', 'Variable font'], ['active', 'Turned on'], ['inactive', 'Turned off'],
+  ['pinned', 'Pinned to the top'], ['system', 'System font'], ['char:€ß', 'Has these characters'],
+]
+const PinMark = () => (
+  <svg role="img" aria-label="Pinned" className="pin-mark" width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+    <title>Pinned</title>
+    <path d="M9.6 1.6 14.4 6.4l-1.9.6-2.7 2.7.3 2.9-1.3 1.3L2.1 7.2l1.3-1.3 2.9.3L9 3.5Z" /><path d="M5.6 10.4 1.8 14.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+  </svg>
+)
 
 const FILTERS: [FamilyFilter, string][] = [
   ['all', 'All'], ['active', 'Active'], ['inactive', 'Inactive'], ['admin', 'Set by admin'], ['unknown_license', 'Unknown license'], ['duplicates', 'Duplicates'],
@@ -93,7 +108,10 @@ const FamilyRow = memo(function FamilyRow({ f, i, first, sample, size, error, se
       <ItemCheck f={f} i={i} selected={selected} h={h} />
       <ItemSwitch f={f} h={h} />
       <div style={{ width: 200, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <Link to={familyLink(f)} className="plain-link" style={{ fontWeight: 500 }} draggable={false}>{f.family}</Link>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <Link to={familyLink(f)} className="plain-link ellipsis" style={{ fontWeight: 500 }} draggable={false}>{f.family}</Link>
+          {f.pinned && <PinMark />}
+        </span>
         <span className="faint" style={{ fontSize: 12 }}>
           {plural(f.styles, 'style')} · {f.foundry}{f.isVariable && ' · variable'}{f.category && ` · ${CATEGORY_LABEL[f.category]}`}
         </span>
@@ -122,7 +140,10 @@ const FamilyCard = memo(function FamilyCard({ f, i, first, sample, size, error, 
       </div>
       <div className="card-sample" style={{ ...(seen ? familyStyle(f) : {}), fontSize: size, color: on ? 'var(--ink)' : 'var(--disabled)' }}>{sample}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-        <Link to={familyLink(f)} className="plain-link ellipsis" style={{ fontWeight: 500 }} draggable={false}>{f.family}</Link>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <Link to={familyLink(f)} className="plain-link ellipsis" style={{ fontWeight: 500 }} draggable={false}>{f.family}</Link>
+          {f.pinned && <PinMark />}
+        </span>
         <span className="faint ellipsis" style={{ fontSize: 12 }}>
           {plural(f.styles, 'style')}{f.category && ` · ${CATEGORY_LABEL[f.category]}`}{f.isVariable && ' · variable'}
         </span>
@@ -175,6 +196,11 @@ export function Library() {
   const { app, libVersion, activate, adminChange, dismissAdmin } = useApp()
   const [params, setParams] = useSearchParams()
   const [search, setSearch] = useState('')
+  const [chars, setChars] = useState('')
+  const [presets, setPresets] = useState<string[]>([])
+  const sampleBtn = useRef<HTMLButtonElement>(null)
+  const navigate = useNavigate()
+  const add = useAddFonts()
   const [filter, setFilter] = useState<FamilyFilter>('all')
   const [sort, setSort] = useState<FamilySort>('name')
   const [seed, setSeed] = useState(newSeed)
@@ -201,17 +227,23 @@ export function Library() {
   const path = params.get('path'), collectionId = params.get('collection'), license = params.get('license') as License | null
   const system = params.get('system') === '1'
   const tag = params.get('tag')
-  const scopeKey = [search.trim(), filter, sort, sort === 'random' ? seed : '', category, path, collectionId, license, tag, system].join('|')
+  const scopeKey = [search.trim(), chars.trim(), filter, sort, sort === 'random' ? seed : '', category, path, collectionId, license, tag, system].join('|')
 
   const actions = useFontActions((clear) => {
     if (clear) setSel(new Map())
     setReload((n) => n + 1)
   })
   const { show, menu } = useContextMenu('Font actions')
+  const tokensMenu = useContextMenu('Search tokens')
+  const samplesMenu = useContextMenu('Sample texts')
+  const addMenu = useContextMenu('Add fonts')
   const drag = useFamilyDrag((c, fams) => actions.addTo(c, fams))
 
   useEffect(() => {
-    api.getSettings().then((s) => s.sampleText && setSample(s.sampleText), () => {})
+    api.getSettings().then((s) => {
+      if (s.sampleText) setSample(s.sampleText)
+      setPresets(s.sampleTexts ?? [])
+    }, () => {})
     api.health().then(setHealth, () => {})
   }, [])
   useEffect(() => {
@@ -241,13 +273,14 @@ export function Library() {
   }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const args: ListFamiliesArgs = { search: search.trim() || undefined, filter: system ? 'system' : filter, sort }
+    if (chars.trim()) args.chars = chars.trim()
     if (path) args.path = path
     if (collectionId) args.collectionId = Number(collectionId)
     if (license) args.license = license
     if (tag) args.tag = tag
     if (category) args.category = category
     if (sort === 'random') args.seed = seed
-    const t = setTimeout(() => api.familyPage(args, (page - 1) * PAGE, PAGE).then(setData, () => setData({ items: [], total: 0 })), search ? 150 : 0)
+    const t = setTimeout(() => api.familyPage(args, (page - 1) * PAGE, PAGE).then(setData, () => setData({ items: [], total: 0 })), search || chars ? 150 : 0)
     return () => clearTimeout(t)
   }, [scopeKey, page, libVersion, reload]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -319,10 +352,12 @@ export function Library() {
         searchRef.current?.select()
         return
       }
-      const t = e.target as Element
-      if (t.closest?.('input:not([type=checkbox]):not([type=radio]), textarea, select, [contenteditable=""], [contenteditable="true"], .ctx-menu') || document.querySelector('dialog[open]')) return
+      if (keysBusy(e)) return
       const { sel, rows, actions } = live.current
-      if (mod && !e.altKey && k === 'a') {
+      if (k === 'enter' && !mod && !e.altKey && !e.shiftKey && !(e.target as Element).closest?.('a, button, input, summary, [tabindex]')) {
+        e.preventDefault()
+        sampleBtn.current?.click() // like FontBase: Enter opens the sample text picker
+      } else if (mod && !e.altKey && k === 'a') {
         e.preventDefault()
         if (e.shiftKey) actions.setActive([...sel.values()], true)
         else setSel(new Map(rows.map((f) => [f.key, f])))
@@ -355,16 +390,47 @@ export function Library() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
       <div className="toolbar" ref={top}>
-        <label htmlFor="search" className="sr-only">Search fonts</label>
+        <div className="input-group" style={{ flex: '1 1 220px' }}>
+          <label htmlFor="search" className="sr-only">Search fonts</label>
+          <input
+            ref={searchRef} id="search" type="search" className="input" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder={counts ? `Search ${num(counts.library)} fonts` : 'Search fonts'}
+          />
+          <button
+            type="button" className="input-addon" aria-label="Search tokens" title="Search tokens" aria-haspopup="menu"
+            onClick={(e) => tokensMenu.show(e, TOKENS.map(([token, hint]): MenuItem => ({
+              label: token, hint,
+              onSelect: () => {
+                setSearch((s) => `${s.trim() ? `${s.trim()} ` : ''}${token} `)
+                searchRef.current?.focus()
+              },
+            })), true)}
+          >?</button>
+        </div>
+        <label htmlFor="chars" className="sr-only">Only fonts that have these characters</label>
         <input
-          ref={searchRef} id="search" type="search" className="input" style={{ flex: '1 1 220px' }} value={search} onChange={(e) => setSearch(e.target.value)}
-          placeholder={counts ? `Search ${num(counts.library)} fonts` : 'Search fonts'}
+          id="chars" type="search" className="input" style={{ flex: '0 1 130px' }} value={chars} onChange={(e) => setChars(e.target.value)}
+          placeholder="Characters" title="Only fonts that have every one of these characters"
         />
-        <label htmlFor="sample" className="sr-only">Sample text</label>
-        <input
-          id="sample" type="text" className="input" style={{ flex: '2 1 260px' }} value={sample} onChange={(e) => setSample(e.target.value)}
-          onBlur={() => api.updateSettings({ sampleText: sample }).catch(() => {})}
-        />
+        <div className="input-group" style={{ flex: '2 1 260px' }}>
+          <label htmlFor="sample" className="sr-only">Sample text</label>
+          <input
+            id="sample" type="text" className="input" value={sample} onChange={(e) => setSample(e.target.value)}
+            onBlur={() => api.updateSettings({ sampleText: sample }).catch(() => {})}
+          />
+          <button
+            ref={sampleBtn} type="button" className="input-addon" aria-label="Sample text presets" title="Sample text presets (Enter)" aria-haspopup="menu"
+            onClick={(e) => samplesMenu.show(e, [
+              ...presets.map((t): MenuItem => ({
+                label: t, onSelect: () => (setSample(t), api.updateSettings({ sampleText: t }).catch(() => {})),
+              })),
+              ...(presets.length ? ['sep' as const] : []),
+              { label: 'Edit presets…', onSelect: () => navigate('/settings') },
+            ], true)}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5 6 7.5 9 4.5" /></svg>
+          </button>
+        </div>
         <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
           Size
           <input type="range" min={16} max={72} value={size} onChange={(e) => setSize(Number(e.target.value))} style={{ width: 120 }} />
@@ -400,6 +466,16 @@ export function Library() {
             </button>
           ))}
         </div>
+        <button
+          type="button" className="btn small" aria-haspopup="menu"
+          onClick={(e) => addMenu.show(e, [
+            { label: 'Add fonts…', hint: 'F', onSelect: add.addFonts },
+            { label: 'Add folder (copy)…', hint: 'D', onSelect: add.addFolder },
+            { label: 'Watch a folder…', hint: 'W', onSelect: add.watchFolder },
+          ], true)}
+        >
+          + Add ▾
+        </button>
       </div>
 
       <div className="chips" style={{ padding: '12px 24px' }}>
@@ -446,6 +522,9 @@ export function Library() {
               <button type="button" className="btn small" onClick={() => actions.setActive(selList, false)} title={`${mod}Shift+D`}>Deactivate</button>
               <button type="button" className="btn small" aria-haspopup="menu" onClick={(e) => show(e, actions.collectionItems(selList), true)}>Add to collection ▾</button>
               <button type="button" className="btn small" onClick={() => actions.openTags(selList)}>Tags…</button>
+              {selList.every((f) => f.pinned)
+                ? <button type="button" className="btn small" onClick={() => actions.setPinned(selList, false)}>Unpin</button>
+                : <button type="button" className="btn small" onClick={() => actions.setPinned(selList, true)}>Pin to top</button>}
               <button type="button" className="btn small" aria-haspopup="menu" onClick={(e) => show(e, actions.menuItems(selList), true)}>More ▾</button>
               <button type="button" className="btn small link" style={{ marginLeft: 'auto' }} onClick={() => setSel(new Map())} title="Esc">Clear</button>
             </div>
@@ -470,6 +549,9 @@ export function Library() {
         {data && <div style={{ paddingTop: 16 }}><Pager page={page} size={PAGE} total={data.total} onPage={go} /></div>}
       </div>
       {menu}
+      {tokensMenu.menu}
+      {samplesMenu.menu}
+      {addMenu.menu}
       {drag.ghost}
       {actions.dialogs}
 

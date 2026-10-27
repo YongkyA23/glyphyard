@@ -90,6 +90,7 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `get_connection` / `test_connection {serverUrl, installKey}` / `save_connection {serverUrl, installKey}` / `reset_connection` | → `Connection` (`test_connection` → `{ ok, error }`) |
 | `quick_search` | `{ query }` → `Face[]` (max 20) |
 | `show_in_folder` | `{ path }` → void |
+| `open_url` | `{ url }` → void; http(s) only, opens the default browser (links from font metadata) |
 | `adobe_status` | → `{ app: "photoshop"\|"illustrator"\|"indesign", label: string, versions: string[], installed: boolean, paired: boolean }[]` |
 | `adobe_install` / `adobe_remove` | `{ app }` → same row |
 | `adobe_pair_respond` | `{ requestId, allow }` → void |

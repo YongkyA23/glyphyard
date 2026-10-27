@@ -6,10 +6,11 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import {
   api, inTauri, on, type ActivationResult, type Collection, type Folder, type FolderNode, type LibraryCounts, type License, type ProjectSet, type Tag,
 } from './api'
+import { useAddFonts } from './fontActions'
 import { useContextMenu, type MenuItem } from './menu'
 import { dur, easeOut, pop, route, spring } from './motion'
 import { useApp } from './state'
-import { ago, basename, collectionTree, Dialog, errMsg, initials, LICENSE_LABEL, Num, plural, PromptDialog, Spinner } from './ui'
+import { ago, basename, collectionTree, Dialog, errMsg, initials, keysBusy, LICENSE_LABEL, Num, plural, PromptDialog, Spinner } from './ui'
 
 /** The highlight behind the current sidebar entry; glides between entries via the shared layoutId. */
 const Hi = ({ id }: { id: string }) => <motion.span layoutId={id} className="side-hi" transition={spring.glide} />
@@ -63,6 +64,8 @@ function TreeNode({ node, depth, folder, showHidden, onMenu }: { node: FolderNod
   )
 }
 
+const JSON_FILES = [{ name: 'Collections (JSON)', extensions: ['json'] }]
+
 type Prompt = { title: string; label: string; initial?: string; confirm: string; run: (value: string) => Promise<unknown> }
 type Confirm = { title: string; body: string; action: string; run: () => Promise<unknown> }
 
@@ -84,6 +87,7 @@ function Sidebar() {
   const { show, menu } = useContextMenu('Sidebar actions')
   const current = (to: string) => (to === '/' ? pathname === '/' || pathname.startsWith('/family/') : pathname.startsWith(to))
   const bin = app.platform === 'macos' ? 'Trash' : 'Recycle Bin'
+  const add = useAddFonts()
 
   useEffect(() => {
     api.libraryCounts().then(setCounts, () => {})
@@ -127,6 +131,48 @@ function Sidebar() {
     bump()
     if (res) toast(`${done} · ${plural(res.filter((r) => r.ok).length, 'font')}`)
   }
+  const newCollection = () =>
+    setPrompt({ title: 'New collection', label: 'Name', confirm: 'Create', run: (name) => saveCollections(api.createCollection(name, null)) })
+
+  // FontBase shortcuts: F add fonts, D add a folder (copied), W watch a folder, C new collection.
+  const keys = useRef({ add, newCollection })
+  keys.current = { add, newCollection }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.repeat || keysBusy(e)) return
+      const { add, newCollection } = keys.current
+      const run = ({ f: add.addFonts, d: add.addFolder, w: add.watchFolder, c: newCollection } as Record<string, () => unknown>)[e.key.toLowerCase()]
+      if (run) (e.preventDefault(), run())
+    }
+    addEventListener('keydown', onKey)
+    return () => removeEventListener('keydown', onKey)
+  }, [])
+
+  async function exportCollections() {
+    try {
+      const dest = await api.pickSaveFile('typeshelf-collections.json', JSON_FILES)
+      if (!dest) return
+      const r = await api.exportCollections(dest)
+      toast(`Exported ${plural(r.collections, 'collection')} to ${basename(dest)}`, { label: 'Show', run: () => void api.showInFolder(dest).catch(fail) })
+    } catch (e) {
+      fail(e)
+    }
+  }
+  async function importCollections() {
+    try {
+      const path = await api.pickFile(JSON_FILES)
+      if (!path) return
+      const r = await api.importCollections(path)
+      bump()
+      toast(
+        `Imported ${plural(r.collections, 'collection')} with ${plural(r.families, 'font family', 'font families')}` +
+          (r.missing ? ` · ${plural(r.missing, 'font')} not in your library` : ''),
+      )
+    } catch (e) {
+      fail(e)
+    }
+  }
+
   async function exportZip(col: Collection) {
     const dest = await api.pickSaveFile(`${col.name.replace(/[\\/:*?"<>|]/g, '-')}.zip`, [{ name: 'ZIP archive', extensions: ['zip'] }]).catch((e) => (fail(e), null))
     if (!dest) return
@@ -272,10 +318,16 @@ function Sidebar() {
       <div className="side-group">
         <div className="side-head-row">
           <span className="side-head">Collections</span>
-          <button
-            type="button" className="side-add" aria-label="New collection" title="New collection"
-            onClick={() => setPrompt({ title: 'New collection', label: 'Name', confirm: 'Create', run: (name) => saveCollections(api.createCollection(name, null)) })}
-          >+</button>
+          <span style={{ display: 'flex', gap: 2 }}>
+            <button
+              type="button" className="side-add" aria-label="Collection options" title="Import or export collections" aria-haspopup="menu"
+              onClick={(e) => show(e, [
+                { label: 'Export collections…', onSelect: exportCollections },
+                { label: 'Import collections…', onSelect: importCollections },
+              ], true)}
+            >⋯</button>
+            <button type="button" className="side-add" aria-label="New collection" title="New collection (C)" onClick={newCollection}>+</button>
+          </span>
         </div>
         {collectionTree(collections).map(({ c: col, depth }) => (
           <Link
@@ -340,25 +392,11 @@ function Sidebar() {
 
 /** Dropping font files or folders anywhere on the window imports them (the PDF page takes its own drops). */
 function FileDrop() {
-  const { toast, bump } = useApp()
   const { pathname } = useLocation()
-  const navigate = useNavigate()
   const [over, setOver] = useState(false)
   const here = useRef(pathname)
   here.current = pathname
-
-  const importPaths = async (paths: string[]) => {
-    if (!paths.length) return
-    try {
-      const r = await api.importPaths(paths)
-      bump()
-      const skipped = r.skipped ? ` · ${plural(r.skipped, 'font')} already in your library` : ''
-      if (r.imported) toast(`Imported ${plural(r.imported, 'font')}${skipped}`, { label: 'Show', run: () => navigate(`/?path=${encodeURIComponent(r.folder)}`) })
-      else toast(`No new fonts to import${skipped}`)
-    } catch (e) {
-      toast(errMsg(e))
-    }
-  }
+  const { importPaths } = useAddFonts()
   const run = useRef(importPaths)
   run.current = importPaths
 

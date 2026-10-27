@@ -2,7 +2,7 @@
 // Dev helpers on window.typeshelfMock: emit(event, payload), setOffline(bool).
 import type {
   ActivationResult, AdobeRow, AppState, Collection, Connection, Face, Family, FamilyDetail, FileRow, Folder, FolderNode, FontCategory,
-  GoogleFont, HistoryEntry, License, ListFamiliesArgs, OrganizeChange, PdfFont, ProjectSet, Settings,
+  GlyphBlock, GoogleFont, HistoryEntry, License, ListFamiliesArgs, OrganizeChange, PdfFont, ProjectSet, Settings,
 } from './api'
 
 const day = 86_400_000
@@ -38,6 +38,27 @@ const SEEDS: Seed[] = [
   { family: 'Caveat', category: 'handwriting', foundry: 'Impallari Type', designer: 'Pablo Impallari', license: 'licensed', folder: 'D:\\Fonts\\Client work', weights: [400, 700], on: false, addedDaysAgo: 15, features: ['liga', 'calt'] },
 ]
 
+// ---- glyph coverage (face_glyphs, glyph search) ----
+const span = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i)
+const UNI_BLOCKS: [string, number, number][] = [
+  ['Basic Latin', 0x0000, 0x007f], ['Latin-1 Supplement', 0x0080, 0x00ff], ['Latin Extended-A', 0x0100, 0x017f],
+  ['Greek and Coptic', 0x0370, 0x03ff], ['Cyrillic', 0x0400, 0x04ff], ['Latin Extended Additional', 0x1e00, 0x1eff],
+  ['General Punctuation', 0x2000, 0x206f], ['Currency Symbols', 0x20a0, 0x20cf], ['Arrows', 0x2190, 0x21ff], ['Box Drawing', 0x2500, 0x257f],
+  ['CJK Unified Ideographs', 0x4e00, 0x9fff],
+]
+const COMMON = [...span(0x20, 0x7e), ...span(0xa0, 0xff).filter((c) => c !== 0xad), 0x2013, 0x2014, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2026, 0x20ac]
+const EXTRA: Record<string, number[]> = {
+  fraunces: [...span(0x100, 0x17f), ...span(0x1e00, 0x1eff)],
+  // Over 512 CJK codepoints so the Glyphs tab shows its "Show all" button.
+  'ibm-plex-mono': [...span(0x100, 0x17f), ...span(0x391, 0x3a1), ...span(0x3a3, 0x3a9), ...span(0x3b1, 0x3c9), ...span(0x410, 0x44f), ...span(0x2190, 0x2199), ...span(0x2500, 0x257f), ...span(0x4e00, 0x50ff)],
+  'space-grotesk': span(0x100, 0x17f), 'bricolage-grotesque': span(0x100, 0x17f), syne: [...span(0x100, 0x17f), ...span(0x410, 0x44f)],
+}
+const glyphsOf = (key: string) => [...COMMON, ...(EXTRA[key] ?? [])].sort((a, b) => a - b)
+const covers = (key: string, chars: string) => {
+  const have = new Set(glyphsOf(key))
+  return [...chars].every((c) => have.has(c.codePointAt(0)!))
+}
+
 let hashN = 0
 const nextHash = () => (++hashN).toString(16).padStart(8, '0') + 'b3a1c9e2'
 const keyOf = (family: string) => family.toLowerCase().replace(/\s+/g, '-')
@@ -68,13 +89,26 @@ const families: Fam[] = SEEDS.map((s) => {
   return {
     key: keyOf(s.family), family: s.family, foundry: s.foundry, styles: faces.length, isVariable: !!s.variable,
     license: s.license, activeState: s.on ? 'all' : 'none', adminSet: !!s.admin, hasDuplicates: !!s.dupe, system: false, faces, category: s.category,
-    axes: s.axes ?? [], features: s.features, glyphCount: s.family === 'Fraunces' ? 612 : 380 + s.family.length * 11, designer: s.designer, files,
+    axes: s.axes ?? [], features: s.features, glyphCount: glyphsOf(keyOf(s.family)).length + 24, designer: s.designer, files,
     licenseInfo: {
       label: s.license,
       file: s.license === 'licensed' ? `${dir}\\OFL.txt` : null,
       note: s.license === 'licensed' ? 'Free for commercial use, including logos.' : '',
     },
-    addedAt: Date.now() - s.addedDaysAgo * day, tags: s.category === 'display' ? ['headline'] : [], original: s.family,
+    addedAt: Date.now() - s.addedDaysAgo * day, tags: s.category === 'display' ? ['headline'] : [], original: s.family, pinned: false,
+    details: {
+      copyright: `Copyright 2026 The ${s.family} Project Authors`,
+      trademark: s.license === 'licensed' ? null : `${s.family} is a trademark of ${s.foundry}.`,
+      manufacturer: s.foundry, designer: s.designer,
+      description: s.category === 'display' ? `${s.family} is a display face for headlines and posters, with tight spacing and high contrast.` : null,
+      license: s.license === 'licensed' ? 'This Font Software is licensed under the SIL Open Font License, Version 1.1.'
+        : s.license === 'personal' ? 'Free for personal use. Contact the foundry for a commercial license.' : null,
+      licenseUrl: s.license === 'licensed' ? 'https://openfontlicense.org' : null,
+      vendorUrl: `https://${s.foundry.toLowerCase().replace(/[^a-z0-9]+/g, '')}.com`,
+      designerUrl: s.family === 'Fraunces' ? 'https://undercase.xyz' : null,
+      version: `Version ${s.dupe ? '2.000' : '1.000'}`, uniqueId: `${s.dupe ? '2.000' : '1.000'};${s.foundry.slice(0, 4).toUpperCase()};${base}-Regular`,
+      format: s.variable ? 'Variable TrueType' : 'OpenType (CFF)', upm: 1000, glyphCount: glyphsOf(keyOf(s.family)).length + 24,
+    },
   }
 })
 // Fraunces ships 9 static styles grouped with the variable one; the mockup counts them as "9 styles".
@@ -91,7 +125,7 @@ const refreshState = (f: Fam) => {
   })
 }
 const toFamily = (f: Fam): Family => {
-  const { axes: _a, features: _f, glyphCount: _g, designer: _d, files: _fi, licenseInfo: _l, addedAt: _ad, original: _o, ...rest } = f
+  const { axes: _a, features: _f, glyphCount: _g, designer: _d, files: _fi, licenseInfo: _l, addedAt: _ad, original: _o, details: _de, ...rest } = f
   return clone(rest)
 }
 
@@ -130,6 +164,10 @@ let app: AppState = {
 let settings: Settings = {
   startAtLogin: true, startHidden: true, autoUpdate: true, deactivateOnQuit: false,
   quickShortcut: 'CmdOrCtrl+Alt+Space', theme: 'light', sampleText: 'Sphinx of black quartz, judge my vow',
+  sampleTexts: [
+    'Sphinx of black quartz, judge my vow', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz', '0123456789 !?&@#%(){}[]', 'Hamburgefonstiv',
+    'Typography is the craft of endowing human language with a durable visual form.',
+  ],
 }
 let history: HistoryEntry[] = [
   { id: 2, kind: 'organize', summary: 'Auto-organize · 89 changes applied', at: '2026-10-21T14:05:00', undone: false },
@@ -251,13 +289,43 @@ const seeded = (key: string, seed: number) => {
   return (h ^ (h >>> 15)) >>> 0
 }
 
+/** SuperSearch: key:value tokens (quotes for spaces) AND together; other words match the family or foundry name. */
+function superMatch(f: Fam, search: string) {
+  for (const m of search.matchAll(/(\w+):(?:"([^"]*)"|(\S+))|"([^"]*)"|(\S+)/g)) {
+    const key = m[1]?.toLowerCase(), raw = m[2] ?? m[3] ?? '', val = raw.toLowerCase()
+    const word = (key ? `${m[1]}:${raw}` : (m[4] ?? m[5])).toLowerCase()
+    let ok: boolean
+    switch (key) {
+      case 'tag': ok = f.tags.some((t) => t.toLowerCase() === val); break
+      case 'foundry': ok = f.foundry.toLowerCase().includes(val); break
+      case 'designer': ok = f.designer.toLowerCase().includes(val); break
+      case 'category': ok = f.category === val; break
+      case 'license': ok = f.license === val; break
+      case 'char': case 'glyph': ok = covers(f.key, raw); break
+      case 'weight': {
+        const r = /^([<>])?(\d+)(?:-(\d+))?$/.exec(val)
+        ok = !!r && f.faces.some(({ weight: w }) => (r[1] === '>' ? w > +r[2] : r[1] === '<' ? w < +r[2] : r[3] ? w >= +r[2] && w <= +r[3] : w === +r[2]))
+        break
+      }
+      default: {
+        const flags: Record<string, boolean> = {
+          italic: f.faces.some((x) => x.italic), variable: f.isVariable, active: f.activeState !== 'none', inactive: f.activeState === 'none', pinned: f.pinned, system: f.system,
+        }
+        ok = flags[word] ?? `${f.family} ${f.foundry}`.toLowerCase().includes(word)
+      }
+    }
+    if (!ok) return false
+  }
+  return true
+}
+
 function listFamilies(a: ListFamiliesArgs): Family[] {
-  const q = a.search?.trim().toLowerCase()
   const showHidden = a.includeHidden || (a.path != null && isHidden(a.path)) || a.keys != null
   let out = families.filter((f) => {
     if (!showHidden && f.faces.every((x) => isHidden(x.path))) return false
     if (a.category && f.category !== a.category) return false
-    if (q && !`${f.family} ${f.foundry}`.toLowerCase().includes(q)) return false
+    if (a.search?.trim() && !superMatch(f, a.search)) return false
+    if (a.chars && !covers(f.key, a.chars)) return false
     switch (a.filter) {
       case 'active': if (f.activeState === 'none') return false; break
       case 'inactive': if (f.activeState !== 'none') return false; break
@@ -280,7 +348,7 @@ function listFamilies(a: ListFamiliesArgs): Family[] {
   const by = { name: (x: Fam, y: Fam) => x.family.localeCompare(y.family), name_desc: (x: Fam, y: Fam) => y.family.localeCompare(x.family),
     date: (x: Fam, y: Fam) => y.addedAt - x.addedAt, foundry: (x: Fam, y: Fam) => x.foundry.localeCompare(y.foundry),
     random: (x: Fam, y: Fam) => seeded(x.key, a.seed ?? 0) - seeded(y.key, a.seed ?? 0) }
-  out = [...out].sort(by[a.sort ?? 'name'])
+  out = [...out].sort((x, y) => Number(y.pinned) - Number(x.pinned) || by[a.sort ?? 'name'](x, y))
   return out.map(toFamily)
 }
 
@@ -542,6 +610,7 @@ const handlers: Record<string, (a: Args) => unknown> = {
     return families.flatMap((f) => f.faces).filter((x) => !q || x.fullName.toLowerCase().includes(q)).slice(0, 20)
   },
   show_in_folder: ({ path }) => console.info('[mock] show_in_folder', path),
+  open_url: ({ url }) => void window.open(url, '_blank', 'noopener'),
   adobe_status: () => adobe,
   indesign_running: () => false,
   adobe_install: ({ app: a }) => Object.assign(adobe.find((r) => r.app === a)!, { installed: true }),
@@ -552,8 +621,34 @@ const handlers: Record<string, (a: Args) => unknown> = {
   pick_folder: () => 'D:\\Fonts\\New folder',
   pick_file: ({ filters }) => {
     const ext = filters?.[0]?.extensions?.[0] ?? 'txt'
-    return { pdf: 'C:\\Users\\budi\\Documents\\brochure-final.pdf', typeshelf: 'C:\\Users\\budi\\Documents\\typeshelf-backup-2026-10-20.typeshelf' }[ext as string]
+    return { json: 'C:\\Users\\budi\\Documents\\typeshelf-collections.json', pdf: 'C:\\Users\\budi\\Documents\\brochure-final.pdf', typeshelf: 'C:\\Users\\budi\\Documents\\typeshelf-backup-2026-10-20.typeshelf' }[ext as string]
       ?? `C:\\Users\\budi\\Documents\\license.${ext}`
+  },
+  pick_files: () => ['C:\\Users\\budi\\Downloads\\Inter-Regular.otf', 'C:\\Users\\budi\\Downloads\\Inter-Bold.otf'],
+  face_glyphs: ({ hash }) => {
+    const f = famOfHash(hash)
+    if (!f) throw err('not_found', 'This font is no longer in your library.')
+    const cps = glyphsOf(f.key)
+    const blocks: GlyphBlock[] = UNI_BLOCKS.map(([name, start, end]) => ({ name, start, end, chars: cps.filter((c) => c >= start && c <= end) })).filter((b) => b.chars.length)
+    return { total: cps.length, blocks }
+  },
+  set_pinned: ({ keys, pinned }) => {
+    families.forEach((f) => keys.includes(f.key) && (f.pinned = pinned))
+    emit('library-changed', { reason: 'scan' })
+  },
+  export_collections: () => ({ collections: collections.filter((c) => !c.builtin).length }),
+  import_collections: () => {
+    // ponytail: the mock reads no file; it always merges the same small "Brand kit" collection.
+    const name = 'Brand kit'
+    let c = collections.find((x) => x.name === name && x.parentId === null)
+    if (!c) {
+      c = { id: Math.max(0, ...collections.map((x) => x.id)) + 1, name, parentId: null, count: 0, builtin: null }
+      collections = [...collections, c]
+      collItems[c.id] = new Set()
+    }
+    for (const k of ['syne', 'caveat', 'familjen-grotesk']) collItems[c.id].add(k)
+    emit('library-changed', { reason: 'scan' })
+    return { collections: 1, families: 3, missing: 1 }
   },
 }
 

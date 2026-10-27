@@ -35,7 +35,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         backup_create, backup_restore,
         get_settings, update_settings,
         get_connection, test_connection, save_connection, reset_connection,
-        quick_search, show_in_folder,
+        quick_search, show_in_folder, open_url,
         adobe_status, adobe_install, adobe_remove, adobe_pair_respond, indesign_running,
         pick_folder, pick_file, pick_files, pick_save_file,
     ]
@@ -462,6 +462,16 @@ pub async fn reset_connection(app: AppHandle, ctx: St<'_>) -> R<Connection> {
 #[tauri::command]
 pub fn show_in_folder(path: String) -> R<()> {
     tauri_plugin_opener::reveal_item_in_dir(&path).map_err(|e| EngineError::new("io", e.to_string()))
+}
+
+/// Opens a web link from a font's metadata in the default browser. Only http(s): the URL comes from a font file.
+#[tauri::command]
+pub fn open_url(url: String) -> R<()> {
+    let lower = url.to_ascii_lowercase();
+    if !(lower.starts_with("https://") || lower.starts_with("http://")) {
+        return Err(EngineError::new("invalid", "only http and https links can be opened"));
+    }
+    tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| EngineError::new("io", e.to_string()))
 }
 
 #[derive(Deserialize)]

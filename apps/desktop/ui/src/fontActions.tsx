@@ -35,6 +35,15 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
     if (res?.some((r) => r.ok)) toast(`${on ? 'Turned on' : 'Turned off'} ${famNames(fams)}`)
     onChanged(false)
   }
+  async function setPinned(fams: Family[], pinned: boolean) {
+    try {
+      await api.setPinned(fams.map((f) => f.key), pinned)
+      toast(pinned ? `Pinned ${famNames(fams)} to the top` : `Unpinned ${famNames(fams)}`)
+      onChanged(false)
+    } catch (e) {
+      toast(errMsg(e))
+    }
+  }
   async function addTo(c: { id: number; name: string }, fams: Family[]) {
     try {
       await api.addToCollection(c.id, fams.map((f) => f.key))
@@ -70,6 +79,9 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
       { label: 'Deactivate', hint: `${mod}Shift+D`, disabled: locked || fams.every((f) => f.activeState === 'none'), onSelect: () => setActive(fams, false) },
       { label: 'Show in folder', disabled: !fams[0]?.faces[0], onSelect: () => api.showInFolder(fams[0].faces[0].path).catch((e) => toast(errMsg(e))) },
       'sep',
+      fams.every((f) => f.pinned)
+        ? { label: 'Unpin', onSelect: () => setPinned(fams, false) }
+        : { label: 'Pin to top', onSelect: () => setPinned(fams, true) },
       { label: 'Add to collection', items: collectionItems(fams) },
       { label: 'Tags…', onSelect: () => setTagging(fams) },
       { label: one ? 'Rename family…' : 'Show as one family…', onSelect: () => setRenaming(fams) },
@@ -137,7 +149,46 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
       </Dialog>
     </>
   )
-  return { menuItems, collectionItems, setActive, addTo, openTags: setTagging, collections, dialogs }
+  return { menuItems, collectionItems, setActive, setPinned, addTo, openTags: setTagging, collections, dialogs }
+}
+
+const FONT_FILES = [{ name: 'Fonts', extensions: ['ttf', 'otf', 'ttc', 'otc', 'woff', 'woff2'] }]
+
+/** Adding fonts: copy files/folders into "Imported fonts" (dialogs or drops), or watch a folder where it is. */
+export function useAddFonts() {
+  const { toast, bump } = useApp()
+  const navigate = useNavigate()
+  const fail = (e: unknown) => toast(errMsg(e))
+  const showPath = (path: string) => ({ label: 'Show', run: () => navigate(`/?path=${encodeURIComponent(path)}`) })
+
+  async function importPaths(paths: string[]) {
+    if (!paths.length) return
+    try {
+      const r = await api.importPaths(paths)
+      bump()
+      const skipped = r.skipped ? ` · ${plural(r.skipped, 'font')} already in your library` : ''
+      if (r.imported) toast(`Imported ${plural(r.imported, 'font')}${skipped}`, showPath(r.folder))
+      else toast(`No new fonts to import${skipped}`)
+    } catch (e) {
+      fail(e)
+    }
+  }
+  return {
+    importPaths,
+    addFonts: () => api.pickFiles(FONT_FILES).then((paths) => void (paths && importPaths(paths)), fail),
+    addFolder: () => api.pickFolder().then((path) => void (path && importPaths([path])), fail),
+    watchFolder: async () => {
+      try {
+        const path = await api.pickFolder()
+        if (!path) return
+        await api.addFolder(path)
+        bump()
+        toast(`Watching ${path}`, showPath(path))
+      } catch (e) {
+        fail(e)
+      }
+    },
+  }
 }
 
 /** Tags for one or more families. Tags only some of them have show as mixed and stay as they are unless clicked. */

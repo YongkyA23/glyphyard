@@ -2,7 +2,7 @@
 // In the browser mock, sample families load from Google Fonts instead.
 import type { CSSProperties } from 'react'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { inTauri, type Face, type Family } from './api'
+import { inTauri, type Axis, type Face, type Family } from './api'
 import { MOCK_GF } from './mock-fonts'
 
 const done = new Set<string>()
@@ -53,3 +53,9 @@ export const familyStyle = (fam: Pick<Family, 'faces'> | null | undefined, weigh
   // A variable face can hit the requested weight itself.
   return { ...faceStyle(face), ...(face?.isVariable && weight !== 400 ? { fontVariationSettings: `'wght' ${weight}` } : {}) }
 }
+
+export const AXIS_NAME: Record<string, string> = {
+  wght: 'Weight', wdth: 'Width', opsz: 'Optical size', ital: 'Italic', slnt: 'Slant', SOFT: 'Softness', WONK: 'Wonky', GRAD: 'Grade', CASL: 'Casual', MONO: 'Monospace',
+}
+/** Slider step: whole numbers, tenths for short ranges. */
+export const axisStep = (a: Axis) => (a.max - a.min > 2 ? 1 : a.max - a.min > 1 ? 0.1 : 1)

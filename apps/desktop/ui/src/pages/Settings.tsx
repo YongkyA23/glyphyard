@@ -253,6 +253,55 @@ function AppSection() {
   )
 }
 
+/** Presets for the library's sample text picker: edit in place, reorder, remove, add. */
+function SampleTextsSection() {
+  const { toast } = useApp()
+  const [list, setList] = useState<string[] | null>(null)
+  const [draft, setDraft] = useState('')
+  useEffect(() => void api.getSettings().then((s) => setList(s.sampleTexts ?? []), (e) => toast(errMsg(e))), [toast])
+  if (!list) return null
+  const save = (next: string[]) => {
+    const clean = [...new Set(next.map((t) => t.trim()).filter(Boolean))]
+    setList(clean)
+    api.updateSettings({ sampleTexts: clean }).then((s) => setList(s.sampleTexts), (e) => (toast(errMsg(e)), setList(list)))
+  }
+  const move = (i: number, d: number) => {
+    const next = [...list]
+    ;[next[i], next[i + d]] = [next[i + d], next[i]]
+    save(next)
+  }
+  return (
+    <Section id="s-samples" title="Sample texts">
+      <span className="muted" style={{ fontSize: 13 }}>Presets for the sample text in the library. Press Enter there to pick one.</span>
+      <ul className="preset-list">
+        <AnimatePresence initial={false}>
+          {list.map((t, i) => (
+            <motion.li key={t} layout initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ ...spring.glide, opacity: { duration: dur.fast } }}>
+              <input
+                className="input" defaultValue={t} aria-label={`Sample text ${i + 1}`}
+                onBlur={(e) => {
+                  const v = e.target.value.trim()
+                  if (v && v !== t) save(list.map((x, j) => (j === i ? v : x)))
+                  else e.target.value = t
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+              />
+              <button type="button" className="btn small icon-btn" aria-label={`Move “${t}” up`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
+              <button type="button" className="btn small icon-btn" aria-label={`Move “${t}” down`} disabled={i === list.length - 1} onClick={() => move(i, 1)}>↓</button>
+              <button type="button" className="btn small icon-btn" aria-label={`Remove “${t}”`} onClick={() => save(list.filter((_, j) => j !== i))}>✕</button>
+            </motion.li>
+          ))}
+        </AnimatePresence>
+      </ul>
+      <form style={{ display: 'flex', gap: 8 }} onSubmit={(e) => (e.preventDefault(), draft.trim() && (save([...list, draft]), setDraft('')))}>
+        <label htmlFor="new-sample" className="sr-only">New sample text</label>
+        <input id="new-sample" className="input" style={{ flex: 1 }} placeholder="New sample text" value={draft} onChange={(e) => setDraft(e.target.value)} />
+        <button type="submit" className="btn" disabled={!draft.trim()}>Add</button>
+      </form>
+    </Section>
+  )
+}
+
 function AdobeSection() {
   const { toast } = useApp()
   const [rows, setRows] = useState<AdobeRow[]>([])
@@ -415,6 +464,7 @@ export function SettingsPage() {
         <HealthSection />
         <BackupSection />
         <AppSection />
+        <SampleTextsSection />
         <AdobeSection />
         <HistorySection />
         <ConnectionSection />

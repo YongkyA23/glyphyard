@@ -189,6 +189,11 @@ export function pageList(current: number, last: number): (number | null)[] {
   return sorted.flatMap((p, i) => (i > 0 && p - sorted[i - 1] > 1 ? [null, p] : [p]))
 }
 
+/** Typing in a field, or a dialog or menu is open: single-key shortcuts stay quiet. */
+export const keysBusy = (e: KeyboardEvent) =>
+  !!(e.target as Element).closest?.('input:not([type=checkbox]):not([type=radio]), textarea, select, [contenteditable=""], [contenteditable="true"]') ||
+  !!document.querySelector('dialog[open], .ctx-menu')
+
 /** True once the element has come near the viewport (it never goes back to false). */
 export function useSeen<T extends Element>(margin = '200px') {
   const ref = useRef<T>(null)

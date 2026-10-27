@@ -21,13 +21,25 @@ export type Family = {
   /** From the family's representative face. */
   category: FontCategory | null
   tags: string[]
+  /** Sorts first in every sort order. */
+  pinned: boolean
 }
 export type Axis = { tag: string; min: number; default: number; max: number }
 export type FileRow = { path: string; version: string; status: 'active' | 'older_version' | 'alternate' | 'grouped' | 'inactive' | 'system' }
 export type FamilyDetail = Family & {
   axes: Axis[]; features: string[]; glyphCount: number; designer: string
   files: FileRow[]; licenseInfo: { label: License; file: string | null; note: string }
+  details: FontDetails
 }
+/** From the font's name/head/maxp tables. */
+export type FontDetails = {
+  copyright: string | null; trademark: string | null; manufacturer: string | null; designer: string | null
+  description: string | null; license: string | null; licenseUrl: string | null
+  vendorUrl: string | null; designerUrl: string | null; version: string | null
+  uniqueId: string | null; format: string; upm: number | null; glyphCount: number
+}
+/** A Unicode block and the codepoints the face maps in it. */
+export type GlyphBlock = { name: string; start: number; end: number; chars: number[] }
 export type Folder = { id: number; path: string; status: 'watching' | 'offline' | 'scanning'; fontCount: number; offlineSince: string | null }
 export type Collection = { id: number; name: string; parentId: number | null; count: number; builtin: 'favorites' | 'recent' | null }
 export type ProjectSet = { id: number; name: string; note: string; familyKeys: string[]; on: boolean; lastUsed: string | null }
@@ -54,6 +66,7 @@ export type ListFamiliesArgs = {
   category?: FontCategory
   /** With sort 'random': same seed, same order, so paging is stable. */ seed?: number
   /** Default false: fonts in hidden folders are left out unless `path` points inside one. */ includeHidden?: boolean
+  /** Glyph search: only families whose representative face has every one of these characters. */ chars?: string
 }
 export type FamilyPage = { items: Family[]; total: number }
 export type LibraryCounts = { library: number; active: number; system: number; licenses: Partial<Record<License, number>> }
@@ -75,6 +88,7 @@ export type GooglePage = { items: GoogleFont[]; total: number }
 export type Settings = {
   startAtLogin: boolean; startHidden: boolean; autoUpdate: boolean; deactivateOnQuit: boolean
   quickShortcut: string; theme: 'system' | 'light' | 'dark'; sampleText: string
+  /** Presets for the sample text picker. */ sampleTexts: string[]
 }
 export type AdobeApp = 'photoshop' | 'illustrator' | 'indesign'
 export type AdobeRow = { app: AdobeApp; label: string; versions: string[]; installed: boolean; paired: boolean }
@@ -174,6 +188,7 @@ export const api = {
 
   quickSearch: (query: string) => call<Face[]>('quick_search', { query }),
   showInFolder: (path: string) => call<void>('show_in_folder', { path }),
+  openUrl: (url: string) => call<void>('open_url', { url }),
 
   adobeStatus: () => call<AdobeRow[]>('adobe_status'),
   adobeInstall: (app: AdobeApp) => call<AdobeRow>('adobe_install', { app }),
@@ -196,6 +211,13 @@ export const api = {
   setFolderHidden: (path: string, hidden: boolean) => call<FolderNode[]>('set_folder_hidden', { path, hidden }),
   /** Turns the fonts off and moves the whole folder to the Recycle Bin / Trash; a watched root also leaves the library. */
   deleteFolder: (path: string) => call<{ trashed: number; failed: string[] }>('delete_folder', { path }),
+
+  /** `index`: face inside a TTC (default 0). */
+  faceGlyphs: (hash: string, index?: number) => call<{ total: number; blocks: GlyphBlock[] }>('face_glyphs', { hash, index }),
+  setPinned: (keys: string[], pinned: boolean) => call<void>('set_pinned', { keys, pinned }),
+  pickFiles: (filters: FileFilter[]) => call<string[] | null>('pick_files', { filters }),
+  exportCollections: (dest: string) => call<{ collections: number }>('export_collections', { dest }),
+  importCollections: (path: string) => call<{ collections: number; families: number; missing: number }>('import_collections', { path }),
 }
 
 /** Each family's tags. The contract has no per-family read, so this asks once per existing tag. */
