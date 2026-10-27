@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ExtensionManifest Version="7.0" ExtensionBundleId="com.typeshelf.illustrator" ExtensionBundleVersion="0.1.0"
+<!-- Template: build.ts fills {{ID}}, {{HOST}} and {{MIN}} once per app (Illustrator, Photoshop, InDesign). -->
+<ExtensionManifest Version="7.0" ExtensionBundleId="{{ID}}" ExtensionBundleVersion="0.1.0"
   ExtensionBundleName="Typeshelf" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ExtensionList>
-    <Extension Id="com.typeshelf.illustrator.panel" Version="0.1.0" />
+    <Extension Id="{{ID}}.panel" Version="0.1.0" />
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>
-      <!-- Illustrator 2022 (26) and later -->
-      <Host Name="ILST" Version="[26.0,99.9]" />
+      <Host Name="{{HOST}}" Version="[{{MIN}},99.9]" />
     </HostList>
     <LocaleList>
       <Locale Code="All" />
@@ -17,7 +17,7 @@
     </RequiredRuntimeList>
   </ExecutionEnvironment>
   <DispatchInfoList>
-    <Extension Id="com.typeshelf.illustrator.panel">
+    <Extension Id="{{ID}}.panel">
       <DispatchInfo>
         <Resources>
           <MainPath>./index.html</MainPath>

@@ -1,5 +1,5 @@
-// Runs inside Illustrator (ExtendScript = ES3: no JSON, no Array#indexOf/forEach, no let/const).
-// Every function returns a string; the panel parses it with JSON.parse.
+// Runs inside Illustrator, Photoshop or InDesign (ExtendScript = ES3: no JSON, no Array#indexOf/forEach,
+// no let/const). Every function returns a string; the panel parses it with JSON.parse.
 
 function typeshelfQuote(s) {
     s = String(s);
@@ -14,10 +14,11 @@ function typeshelfQuote(s) {
     return out + '"';
 }
 
+// The saved file path, or the name for a document that was never saved (fullName throws then).
 function typeshelfDocName(doc) {
     try {
-        if (String(doc.path) !== "") return doc.fullName.fsName;
-    } catch (e) {} // never saved
+        if (BridgeTalk.appName !== "illustrator" || String(doc.path) !== "") return doc.fullName.fsName;
+    } catch (e) {}
     return doc.name;
 }
 
@@ -56,6 +57,14 @@ function typeshelfFonts(id) {
         list.push("{\"postscriptName\":" + typeshelfQuote(ps) + ",\"family\":" + typeshelfQuote(family) +
             ",\"style\":" + typeshelfQuote(style) + ",\"missing\":" + (missing ? "true" : "false") + "}");
     }
+
+    if (BridgeTalk.appName === "photoshop") typeshelfPhotoshopFonts(doc, add);
+    else if (BridgeTalk.appName === "indesign") typeshelfInDesignFonts(doc, add);
+    else typeshelfIllustratorFonts(doc, add);
+    return "[" + list.join(",") + "]";
+}
+
+function typeshelfIllustratorFonts(doc, add) {
     function installed(ps) {
         try {
             app.textFonts.getByName(ps);
@@ -96,5 +105,41 @@ function typeshelfFonts(id) {
             } catch (e) {}
         }
     }
-    return "[" + list.join(",") + "]";
+}
+
+// Photoshop: every text layer, including those inside groups. textItem.font is the PostScript name of the
+// layer's first style run; Photoshop keeps the original name even when the font is missing.
+function typeshelfPhotoshopFonts(doc, add) {
+    var budget = 5000; // ponytail: layer cap so huge files don't stall Photoshop
+    function walk(layers) {
+        for (var i = 0; i < layers.length && budget > 0; i++, budget--) {
+            var layer = layers[i];
+            try {
+                if (layer.typename === "LayerSet") {
+                    walk(layer.layers);
+                } else if (layer.kind === LayerKind.TEXT) {
+                    var ps = layer.textItem.font;
+                    var font = null;
+                    try {
+                        font = app.fonts.getByName(ps);
+                    } catch (e) {}
+                    add(ps, font ? font.family : "", font ? font.style : "", !font);
+                }
+            } catch (e) {}
+        }
+    }
+    walk(doc.layers);
+}
+
+// InDesign: the document's own font list, which also reports fonts that are missing.
+function typeshelfInDesignFonts(doc, add) {
+    for (var i = 0; i < doc.fonts.length; i++) {
+        try {
+            var f = doc.fonts[i];
+            var family = String(f.fontFamily || "");
+            var style = String(f.fontStyleName || "");
+            var ps = String(f.postscriptName || "") || (family + "-" + style).replace(/\s+/g, "");
+            add(ps, family, style, f.status !== FontStatus.INSTALLED);
+        } catch (e) {}
+    }
 }

@@ -8,5 +8,5 @@
     "types": [],
     "skipLibCheck": true
   },
-  "include": ["types.d.ts", "shared/*.js", "*-uxp/*.js", "illustrator-cep/*.js", "illustrator-cep/host/*.jsx"]
+  "include": ["types.d.ts", "shared/*.js", "*-uxp/*.js", "cep/*.js"]
 }

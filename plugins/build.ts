@@ -1,4 +1,7 @@
-// bun plugins/build.ts → plugins/dist/{typeshelf-photoshop.ccx, typeshelf-indesign.ccx, com.typeshelf.illustrator/}
+// bun plugins/build.ts → plugins/dist/{typeshelf-photoshop.ccx, typeshelf-indesign.ccx,
+//   com.typeshelf.illustrator/, com.typeshelf.photoshop/, com.typeshelf.indesign/}
+// The CEP folders come from one source (plugins/cep); Photoshop and InDesign use theirs when Creative
+// Cloud's UXP installer isn't on the machine.
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
@@ -78,5 +81,20 @@ for (const app of ["photoshop", "indesign"]) {
   writeFileSync(join(dist, `typeshelf-${app}.ccx`), zip(staging));
 }
 rmSync(join(dist, ".stage"), { recursive: true, force: true });
-stage("illustrator-cep", join(dist, "com.typeshelf.illustrator"));
+// CEP host code and the oldest version supported (CSXS 11): Illustrator 26, Photoshop 23, InDesign 17 — all 2022.
+const CEP = [
+  ["illustrator", "ILST", "26.0"],
+  ["photoshop", "PHXS", "23.0"],
+  ["indesign", "IDSN", "17.0"],
+];
+for (const [app, host, min] of CEP) {
+  const id = `com.typeshelf.${app}`;
+  const dest = join(dist, id);
+  stage("cep", dest);
+  const manifest = join(dest, "CSXS", "manifest.xml");
+  writeFileSync(
+    manifest,
+    readFileSync(manifest, "utf8").replaceAll("{{ID}}", id).replaceAll("{{HOST}}", host).replaceAll("{{MIN}}", min),
+  );
+}
 console.log(`Built ${files(dist).length} files in ${dist}`);

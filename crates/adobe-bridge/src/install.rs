@@ -10,9 +10,7 @@ use serde::Serialize;
 
 use crate::App;
 
-/// Folder name of the Illustrator CEP extension in `dist/` and in the CEP extensions folder.
-pub const CEP_ID: &str = "com.typeshelf.illustrator";
-/// CEP runtimes used by Illustrator 2022 (CSXS 11) onwards.
+/// CEP runtimes used by the 2022 apps (CSXS 11) onwards.
 const CSXS_VERSIONS: [u32; 2] = [11, 12];
 
 #[derive(Clone, Debug, Serialize)]
@@ -52,8 +50,23 @@ impl App {
             App::Illustrator => None,
         }
     }
+
+    /// Folder name of the app's CEP extension in `dist/` and in the CEP extensions folder.
+    pub fn cep_id(self) -> &'static str {
+        match self {
+            App::Photoshop => "com.typeshelf.photoshop",
+            App::Illustrator => "com.typeshelf.illustrator",
+            App::Indesign => "com.typeshelf.indesign",
+        }
+    }
 }
 
+fn cep_installed(app: App) -> bool {
+    cep_dir().is_some_and(|d| d.join(app.cep_id()).join("CSXS").join("manifest.xml").is_file())
+}
+
+/// Photoshop and InDesign get the UXP plug-in through Creative Cloud's installer when it is there; Adobe
+/// apps installed without the Creative Cloud desktop app don't have it, so they get the CEP extension.
 pub fn detect_apps() -> Vec<AdobeApp> {
     let uxp_list = upia(&["list", "all"]).unwrap_or_default();
     App::ALL
@@ -62,47 +75,49 @@ pub fn detect_apps() -> Vec<AdobeApp> {
             app,
             label: app.label(),
             versions: versions(app),
-            installed: match app.uxp() {
-                Some((_, name)) => uxp_list.contains(name),
-                None => cep_dir().is_some_and(|d| d.join(CEP_ID).join("CSXS").join("manifest.xml").is_file()),
-            },
+            installed: cep_installed(app) || app.uxp().is_some_and(|(_, name)| uxp_list.contains(name)),
         })
         .collect()
 }
 
 pub fn install(app: App, dist_dir: &Path) -> io::Result<()> {
-    let Some((ccx, name)) = app.uxp() else {
-        let dest = cep_dir().ok_or_else(unsupported)?.join(CEP_ID);
-        if dest.exists() {
-            fs::remove_dir_all(&dest)?;
+    match app.uxp() {
+        Some((ccx, name)) if upia_path().is_some_and(|p| p.is_file()) => {
+            let ccx = dist_dir.join(ccx);
+            if !ccx.is_file() {
+                return Err(io::Error::new(io::ErrorKind::NotFound, format!("{} not found", ccx.display())));
+            }
+            let out = upia(&["install", &ccx.to_string_lossy()])?;
+            // The agent's exit code is not a reliable success signal, so check the result.
+            if !upia(&["list", "all"])?.contains(name) {
+                return Err(io::Error::other(format!("Adobe plug-in installer: {}", out.trim())));
+            }
+            Ok(())
         }
-        copy_dir(&dist_dir.join(CEP_ID), &dest)?;
-        return enable_unsigned_cep();
-    };
-    let ccx = dist_dir.join(ccx);
-    if !ccx.is_file() {
-        return Err(io::Error::new(io::ErrorKind::NotFound, format!("{} not found", ccx.display())));
+        _ => {
+            let dest = cep_dir().ok_or_else(unsupported)?.join(app.cep_id());
+            if dest.exists() {
+                fs::remove_dir_all(&dest)?;
+            }
+            copy_dir(&dist_dir.join(app.cep_id()), &dest)?;
+            enable_unsigned_cep()
+        }
     }
-    let out = upia(&["install", &ccx.to_string_lossy()])?;
-    // The agent's exit code is not a reliable success signal, so check the result.
-    if !upia(&["list", "all"])?.contains(name) {
-        return Err(io::Error::other(format!("Adobe plug-in installer: {}", out.trim())));
-    }
-    Ok(())
 }
 
+/// Removes whichever form is installed (or both).
 pub fn remove(app: App) -> io::Result<()> {
-    match app.uxp() {
-        Some((_, name)) => upia(&["remove", name]).map(drop),
-        None => {
-            let dir = cep_dir().ok_or_else(unsupported)?.join(CEP_ID);
-            match fs::remove_dir_all(dir) {
-                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-                other => other,
-            }
-            // PlayerDebugMode stays on: other unsigned extensions may rely on it.
+    let dir = cep_dir().ok_or_else(unsupported)?.join(app.cep_id());
+    match fs::remove_dir_all(dir) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+        _ => {} // PlayerDebugMode stays on: other unsigned extensions may rely on it.
+    }
+    if let Some((_, name)) = app.uxp() {
+        if upia(&["list", "all"]).is_ok_and(|list| list.contains(name)) {
+            upia(&["remove", name])?;
         }
     }
+    Ok(())
 }
 
 /// Release years found in folders like `Adobe Photoshop 2026`.

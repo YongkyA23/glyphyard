@@ -1,4 +1,5 @@
-// Illustrator (CEP): on document open/switch/close, send the document's fonts to Typeshelf.
+// CEP panel for Illustrator, Photoshop and InDesign: on document open/switch/close, send the document's
+// fonts to Typeshelf. (Photoshop/InDesign use it when Creative Cloud's UXP installer isn't available.)
 // Uses window.__adobe_cep__ directly (what CSInterface.js wraps) so no Adobe library has to be vendored.
 (() => {
   const cep = window.__adobe_cep__;
@@ -15,7 +16,7 @@
     try {
       return JSON.parse(out);
     } catch (_) {
-      throw new Error(`Illustrator script failed: ${out}`);
+      throw new Error(`Adobe script failed: ${out}`);
     }
   }
 
@@ -47,8 +48,11 @@
     root.setProperty("--muted", light ? "#555" : "#a8a8a8");
   } catch (_) {}
 
+  /** CEP host codes → the app ids the Typeshelf bridge knows. @type {Record<string, "illustrator" | "photoshop" | "indesign">} */
+  const APPS = { ILST: "illustrator", PHXS: "photoshop", PHSP: "photoshop", IDSN: "indesign" };
+
   const host = {
-    // Illustrator documents have no id; the path (or name, if unsaved) identifies them.
+    // Documents have no stable id in ExtendScript; the path (or name, if unsaved) identifies them.
     async listDocuments() {
       const names = await evalJson("typeshelfDocuments()");
       return names.map((/** @type {string} */ name) => ({ id: name, name }));
@@ -62,7 +66,8 @@
     },
     /** @param {() => void} callback */
     onChange(callback) {
-      // Illustrator has no reliable close event; switching/deactivation lets the panel diff the document list.
+      // There is no reliable close event; switching/deactivation lets the panel diff the document list.
+      // Not every app sends every event; listening for one it never sends is harmless.
       for (const event of ["documentAfterOpen", "documentAfterActivate", "documentAfterDeactivate", "applicationActivate"]) {
         try {
           cep.addEventListener(event, callback);
@@ -73,6 +78,7 @@
     },
   };
 
-  const client = typeshelfClient({ app: "illustrator", appVersion: String(env.appVersion || ""), transport: nodeTransport });
+  const app = APPS[String(env.appName)] || "illustrator";
+  const client = typeshelfClient({ app, appVersion: String(env.appVersion || ""), transport: nodeTransport });
   typeshelfPanel(client, host);
 })();
