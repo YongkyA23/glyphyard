@@ -1,7 +1,7 @@
 //! Admin views of installs: overview, list, detail, timeline, remote control, name history, merge/split.
 
 use crate::auth::Admin;
-use crate::{db, db::GROUP, hub, hub::Hub, ApiError, ApiResult, AppState};
+use crate::{db, db::GROUP, hub, hub::Hub, ApiError, ApiResult, AppState, Page, Paging};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::IntoResponse;
@@ -22,7 +22,7 @@ pub fn routes() -> Router<AppState> {
         .route("/installs/merge", post(merge))
         .route("/installs/{id}", get(detail))
         .route("/installs/{id}/timeline", get(timeline))
-        .route("/installs/{id}/fonts", post(set_font))
+        .route("/installs/{id}/fonts", get(fonts).post(set_font))
         .route("/installs/{id}/reset-name-limit", post(reset_name_limit))
         .route("/installs/{id}/organize-request", post(organize_request))
         .route("/installs/{id}/split", post(split))
@@ -148,7 +148,12 @@ struct ListQuery {
     filter: Option<String>,
 }
 
-async fn list(State(s): State<AppState>, _: Admin, Query(q): Query<ListQuery>) -> ApiResult<Json<Vec<InstallSummary>>> {
+async fn list(
+    State(s): State<AppState>,
+    _: Admin,
+    Query(q): Query<ListQuery>,
+    Query(paging): Query<Paging>,
+) -> ApiResult<Json<Page<InstallSummary>>> {
     let flag = match q.filter.as_deref().unwrap_or("all") {
         "all" | "online" => None,
         "overrides" => Some("override"),
@@ -167,7 +172,8 @@ async fn list(State(s): State<AppState>, _: Admin, Query(q): Query<ListQuery>) -
                 || std::iter::once(&i.name).chain(&i.previous_names).any(|n| n.to_lowercase().contains(&needle))
         })
         .collect();
-    Ok(Json(list))
+    // ponytail: builds every summary then slices, since `online` and `possible_duplicate` are computed in Rust; fine for hundreds of installs.
+    Ok(Json(paging.slice(list)))
 }
 
 #[derive(Serialize)]
@@ -179,6 +185,47 @@ struct FontState {
     active: bool,
     source: String,
     overridden: bool,
+}
+
+const FONT_COLUMNS: &str = "hash, ps_name, family, style, active, source, overridden_at IS NOT NULL";
+
+fn font_row(r: &rusqlite::Row) -> rusqlite::Result<FontState> {
+    Ok(FontState {
+        hash: r.get(0)?,
+        ps_name: r.get(1)?,
+        family: r.get(2)?,
+        style: r.get(3)?,
+        active: r.get(4)?,
+        source: r.get(5)?,
+        overridden: r.get(6)?,
+    })
+}
+
+#[derive(Deserialize)]
+struct FontsQuery {
+    q: Option<String>,
+    active: Option<bool>,
+}
+
+/// The install's reported fonts, active first.
+async fn fonts(
+    State(s): State<AppState>,
+    _: Admin,
+    Path(id): Path<String>,
+    Query(q): Query<FontsQuery>,
+    Query(paging): Query<Paging>,
+) -> ApiResult<Json<Page<FontState>>> {
+    let db = s.db();
+    exists(&db, &id)?;
+    let (offset, limit) = paging.window(Paging::DEFAULT, Paging::MAX);
+    let needle = q.q.unwrap_or_default().trim().to_lowercase();
+    let filter = "install_id = ?1 AND instr(lower(family || ' ' || style || ' ' || ps_name), ?2) > 0 AND (?3 IS NULL OR active = ?3)";
+    let total: i64 = db.query_row(&format!("SELECT COUNT(*) FROM font_states WHERE {filter}"), params![id, needle, q.active], |r| r.get(0))?;
+    let mut stmt = db.prepare(&format!(
+        "SELECT {FONT_COLUMNS} FROM font_states WHERE {filter} ORDER BY active DESC, family COLLATE NOCASE, style, hash LIMIT ?4 OFFSET ?5"
+    ))?;
+    let items = stmt.query_map(params![id, needle, q.active, limit, offset], font_row)?.collect::<Result<_, _>>()?;
+    Ok(Json(Page { items, total }))
 }
 
 fn install_detail(c: &Connection, hub: &Hub, id: &str) -> ApiResult<Value> {
@@ -199,40 +246,19 @@ fn install_detail(c: &Connection, hub: &Hub, id: &str) -> ApiResult<Value> {
         .map(|(i, (name, from))| json!({ "name": name, "from": from, "to": names.get(i + 1).map(|n| &n.1) }))
         .collect();
 
-    let mut stmt = c.prepare(
-        "SELECT hash, ps_name, family, style, active, source, overridden_at IS NOT NULL, admin_at, overridden_at
-         FROM font_states WHERE install_id = ?1 ORDER BY family COLLATE NOCASE, style",
-    )?;
-    let rows: Vec<(FontState, Option<String>, Option<String>)> = stmt
-        .query_map([id], |r| {
-            let font = FontState {
-                hash: r.get(0)?,
-                ps_name: r.get(1)?,
-                family: r.get(2)?,
-                style: r.get(3)?,
-                active: r.get(4)?,
-                source: r.get(5)?,
-                overridden: r.get(6)?,
-            };
-            Ok((font, r.get(7)?, r.get(8)?))
-        })?
+    let mut stmt = c.prepare(&format!(
+        "SELECT {FONT_COLUMNS}, admin_at, overridden_at FROM font_states
+         WHERE install_id = ?1 AND admin_at IS NOT NULL AND overridden_at IS NOT NULL ORDER BY family COLLATE NOCASE, style"
+    ))?;
+    let overrides: Vec<Value> = stmt
+        .query_map([id], |r| Ok(json!({ "font": font_row(r)?, "admin_at": r.get::<_, String>(7)?, "user_at": r.get::<_, String>(8)? })))?
         .collect::<Result<_, _>>()?;
-    let mut fonts = Vec::new();
-    let mut overrides = Vec::new();
-    for (font, admin_at, user_at) in rows {
-        let font = serde_json::to_value(font)?;
-        if let (Some(admin_at), Some(user_at)) = (admin_at, user_at) {
-            overrides.push(json!({ "font": font, "admin_at": admin_at, "user_at": user_at }));
-        }
-        fonts.push(font);
-    }
 
     let mut out = serde_json::to_value(&summary)?;
     let obj = out.as_object_mut().expect("object");
     obj.insert("first_seen".into(), json!(summary.first_seen));
     obj.insert("merged_from".into(), json!(merged_from));
     obj.insert("name_history".into(), json!(name_history));
-    obj.insert("fonts".into(), json!(fonts));
     obj.insert("overrides".into(), json!(overrides));
     Ok(out)
 }
@@ -246,7 +272,13 @@ struct TimelineQuery {
     kind: Option<String>,
 }
 
-async fn timeline(State(s): State<AppState>, _: Admin, Path(id): Path<String>, Query(q): Query<TimelineQuery>) -> ApiResult<Json<Vec<Value>>> {
+async fn timeline(
+    State(s): State<AppState>,
+    _: Admin,
+    Path(id): Path<String>,
+    Query(q): Query<TimelineQuery>,
+    Query(paging): Query<Paging>,
+) -> ApiResult<Json<Page<Value>>> {
     let kind = match q.kind.as_deref().unwrap_or("all") {
         "all" => "",
         "names" => "name",
@@ -257,17 +289,19 @@ async fn timeline(State(s): State<AppState>, _: Admin, Path(id): Path<String>, Q
     };
     let db = s.db();
     exists(&db, &id)?;
+    let (offset, limit) = paging.window(100, 500);
+    let filter = format!("install_id IN {GROUP} AND (?2 = '' OR kind = ?2)");
+    let total: i64 = db.query_row(&format!("SELECT COUNT(*) FROM events WHERE {filter}"), params![id, kind], |r| r.get(0))?;
     let mut stmt = db.prepare(&format!(
-        "SELECT id, at, by, kind, text FROM events WHERE install_id IN {GROUP} AND (?2 = '' OR kind = ?2)
-         ORDER BY at DESC, id DESC LIMIT 1000"
+        "SELECT id, at, by, kind, text FROM events WHERE {filter} ORDER BY at DESC, id DESC LIMIT ?3 OFFSET ?4"
     ))?;
-    let events = stmt
-        .query_map(params![id, kind], |r| {
+    let items = stmt
+        .query_map(params![id, kind, limit, offset], |r| {
             Ok(json!({ "id": r.get::<_, i64>(0)?, "at": r.get::<_, String>(1)?, "by": r.get::<_, String>(2)?,
                        "kind": r.get::<_, String>(3)?, "text": r.get::<_, String>(4)? }))
         })?
         .collect::<Result<_, _>>()?;
-    Ok(Json(events))
+    Ok(Json(Page { items, total }))
 }
 
 #[derive(Deserialize)]
@@ -478,8 +512,14 @@ fn name_change_rows(c: &Connection, q: &NameQuery) -> ApiResult<Vec<NameChangeRo
     Ok(rows)
 }
 
-async fn name_changes(State(s): State<AppState>, _: Admin, Query(q): Query<NameQuery>) -> ApiResult<Json<Vec<NameChangeRow>>> {
-    Ok(Json(name_change_rows(&s.db(), &q)?))
+async fn name_changes(
+    State(s): State<AppState>,
+    _: Admin,
+    Query(q): Query<NameQuery>,
+    Query(paging): Query<Paging>,
+) -> ApiResult<Json<Page<NameChangeRow>>> {
+    // ponytail: builds every matching row (search spans merged install ids) then slices; move the search into SQL if history reaches tens of thousands.
+    Ok(Json(paging.slice(name_change_rows(&s.db(), &q)?)))
 }
 
 fn csv_field(s: &str) -> String {
@@ -511,10 +551,13 @@ async fn name_changes_csv(State(s): State<AppState>, _: Admin, Query(q): Query<N
     ))
 }
 
-async fn organize_reports(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Vec<Value>>> {
+async fn organize_reports(State(s): State<AppState>, _: Admin, Query(paging): Query<Paging>) -> ApiResult<Json<Page<Value>>> {
     let db = s.db();
+    let mut ids = db::active_install_ids(&db)?;
+    ids.sort_by_cached_key(|id| db::install_name(&db, id).ok().flatten().unwrap_or_default().to_lowercase());
+    let Page { items: ids, total } = paging.slice(ids);
     let mut out = Vec::new();
-    for id in db::active_install_ids(&db)? {
+    for id in ids {
         let name = db::install_name(&db, &id)?.unwrap_or_default();
         let report: Option<String> = db
             .query_row(
@@ -541,7 +584,7 @@ async fn organize_reports(State(s): State<AppState>, _: Admin) -> ApiResult<Json
             "last_organized": last_organized,
         }));
     }
-    Ok(Json(out))
+    Ok(Json(Page { items: out, total }))
 }
 
 async fn overview(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Value>> {

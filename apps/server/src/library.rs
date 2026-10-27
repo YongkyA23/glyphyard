@@ -1,9 +1,9 @@
 //! Shared library: font files stored under `<data>/library/<hash>`, delivered to installs by the admin.
 
 use crate::auth::{Admin, Install};
-use crate::{db, hub, hub::Hub, ApiError, ApiResult, AppState};
+use crate::{db, hub, hub::Hub, ApiError, ApiResult, AppState, Page, Paging};
 use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Multipart, Path, State};
+use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::Response;
 use axum::routing::{get, post, put};
@@ -103,11 +103,24 @@ fn wire(f: &LibraryFile) -> WireFile {
     }
 }
 
-async fn list(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Vec<LibraryFile>>> {
+#[derive(Deserialize)]
+struct ListQuery {
+    q: Option<String>,
+}
+
+/// `q` matches family, style, PostScript name or file name.
+async fn list(State(s): State<AppState>, _: Admin, Query(q): Query<ListQuery>, Query(paging): Query<Paging>) -> ApiResult<Json<Page<LibraryFile>>> {
     let db = s.db();
-    let mut stmt = db.prepare(&format!("SELECT {COLUMNS} FROM library_files ORDER BY family COLLATE NOCASE, style"))?;
-    let rows: Vec<LibraryFile> = stmt.query_map([], from_row)?.collect::<Result<_, _>>()?;
-    Ok(Json(rows.into_iter().map(|f| complete(&db, f)).collect::<Result<_, _>>()?))
+    let (offset, limit) = paging.window(Paging::DEFAULT, Paging::MAX);
+    let needle = q.q.unwrap_or_default().trim().to_lowercase();
+    let filter = "instr(lower(family || ' ' || style || ' ' || ps_name || ' ' || filename), ?1) > 0";
+    let total: i64 = db.query_row(&format!("SELECT COUNT(*) FROM library_files WHERE {filter}"), [&needle], |r| r.get(0))?;
+    let mut stmt = db.prepare(&format!(
+        "SELECT {COLUMNS} FROM library_files WHERE {filter} ORDER BY family COLLATE NOCASE, style, hash LIMIT ?2 OFFSET ?3"
+    ))?;
+    let rows: Vec<LibraryFile> = stmt.query_map(params![needle, limit, offset], from_row)?.collect::<Result<_, _>>()?;
+    let items = rows.into_iter().map(|f| complete(&db, f)).collect::<Result<_, _>>()?;
+    Ok(Json(Page { items, total }))
 }
 
 fn store_dir(s: &AppState) -> PathBuf {

@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import { motion } from 'motion/react'
 import { api, type NameChangeBy } from '../api'
 import { row } from '../motion'
-import { Badge, Empty, fmtDate, Loaded, PageHeader, Table, TableSkeleton, useDebounced, useLoad, type Tone } from '../ui'
+import { Badge, Empty, fmtDate, Loaded, PageHeader, Pager, Table, TableSkeleton, useDebounced, useLoad, usePage, type Tone } from '../ui'
 
 const HEAD = ['Date', 'Old name', 'New name', 'Install', 'Changed by', 'Next change allowed']
 
@@ -24,9 +24,10 @@ function since(p: Period) {
 export function Names() {
   const [q, setQ] = useState('')
   const [period, setPeriod] = useState<Period>('90')
-  const query = useDebounced(q.trim())
+  const query = useDebounced(q.trim(), 150)
   const from = since(period).slice(0, 10) // date only, so the value is stable between renders
-  const state = useLoad(() => api.nameChanges(query, from), [query, from])
+  const [page, setPage] = usePage(`${query}|${from}`)
+  const state = useLoad(() => api.nameChanges(query, from, page), [query, from, page])
 
   return (
     <div className="page gap-18">
@@ -41,7 +42,7 @@ export function Names() {
           </select>
         </label>
       </div>
-      <Loaded state={state} skeleton={<TableSkeleton head={HEAD} minWidth={900} />}>{(rows) => (
+      <Loaded state={state} skeleton={<TableSkeleton head={HEAD} minWidth={900} />}>{({ items: rows, total }) => (
         <>
           <Table caption="Name changes" minWidth={900} head={HEAD}>
             {rows.map((r, i) => (
@@ -55,7 +56,8 @@ export function Names() {
               </motion.tr>
             ))}
           </Table>
-          {rows.length === 0 && <Empty>{query ? 'No names match.' : 'No name changes in this period.'}</Empty>}
+          {total === 0 && <Empty>{query ? 'No names match.' : 'No name changes in this period.'}</Empty>}
+          <Pager label="Name history pages" page={page} total={total} onPage={setPage} />
         </>
       )}</Loaded>
       <span className="meta">“First name” rows are the name entered at first launch. Merged installs show both install IDs.</span>

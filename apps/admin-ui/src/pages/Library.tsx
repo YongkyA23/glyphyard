@@ -1,9 +1,11 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { api, errorText, type LibraryFile, type License } from '../api'
+import { api, errorText, type LibraryFile, type License, type Page } from '../api'
 import { base, fadeRise, fast, row, spring } from '../motion'
-import { Badge, Dialog, Empty, ErrorBox, Loaded, PageHeader, plural, Skel, Spin, Swap, Table, TableSkeleton, useConfirm, useLoad } from '../ui'
+import {
+  Badge, Dialog, Empty, ErrorBox, Loaded, PageHeader, Pager, plural, Skel, Spin, Swap, Table, TableSkeleton, useConfirm, useDebounced, useLoad, usePage,
+} from '../ui'
 
 const HEAD = ['Family', 'License', 'Delivered to', 'Active on', 'Status', <span className="sr-only">Actions</span>]
 type Upload = { name: string; state: 'busy' | 'done' | 'error' }
@@ -16,8 +18,10 @@ const deliveredText = (t: LibraryFile['delivered_to']) =>
 const kb = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`)
 
 export function Library() {
-  const state = useLoad(() => api.library(), [])
   const [q, setQ] = useState('')
+  const query = useDebounced(q.trim(), 150)
+  const [page, setPage] = usePage(query)
+  const state = useLoad(() => api.library(query, page), [query, page])
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
@@ -26,7 +30,7 @@ export function Library() {
   const [delivering, setDelivering] = useState<LibraryFile>()
   const fileInput = useRef<HTMLInputElement>(null)
 
-  const replace = (f: LibraryFile) => state.setData((rows) => rows.map((r) => (r.hash === f.hash ? f : r)))
+  const replace = (f: LibraryFile) => state.setData((p) => ({ ...p, items: p.items.map((r) => (r.hash === f.hash ? f : r)) }))
   const run = async (fn: () => Promise<LibraryFile>) => {
     setError('')
     try { replace(await fn()) } catch (e) { setError(errorText(e)) }
@@ -62,13 +66,10 @@ export function Library() {
     void run(() => api.block(f.hash, !f.blocked))
   }
 
-  const rows = state.data ?? []
-  const families = new Set(rows.map((r) => r.family)).size
-
   return (
     <div className="page gap-18">
       <PageHeader title="Shared library"
-        sub={state.data ? `Approved fonts you deliver to users’ apps. ${plural(rows.length, 'file')} in ${plural(families, 'family', 'families')}.` : 'Approved fonts you deliver to users’ apps.'}
+        sub={state.data && !query ? `Approved fonts you deliver to users’ apps. ${plural(state.data.total, 'file')}.` : 'Approved fonts you deliver to users’ apps.'}
         actions={
           <span className="row-8">
             <Link className="btn" to="/organize">Auto-organize</Link>
@@ -80,7 +81,7 @@ export function Library() {
         } />
       <div className="toolbar">
         <label htmlFor="lsearch" className="sr-only">Search the shared library</label>
-        <input id="lsearch" type="search" className="input grow" placeholder="Search families" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input id="lsearch" type="search" className="input grow" placeholder="Search family, style or file name" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       <AnimatePresence>
         {uploads.length > 0 && (
@@ -101,12 +102,7 @@ export function Library() {
       </AnimatePresence>
       {notice && <span role="status" className="notice">{notice}</span>}
       {error && <ErrorBox message={error} />}
-      <Loaded state={state} skeleton={<TableSkeleton head={HEAD} minWidth={980} rows={3} />}>{(all) => {
-        const needle = q.trim().toLowerCase()
-        const shown = all
-          .filter((f) => !needle || `${f.family} ${f.style} ${f.filename}`.toLowerCase().includes(needle))
-          .sort((a, b) => a.family.localeCompare(b.family) || a.style.localeCompare(b.style))
-        return (
+      <Loaded state={state} skeleton={<TableSkeleton head={HEAD} minWidth={980} rows={3} />}>{({ items: shown, total }) => (
           <>
             <Table caption="Font files in the shared library" minWidth={980} head={HEAD}>
               {shown.map((f, i) => (
@@ -145,10 +141,10 @@ export function Library() {
                 </motion.tr>
               ))}
             </Table>
-            {shown.length === 0 && <Empty>{needle ? 'No families match.' : 'The shared library is empty. Upload font files to deliver them to users.'}</Empty>}
+            {total === 0 && <Empty>{query ? 'No fonts match.' : 'The shared library is empty. Upload font files to deliver them to users.'}</Empty>}
+            <Pager label="Library pages" page={page} total={total} onPage={setPage} />
           </>
-        )
-      }}</Loaded>
+      )}</Loaded>
       <motion.div className="info-cards" variants={fadeRise} initial="hidden" animate="show">
         <div className="card pad-16 stack-6">
           <span className="strong">Delivering a font</span>
@@ -177,7 +173,9 @@ function DeliverDialog({ file, onClose, onDone }: { file: LibraryFile; onClose: 
   const [q, setQ] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const installs = useLoad(() => (mode === 'pick' ? api.installs() : Promise.resolve([])), [mode])
+  const query = useDebounced(q.trim(), 150)
+  const [page, setPage] = usePage(query)
+  const installs = useLoad(() => (mode === 'pick' ? api.installs(query, 'all', page) : Promise.resolve<Page<never>>({ items: [], total: 0 })), [mode, query, page])
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -192,7 +190,6 @@ function DeliverDialog({ file, onClose, onDone }: { file: LibraryFile; onClose: 
     }
   }
 
-  const needle = q.trim().toLowerCase()
   return (
     <Dialog labelledBy="dlg-title" onClose={onClose}>
       <form className="stack-12" onSubmit={submit} noValidate>
@@ -208,8 +205,7 @@ function DeliverDialog({ file, onClose, onDone }: { file: LibraryFile; onClose: 
             <label htmlFor="dsearch" className="sr-only">Search users</label>
             <input id="dsearch" type="search" className="input input-38" placeholder="Search users" value={q} onChange={(e) => setQ(e.target.value)} />
             <div className="pick-list">
-              <Loaded state={installs} label="Loading users…" skeleton={pickSkeleton}>{(list) => {
-                const shown = list.filter((u) => !needle || `${u.name} ${u.id}`.toLowerCase().includes(needle))
+              <Loaded state={installs} label="Loading users…" skeleton={pickSkeleton}>{({ items: shown }) => {
                 if (shown.length === 0) return <Empty>No users match.</Empty>
                 return shown.map((u) => (
                   <label key={u.id} className="radio">
@@ -220,6 +216,7 @@ function DeliverDialog({ file, onClose, onDone }: { file: LibraryFile; onClose: 
                 ))
               }}</Loaded>
             </div>
+            {installs.data && <Pager label="User pages" page={page} total={installs.data.total} onPage={setPage} />}
             <span className="meta">{plural(picked.length, 'user')} selected</span>
           </motion.div>
         )}

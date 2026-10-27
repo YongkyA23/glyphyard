@@ -13,7 +13,6 @@ export type FontState = { hash: string; ps_name: string; family: string; style: 
 export type InstallDetail = InstallSummary & {
   first_seen: string; merged_from: string[]
   name_history: { name: string; from: string; to: string | null }[]
-  fonts: FontState[]
   overrides: { font: FontState; admin_at: string; user_at: string }[]
 }
 export type TimelineKind = 'name' | 'font' | 'override' | 'failure' | 'organize' | 'system'
@@ -41,6 +40,8 @@ export type Overview = {
 export type Me = { email: string; role: string }
 export type Admin = { email: string; role: string; last_login: string | null }
 export type OrganizeReport = { install_id: string; name: string; duplicates: number; version_conflicts: number; name_clashes: number; last_organized: string | null }
+/** One page of a server-side list; `total` counts the whole filtered list. */
+export type Page<T> = { items: T[]; total: number }
 export type InstallFilter = 'all' | 'online' | 'overrides' | 'duplicates' | 'stale'
 export type TimelineFilter = 'all' | 'names' | 'fonts' | 'overrides' | 'failures'
 
@@ -82,23 +83,29 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return (text ? JSON.parse(text) : undefined) as T
 }
 
-const qs = (params: Record<string, string | undefined>) => {
+const qs = (params: Record<string, string | number | boolean | undefined>) => {
   const p = new URLSearchParams()
-  for (const [k, v] of Object.entries(params)) if (v) p.set(k, v)
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') p.set(k, String(v))
   const s = p.toString()
   return s ? '?' + s : ''
 }
 const id = encodeURIComponent
+export const PAGE_SIZE = 50
+/** `page` is 1-based. */
+const paging = (page: number, size = PAGE_SIZE) => ({ offset: (page - 1) * size, limit: size })
 
 export const api = {
   login: (email: string, password: string) => request<void>('POST', '/login', { email, password }),
   logout: () => request<void>('POST', '/logout'),
   me: () => request<Me>('GET', '/me'),
   overview: () => request<Overview>('GET', '/overview'),
-  installs: (q = '', filter: InstallFilter = 'all') => request<InstallSummary[]>('GET', '/installs' + qs({ q, filter })),
+  installs: (q = '', filter: InstallFilter = 'all', page = 1) =>
+    request<Page<InstallSummary>>('GET', '/installs' + qs({ q, filter, ...paging(page) })),
   install: (installId: string) => request<InstallDetail>('GET', `/installs/${id(installId)}`),
-  timeline: (installId: string, kind: TimelineFilter = 'all') =>
-    request<TimelineEvent[]>('GET', `/installs/${id(installId)}/timeline` + qs({ kind })),
+  fonts: (installId: string, q = '', page = 1, active?: boolean) =>
+    request<Page<FontState>>('GET', `/installs/${id(installId)}/fonts` + qs({ q, active, ...paging(page) })),
+  timeline: (installId: string, kind: TimelineFilter = 'all', page = 1, size = PAGE_SIZE) =>
+    request<Page<TimelineEvent>>('GET', `/installs/${id(installId)}/timeline` + qs({ kind, ...paging(page, size) })),
   setFont: (installId: string, hash: string, active: boolean) =>
     request<{ command_id: number | string }>('POST', `/installs/${id(installId)}/fonts`, { hash, active }),
   resetNameLimit: (installId: string) => request<void>('POST', `/installs/${id(installId)}/reset-name-limit`),
@@ -106,9 +113,9 @@ export const api = {
   merge: (primary: string, secondary: string, keep_name: 'primary' | 'secondary') =>
     request<InstallDetail>('POST', '/installs/merge', { primary, secondary, keep_name }),
   split: (retiredId: string) => request<void>('POST', `/installs/${id(retiredId)}/split`),
-  nameChanges: (q = '', since = '') => request<NameChangeRow[]>('GET', '/name-changes' + qs({ q, since })),
+  nameChanges: (q = '', since = '', page = 1) => request<Page<NameChangeRow>>('GET', '/name-changes' + qs({ q, since, ...paging(page) })),
   nameChangesCsvUrl: (q = '', since = '') => BASE + '/name-changes.csv' + qs({ q, since }),
-  library: () => request<LibraryFile[]>('GET', '/library'),
+  library: (q = '', page = 1, size = PAGE_SIZE) => request<Page<LibraryFile>>('GET', '/library' + qs({ q, ...paging(page, size) })),
   upload: (files: FileList | File[]) => {
     const form = new FormData()
     for (const f of Array.from(files)) form.append('files', f)
@@ -120,7 +127,7 @@ export const api = {
     request<LibraryFile>('POST', `/library/${id(hash)}/deliver`, { target, activate }),
   organizePlan: () => request<{ changes: OrganizeChange[] }>('GET', '/library/organize'),
   applyOrganize: () => request<{ applied: number }>('POST', '/library/organize/apply'),
-  organizeReports: () => request<OrganizeReport[]>('GET', '/organize/reports'),
+  organizeReports: (page = 1) => request<Page<OrganizeReport>>('GET', '/organize/reports' + qs(paging(page))),
   settings: () => request<Settings>('GET', '/settings'),
   saveSettings: (s: Partial<Omit<Settings, 'install_key'>>) => request<Settings>('PUT', '/settings', s),
   regenerateKey: () => request<{ install_key: string }>('POST', '/settings/install-key'),

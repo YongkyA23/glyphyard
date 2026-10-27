@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { api, errorText, type FontState, type InstallDetail, type TimelineFilter } from '../api'
+import { api, errorText, type FontState, type InstallDetail, type TimelineEvent, type TimelineFilter } from '../api'
 import { dropIn, fadeRise, row } from '../motion'
 import {
-  ago, Badge, byLabel, byTone, Chips, downloadCsv, Empty, ErrorBox, fmtDate, fmtShort, firstName, Loaded, PageHeader, Skel, Spin, Swap, Toggle, useLoad,
+  ago, Badge, byLabel, byTone, Chips, downloadCsv, Empty, ErrorBox, fmtDate, fmtShort, firstName, Loaded, PageHeader, Pager, Skel, Spin, Swap, Toggle,
+  useDebounced, useLoad, usePage,
 } from '../ui'
 
 const eventsSkeleton = (
@@ -33,14 +34,14 @@ const detailSkeleton = (
 )
 
 const KINDS: [TimelineFilter, string][] = [['all', 'All'], ['names', 'Names'], ['fonts', 'Fonts'], ['overrides', 'Overrides'], ['failures', 'Failures']]
-const FONT_LIMIT = 100
+const fontsSkeleton = <div className="stack-10">{[60, 45, 70].map((w) => <Skel key={w} w={`${w}%`} h={18} />)}</div>
 
 export function UserDetail() {
   const id = useParams().id!
   const state = useLoad(() => api.install(id), [id], 10_000)
   return (
     <div className="page">
-      <Loaded state={state} skeleton={detailSkeleton}>{(u) => <Detail u={u} reload={() => state.reload(true)} setFonts={(f) => state.setData((d) => ({ ...d, fonts: f(d.fonts) }))} />}</Loaded>
+      <Loaded state={state} skeleton={detailSkeleton}>{(u) => <Detail u={u} reload={() => state.reload(true)} />}</Loaded>
       {state.data === undefined && <Link to="/users" className="back">← Users</Link>}
     </div>
   )
@@ -48,7 +49,7 @@ export function UserDetail() {
 
 type SetFonts = (f: (fonts: FontState[]) => FontState[]) => void
 
-function Detail({ u, reload, setFonts }: { u: InstallDetail; reload: () => void; setFonts: SetFonts }) {
+function Detail({ u, reload }: { u: InstallDetail; reload: () => void }) {
   const [busy, setBusy] = useState<'' | 'reset' | 'organize'>('')
   const [done, setDone] = useState<Record<string, string>>({})
   const [error, setError] = useState('')
@@ -104,8 +105,8 @@ function Detail({ u, reload, setFonts }: { u: InstallDetail; reload: () => void;
       <div className="split">
         <Timeline id={u.id} />
         <div className="side">
-          {u.overrides.length > 0 && <Overrides u={u} who={who} setFonts={setFonts} />}
-          <Fonts u={u} who={who} setFonts={setFonts} />
+          {u.overrides.length > 0 && <Overrides u={u} who={who} />}
+          <Fonts u={u} who={who} />
           <motion.section aria-labelledby="nh" className="card pad-18 stack-8" variants={fadeRise}>
             <h2 id="nh" className="h2 h2-sm mb-4">Name history</h2>
             {history.map((n) => (
@@ -123,17 +124,19 @@ function Detail({ u, reload, setFonts }: { u: InstallDetail; reload: () => void;
 
 function Timeline({ id }: { id: string }) {
   const [kind, setKind] = useState<TimelineFilter>('all')
-  const state = useLoad(() => api.timeline(id, kind), [id, kind], 10_000)
+  const [page, setPage] = usePage(kind)
+  const state = useLoad(() => api.timeline(id, kind, page), [id, kind, page], 10_000)
   return (
     <motion.section aria-labelledby="tl" className="card pad-20 grow-3 stack-12" variants={fadeRise}>
       <div className="page-head">
         <h2 id="tl" className="h2">Timeline</h2>
         <Chips small label="Filter timeline" options={KINDS} value={kind} onChange={setKind} />
       </div>
-      <Loaded state={state} skeleton={eventsSkeleton}>{(events) => (
-        <div>
+      <Loaded state={state} skeleton={eventsSkeleton}>{({ items: events, total }) => (
+        <div className="stack-12">
           {events.length === 0 && <Empty>No events{kind === 'all' ? ' yet' : ' of this kind'}.</Empty>}
           {/* Filter changes fade rows out/in and slide the rest; polled events drop in at the top. */}
+          <div>
           <AnimatePresence>
           {events.map((e, i) => (
             <motion.div key={e.id} className={e.kind === 'override' ? 'event event-override' : 'event'} {...row(i, events.length, dropIn)}>
@@ -146,6 +149,8 @@ function Timeline({ id }: { id: string }) {
             </motion.div>
           ))}
           </AnimatePresence>
+          </div>
+          <Pager label="Timeline pages" page={page} total={total} onPage={setPage} />
         </div>
       )}</Loaded>
     </motion.section>
@@ -153,7 +158,7 @@ function Timeline({ id }: { id: string }) {
 }
 
 /** Sends the font command optimistically; rolls back on error. */
-function useFontToggle(installId: string, setFonts: SetFonts) {
+function useFontToggle(installId: string, setFonts: SetFonts = () => {}) {
   const [error, setError] = useState('')
   const [sent, setSent] = useState<Record<string, boolean>>({})
   const [shakes, setShakes] = useState<Record<string, number>>({})
@@ -173,8 +178,8 @@ function useFontToggle(installId: string, setFonts: SetFonts) {
   return { set, error, sent, shakes }
 }
 
-function Overrides({ u, who, setFonts }: { u: InstallDetail; who: string; setFonts: SetFonts }) {
-  const { set, error, sent } = useFontToggle(u.id, setFonts)
+function Overrides({ u, who }: { u: InstallDetail; who: string }) {
+  const { set, error, sent } = useFontToggle(u.id)
   return (
     <motion.section aria-labelledby="ov" className="card card-accent pad-18 stack-10" variants={fadeRise}>
       <h2 id="ov" className="h2 h2-sm ink-accent">User overrides</h2>
@@ -206,28 +211,28 @@ const sourceText = (f: FontState, who: string) =>
     : f.source === 'library' ? 'Shared library'
     : f.active ? `Turned on by ${who}` : `Turned off by ${who}`
 
-function Fonts({ u, who, setFonts }: { u: InstallDetail; who: string; setFonts: SetFonts }) {
+function Fonts({ u, who }: { u: InstallDetail; who: string }) {
   const [q, setQ] = useState('')
-  const { set, error, shakes } = useFontToggle(u.id, setFonts)
-  const needle = q.trim().toLowerCase()
-  const matches = u.fonts
-    .filter((f) => !needle || `${f.family} ${f.style} ${f.ps_name}`.toLowerCase().includes(needle))
-    .sort((a, b) => Number(b.active) - Number(a.active) || a.family.localeCompare(b.family))
-  const active = u.fonts.filter((f) => f.active).length
+  const query = useDebounced(q.trim(), 150)
+  const [page, setPage] = usePage(query)
+  const state = useLoad(() => api.fonts(u.id, query, page), [u.id, query, page], 10_000)
+  const { set, error, shakes } = useFontToggle(u.id, (f) => state.setData((p) => ({ ...p, items: f(p.items) })))
   return (
     <motion.section aria-labelledby="af" className="card pad-18 stack-10" variants={fadeRise}>
       <div className="row-between">
-        <h2 id="af" className="h2 h2-sm">Active fonts · {active}</h2>
+        <h2 id="af" className="h2 h2-sm">Active fonts · {u.active_fonts}</h2>
         <Link to="/library" className="small">Turn on fonts…</Link>
       </div>
       <label htmlFor="fsearch" className="sr-only">Search this user's fonts</label>
       <input id="fsearch" type="search" className="input input-38" placeholder={`Search ${who}’s fonts`} value={q} onChange={(e) => setQ(e.target.value)} />
       {error && <span role="alert" className="form-error">{error}</span>}
-      {u.fonts.length === 0 && <Empty>No fonts reported by this computer yet.</Empty>}
-      {u.fonts.length > 0 && matches.length === 0 && <Empty>No fonts match.</Empty>}
-      {/* Toggling re-sorts (active first), so rows glide to their new place. */}
+      <Loaded state={state} skeleton={fontsSkeleton}>{({ items, total }) => {
+        // Active first, like the server; toggling re-sorts this page so rows glide to their new place.
+        const shown = [...items].sort((a, b) => Number(b.active) - Number(a.active))
+        return <>
+      {total === 0 && <Empty>{query ? 'No fonts match.' : 'No fonts reported by this computer yet.'}</Empty>}
       <AnimatePresence>
-      {matches.slice(0, FONT_LIMIT).map((f, i, shown) => {
+      {shown.map((f, i) => {
         const name = `${f.family} ${f.style}`
         return (
           <motion.div key={f.hash} className="font-row" {...row(i, shown.length)}>
@@ -241,7 +246,9 @@ function Fonts({ u, who, setFonts }: { u: InstallDetail; who: string; setFonts: 
         )
       })}
       </AnimatePresence>
-      {matches.length > FONT_LIMIT && <span className="meta">Showing {FONT_LIMIT} of {matches.length}. Search to find the rest.</span>}
+      <Pager label="Font pages" page={page} total={total} onPage={setPage} />
+        </>
+      }}</Loaded>
       <span className="meta">Changes reach {who}’s computer within seconds while online.</span>
     </motion.section>
   )
@@ -274,7 +281,13 @@ function ExportCsv({ u }: { u: InstallDetail }) {
   const run = async () => {
     setBusy(true)
     try {
-      const events = await api.timeline(u.id, 'all')
+      // The export is complete: walk every page at the server's maximum page size.
+      const events: TimelineEvent[] = []
+      for (let page = 1; ; page++) {
+        const p = await api.timeline(u.id, 'all', page, 500)
+        events.push(...p.items)
+        if (p.items.length === 0 || events.length >= p.total) break
+      }
       downloadCsv(`${u.name} timeline.csv`, [['Date', 'By', 'Kind', 'Event'], ...events.map((e) => [e.at, e.by, e.kind, e.text])])
     } catch (e) {
       alert(errorText(e))

@@ -63,7 +63,7 @@ function Form({ older, newer }: { older: InstallDetail; newer: InstallDetail }) 
       <span className="stack-4 small ink-2">
         <span>{u.os}</span>
         <span>First seen {fmtDate(u.first_seen)} · {u.online ? 'online now' : ago(u.last_seen).toLowerCase()}</span>
-        <span>{plural(u.fonts.filter((f) => f.active).length, 'active font')}</span>
+        <span>{plural(u.active_fonts, 'active font')}</span>
         <span>{plural(u.name_history.length, 'name')} used</span>
       </span>
     </motion.div>

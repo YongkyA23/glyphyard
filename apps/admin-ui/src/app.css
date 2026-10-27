@@ -168,6 +168,13 @@ select.input { padding: 0 10px; }
 .chip:active { transform: scale(0.96); }
 .chip[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
 .chip-sm { height: 30px; padding: 0 10px; border-radius: 15px; font-size: 12px; }
+
+.pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; font-variant-numeric: tabular-nums; }
+.pager-pages { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.pager-num { min-width: 32px; padding: 0 8px; }
+.pager-num[aria-current="page"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+.pager-num[aria-current="page"]:hover:not(:disabled) { background: var(--ink); }
+.pager-gap { padding: 0 4px; color: var(--faint); }
 .chips:has(.chip-sm) { gap: 6px; }
 
 /* ---------- badges ---------- */

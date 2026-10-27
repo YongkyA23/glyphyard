@@ -3,9 +3,12 @@ import { Link } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import { api, errorText, type OrganizeChange, type OrganizeReport } from '../api'
 import { fast, pop, row } from '../motion'
-import { Badge, Empty, ErrorBox, fmtDate, Loaded, PageHeader, plural, Skel, Spin, Swap, Table, TableSkeleton, useConfirm, useLoad, type Tone } from '../ui'
+import {
+  Badge, Empty, ErrorBox, fmtDate, Loaded, PageHeader, Pager, plural, Skel, Spin, Swap, Table, TableSkeleton, useConfirm, useLoad, usePage, type Tone,
+} from '../ui'
 
 const HEAD = ['Case', 'File', 'What will happen']
+const SHOW_STEP = 100
 const reportsSkeleton = (
   <div>{[0, 1].map((i) => <div key={i} className="report"><span className="report-name"><Skel w="60%" /></span><span className="report-found"><Skel w="50%" /></span><span className="report-last"><Skel w={90} /></span><Skel w={170} h={34} r={8} /></div>)}</div>
 )
@@ -32,9 +35,10 @@ export function Organize() {
 
 function LibraryPlan() {
   const state = useLoad(async () => {
-    const [plan, lib] = await Promise.all([api.organizePlan(), api.library()])
-    return { changes: plan.changes, files: lib.length }
+    const [plan, lib] = await Promise.all([api.organizePlan(), api.library('', 1, 1)])
+    return { changes: plan.changes, files: lib.total }
   }, [])
+  const [limit, setLimit] = useState(SHOW_STEP)
   const [applied, setApplied] = useState<number>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -91,18 +95,28 @@ function LibraryPlan() {
       <Loaded state={state} skeleton={<TableSkeleton inset head={HEAD} minWidth={760} rows={2} />}>{({ changes }) => changes.length === 0
         ? <Empty>Nothing to clean up. The shared library is tidy.</Empty>
         : (
-          <Table inset caption="Suggested changes to the shared library" minWidth={760} head={HEAD}>
-            {changes.map((c, i) => {
-              const [label, tone] = CASES[c.case] ?? [c.case, 'outline']
-              return (
-                <motion.tr key={i} {...row(i, changes.length)}>
-                  <td><Badge tone={tone} className="nowrap">{label}</Badge></td>
-                  <td className="mono">{fileOf(c)}</td>
-                  <td className="ink-2">{c.note}</td>
-                </motion.tr>
-              )
-            })}
-          </Table>
+          <>
+            <Table inset caption="Suggested changes to the shared library" minWidth={760} head={HEAD}>
+              {changes.slice(0, limit).map((c, i, shown) => {
+                const [label, tone] = CASES[c.case] ?? [c.case, 'outline']
+                return (
+                  <motion.tr key={i} {...row(i, shown.length)}>
+                    <td><Badge tone={tone} className="nowrap">{label}</Badge></td>
+                    <td className="mono">{fileOf(c)}</td>
+                    <td className="ink-2">{c.note}</td>
+                  </motion.tr>
+                )
+              })}
+            </Table>
+            {changes.length > limit && (
+              <span className="row-between">
+                <span className="meta">Showing {limit} of {changes.length}</span>
+                <button type="button" className="btn btn-sm" onClick={() => setLimit((n) => n + SHOW_STEP)}>
+                  Show {Math.min(SHOW_STEP, changes.length - limit)} more
+                </button>
+              </span>
+            )}
+          </>
         )}</Loaded>
       <span className="meta">Users receive the cleaned-up files on their next sync. Renamed fonts keep their internal names.</span>
       {confirmDialog}
@@ -115,7 +129,8 @@ const found = (r: OrganizeReport) =>
     .filter((s) => !s.startsWith('0 ')).join(' · ') || 'No duplicates'
 
 function Reports() {
-  const state = useLoad(() => api.organizeReports(), [])
+  const [page, setPage] = usePage('')
+  const state = useLoad(() => api.organizeReports(page), [page])
   const [asked, setAsked] = useState<Record<string, 'busy' | 'done'>>({})
   const [error, setError] = useState('')
 
@@ -138,9 +153,10 @@ function Reports() {
         <span className="small mute">Duplicates reported by each app. A request shows the user a preview, and nothing changes until they confirm.</span>
       </div>
       {error && <ErrorBox message={error} />}
-      <Loaded state={state} skeleton={reportsSkeleton}>{(reports) => (
-        <div>
-          {reports.length === 0 && <Empty>No reports yet. Apps send one after they scan their fonts.</Empty>}
+      <Loaded state={state} skeleton={reportsSkeleton}>{({ items: reports, total }) => (
+        <div className="stack-10">
+          <div>
+          {total === 0 && <Empty>No reports yet. Apps send one after they scan their fonts.</Empty>}
           {reports.map((r, i) => {
             const clean = r.duplicates + r.version_conflicts + r.name_clashes === 0
             const s = asked[r.install_id]
@@ -157,6 +173,8 @@ function Reports() {
               </motion.div>
             )
           })}
+          </div>
+          <Pager label="Report pages" page={page} total={total} onPage={setPage} />
         </div>
       )}</Loaded>
     </section>

@@ -12,7 +12,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::{Json, Router};
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -51,6 +51,37 @@ pub fn app(state: AppState, static_dir: &Path) -> Router {
         })
     };
     router.layer(TraceLayer::new_for_http()).with_state(state)
+}
+
+/// `?offset=&limit=` on admin lists. A separate `Query<Paging>` extractor, next to the endpoint's own query.
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+pub struct Paging {
+    pub offset: Option<u32>,
+    pub limit: Option<u32>,
+}
+
+/// One page of a list plus the size of the whole (filtered) list.
+#[derive(Debug, Serialize)]
+pub struct Page<T> {
+    pub items: Vec<T>,
+    pub total: i64,
+}
+
+impl Paging {
+    pub const DEFAULT: i64 = 50;
+    pub const MAX: i64 = 200;
+
+    /// `(offset, limit)` for SQL, with the limit clamped to `1..=max`.
+    pub fn window(self, default: i64, max: i64) -> (i64, i64) {
+        (self.offset.map_or(0, i64::from), self.limit.map_or(default, i64::from).clamp(1, max))
+    }
+
+    /// Pages a list that was filtered in Rust.
+    pub fn slice<T>(self, all: Vec<T>) -> Page<T> {
+        let (offset, limit) = self.window(Self::DEFAULT, Self::MAX);
+        let total = all.len() as i64;
+        Page { items: all.into_iter().skip(offset as usize).take(limit as usize).collect(), total }
+    }
 }
 
 /// `{ "error": code, "message": text, ...extra }` with a status.

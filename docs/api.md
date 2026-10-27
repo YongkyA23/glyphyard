@@ -38,7 +38,6 @@ type FontState = { hash: string; ps_name: string; family: string; style: string;
 type InstallDetail = InstallSummary & {
   first_seen: string; merged_from: string[];
   name_history: { name: string; from: string; to: string | null }[];
-  fonts: FontState[];
   overrides: { font: FontState; admin_at: string; user_at: string }[];
 };
 type TimelineEvent = { id: number; at: string; by: By; kind: "name" | "font" | "override" | "failure" | "organize" | "system"; text: string };
@@ -47,10 +46,13 @@ type LibraryFile = { hash: string; filename: string; ps_name: string; family: st
   license: "licensed" | "personal" | "client" | "unknown"; size: number;
   delivered_to: "all" | "none" | string[]; active_on: number; blocked: boolean; uploaded_at: string };
 type OrganizeChange = { case: string; action: { op: string; [k: string]: unknown }; note: string }; // = core::organize::Change JSON
+type Page<T> = { items: T[]; total: number }; // total = size of the whole filtered list
 type Settings = { name_change_days: number; allow_connection_edit: boolean; deliver_library_to_new: boolean;
   activate_delivered: boolean; notify_admin_changes: boolean; timeline_retention_days: number | null;
   server_url: string; install_key: string };
 ```
+
+Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–200 unless noted) and return `Page<T>`.
 
 | Method | Path | Body → Response |
 |---|---|---|
@@ -58,24 +60,25 @@ type Settings = { name_change_days: number; allow_connection_edit: boolean; deli
 | POST | `/logout` | → 204 |
 | GET | `/me` | → `{ email, role }` or 401 |
 | GET | `/overview` | → `{ installs, online, os: {windows, macos}, name_changes_month, overrides_week, failures_week, recent: Activity[], attention: { overrides, failures, possible_duplicates, stale }, top_fonts: { family, users }[] }` |
-| GET | `/installs?q=&filter=all\|online\|overrides\|duplicates\|stale` | → `InstallSummary[]` (q matches current name, old names, install id) |
-| GET | `/installs/{id}` | → `InstallDetail` |
-| GET | `/installs/{id}/timeline?kind=all\|names\|fonts\|overrides\|failures` | → `TimelineEvent[]` newest first |
+| GET | `/installs?q=&filter=all\|online\|overrides\|duplicates\|stale&offset=&limit=` | → `Page<InstallSummary>` sorted by name (q matches current name, old names, install id) |
+| GET | `/installs/{id}` | → `InstallDetail` (fonts are paged separately) |
+| GET | `/installs/{id}/fonts?q=&active=true\|false&offset=&limit=` | → `Page<FontState>` active first, then family (q matches family, style, PostScript name) |
+| GET | `/installs/{id}/timeline?kind=all\|names\|fonts\|overrides\|failures&offset=&limit=` | → `Page<TimelineEvent>` newest first (limit default 100, max 500) |
 | POST | `/installs/{id}/fonts` | `{ hash, active }` → `{ command_id }` (queues Activate/Deactivate, pushes over WS) |
 | POST | `/installs/{id}/reset-name-limit` | → 204 |
 | POST | `/installs/{id}/organize-request` | → `{ command_id }` |
 | POST | `/installs/merge` | `{ primary, secondary, keep_name: "primary" \| "secondary" }` → `InstallDetail` of primary |
 | POST | `/installs/{id}/split` | → 204 (undo a merge within 30 days; `id` = the retired install) |
-| GET | `/name-changes?q=&since=` | → `NameChangeRow[]` newest first |
-| GET | `/name-changes.csv` | → CSV of the same |
-| GET | `/library` | → `LibraryFile[]` |
+| GET | `/name-changes?q=&since=&offset=&limit=` | → `Page<NameChangeRow>` newest first |
+| GET | `/name-changes.csv?q=&since=` | → CSV of every matching row (not paged) |
+| GET | `/library?q=&offset=&limit=` | → `Page<LibraryFile>` by family, style (q matches family, style, PostScript name, file name) |
 | POST | `/library` | multipart, field `files` (one or more font files) → `LibraryFile[]` added |
 | PUT | `/library/{hash}` | `{ license }` → `LibraryFile` |
 | POST | `/library/{hash}/block` | `{ blocked }` → `LibraryFile` (pushes Block/Unblock to every install) |
 | POST | `/library/{hash}/deliver` | `{ target: "all" \| string[], activate }` → `LibraryFile` |
 | GET | `/library/organize` | → `{ changes: OrganizeChange[] }` |
 | POST | `/library/organize/apply` | → `{ applied }` |
-| GET | `/organize/reports` | → `{ install_id, name, duplicates, version_conflicts, name_clashes, last_organized: string \| null }[]` |
+| GET | `/organize/reports?offset=&limit=` | → `Page<{ install_id, name, duplicates, version_conflicts, name_clashes, last_organized: string \| null }>` by name |
 | GET | `/settings` | → `Settings` |
 | PUT | `/settings` | `Partial<Settings>` without `install_key` → `Settings` (pushes `PolicyChanged`) |
 | POST | `/settings/install-key` | → `{ install_key }` (regenerates) |

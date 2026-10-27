@@ -1,8 +1,8 @@
 // Shared pieces: data hook, layout, sidebar, small components, formatting.
-import { useCallback, useEffect, useRef, useState, type DependencyList, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, type DependencyList, type ReactNode } from 'react'
 import { Link, NavLink, useLocation, useNavigate, useOutlet } from 'react-router'
 import { animate, AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
-import { api, errorText, type By } from './api'
+import { api, errorText, PAGE_SIZE, type By } from './api'
 import { easeOut, fast, page, shakeOpts, shakeX, softSpring, spring, stagger } from './motion'
 
 /* ---------- data ---------- */
@@ -49,6 +49,13 @@ export function useDebounced<T>(value: T, ms = 250): T {
     return () => clearTimeout(t)
   }, [value, ms])
   return v
+}
+
+/** 1-based page number that snaps back to 1 whenever `key` changes (a new search or filter), without a second fetch. */
+export function usePage(key: string): [number, (n: number) => void] {
+  const [s, setS] = useState({ key, page: 1 })
+  const setPage = useCallback((page: number) => setS({ key, page }), [key])
+  return [s.key === key ? s.page : 1, setPage]
 }
 
 /**
@@ -127,8 +134,8 @@ function Sidebar() {
   const navigate = useNavigate()
   const me = useLoad(() => api.me(), [])
   const counts = useLoad(async () => {
-    const [o, lib] = await Promise.all([api.overview(), api.library()])
-    return { users: o.installs, library: lib.length }
+    const [o, lib] = await Promise.all([api.overview(), api.library('', 1, 1)])
+    return { users: o.installs, library: lib.total }
   }, [])
   const nav: [string, string, number | undefined][] = [
     ['/', 'Overview', undefined],
@@ -291,6 +298,35 @@ export function Chips<K extends string>({ options, value, onChange, small, label
         </button>
       ))}
     </span>
+  )
+}
+
+const num = (n: number) => n.toLocaleString('en-US')
+
+/** Numbered pager: "1–50 of 1,234", Prev/Next, and first, last and current ±1 with gaps. `page` is 1-based. */
+export function Pager({ page, total, size = PAGE_SIZE, onPage, label = 'Pages' }: {
+  page: number; total: number; size?: number; onPage: (n: number) => void; label?: string
+}) {
+  if (total === 0) return null
+  const pages = Math.ceil(total / size)
+  const nums = [...new Set([1, page - 1, page, page + 1, pages])].filter((n) => n >= 1 && n <= pages).sort((a, b) => a - b)
+  return (
+    <nav className="pager" aria-label={label}>
+      <span className="meta">{num(Math.min(total, (page - 1) * size + 1))}–{num(Math.min(total, page * size))} of {num(total)}</span>
+      {pages > 1 && (
+        <span className="pager-pages">
+          <button type="button" className="btn btn-xs" disabled={page <= 1} onClick={() => onPage(page - 1)}>Prev</button>
+          {nums.map((n, i) => (
+            <Fragment key={n}>
+              {i > 0 && n - nums[i - 1] > 1 && <span className="pager-gap" aria-hidden="true">…</span>}
+              <button type="button" className="btn btn-xs pager-num" aria-current={n === page ? 'page' : undefined}
+                aria-label={`Page ${n}`} onClick={() => onPage(n)}>{n}</button>
+            </Fragment>
+          ))}
+          <button type="button" className="btn btn-xs" disabled={page >= pages} onClick={() => onPage(page + 1)}>Next</button>
+        </span>
+      )}
+    </nav>
   )
 }
 

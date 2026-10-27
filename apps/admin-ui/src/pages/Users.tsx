@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import { api, type Flag, type InstallFilter } from '../api'
 import { pop, press, row } from '../motion'
-import { ago, Badge, Chips, Empty, fmtDate, Loaded, Table, TableSkeleton, useDebounced, useLoad, type Tone } from '../ui'
+import { ago, Badge, Chips, Empty, fmtDate, Loaded, Pager, Table, TableSkeleton, useDebounced, useLoad, usePage, type Tone } from '../ui'
 
 const MotionLink = motion.create(Link)
 const HEAD = [<span className="sr-only">Select</span>, 'Name', 'Install ID', 'Computer', 'Active fonts', 'Last seen', 'Next name change']
@@ -20,14 +20,10 @@ export function Users() {
   const [params, setParams] = useSearchParams()
   const filter = (FILTERS.find(([k]) => k === params.get('filter'))?.[0] ?? 'all') as InstallFilter
   const [q, setQ] = useState('')
-  const query = useDebounced(q.trim())
+  const query = useDebounced(q.trim(), 150)
+  const [page, setPage] = usePage(`${query}|${filter}`)
   const [selected, setSelected] = useState<string[]>(() => params.getAll('select'))
-  const [total, setTotal] = useState<number>()
-  const state = useLoad(async () => {
-    const rows = await api.installs(query, filter)
-    if (!query && filter === 'all') setTotal(rows.length)
-    return rows
-  }, [query, filter])
+  const state = useLoad(() => api.installs(query, filter, page), [query, filter, page])
 
   const toggle = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
@@ -56,7 +52,7 @@ export function Users() {
           placeholder="Search by name, old name or install ID" />
         <Chips label="Filter installs" options={FILTERS} value={filter} onChange={setFilter} />
       </div>
-      <Loaded state={state} skeleton={<TableSkeleton head={HEAD} minWidth={960} />}>{(rows) => (
+      <Loaded state={state} skeleton={<TableSkeleton head={HEAD} minWidth={960} />}>{({ items: rows, total }) => (
         <>
           <Table caption="Installs" minWidth={960} head={HEAD}>
             {rows.map((u, i) => {
@@ -84,8 +80,8 @@ export function Users() {
               )
             })}
           </Table>
-          {rows.length === 0 && <Empty>{query || filter !== 'all' ? 'No installs match.' : 'No installs yet. They appear when the desktop app connects for the first time.'}</Empty>}
-          <span className="meta">Showing {rows.length}{total !== undefined ? ` of ${total}` : ''} installs</span>
+          {total === 0 && <Empty>{query || filter !== 'all' ? 'No installs match.' : 'No installs yet. They appear when the desktop app connects for the first time.'}</Empty>}
+          <Pager label="Install pages" page={page} total={total} onPage={setPage} />
         </>
       )}</Loaded>
     </div>

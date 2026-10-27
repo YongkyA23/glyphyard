@@ -181,7 +181,11 @@ async fn name_is_locked_until_admin_resets() {
     assert_eq!(after.json()["name"], "Budi S.");
 
     let names = s.admin(Method::GET, "/installs/inst-1/timeline?kind=names", None).await.json();
-    assert_eq!(names.as_array().unwrap().len(), 4); // joined, change, reset, change
+    assert_eq!(names["items"].as_array().unwrap().len(), 4); // joined, change, reset, change
+    assert_eq!(names["total"], 4);
+    let page = s.admin(Method::GET, "/installs/inst-1/timeline?kind=names&offset=3&limit=2", None).await.json();
+    assert_eq!(page["items"].as_array().unwrap().len(), 1);
+    assert_eq!(page["total"], 4);
 }
 
 #[tokio::test]
@@ -224,7 +228,7 @@ async fn remote_deactivate_arrives_over_websocket() {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
     let installs = s.admin(Method::GET, "/installs?filter=online", None).await.json();
-    assert_eq!(installs[0]["online"], true);
+    assert_eq!(installs["items"][0]["online"], true);
 
     let r = s.admin(Method::POST, "/installs/inst-1/fonts", Some(json!({ "hash": "h1", "active": false }))).await;
     assert_eq!(r.status, StatusCode::OK);
@@ -256,12 +260,15 @@ async fn user_turning_off_admin_font_is_an_override() {
     s.desktop(Method::POST, "/me/events", &token, Some(off)).await;
 
     let overrides = s.admin(Method::GET, "/installs/inst-1/timeline?kind=overrides", None).await.json();
-    assert_eq!(overrides.as_array().unwrap().len(), 1);
-    assert_eq!(overrides[0]["by"], "user");
+    assert_eq!(overrides["items"].as_array().unwrap().len(), 1);
+    assert_eq!(overrides["items"][0]["by"], "user");
 
     let detail = s.admin(Method::GET, "/installs/inst-1", None).await.json();
     assert_eq!(detail["overrides"].as_array().unwrap().len(), 1);
-    assert_eq!(detail["fonts"][0]["overridden"], true);
+    assert!(detail.get("fonts").is_none(), "fonts are paged separately");
+    let fonts = s.admin(Method::GET, "/installs/inst-1/fonts", None).await.json();
+    assert_eq!(fonts["total"], 1);
+    assert_eq!(fonts["items"][0]["overridden"], true);
     assert!(detail["flags"].as_array().unwrap().contains(&json!("override")));
 
     // A snapshot keeps the override visible; turning it back on clears it.
@@ -282,7 +289,7 @@ async fn merge_carries_names_and_limit_then_split() {
     assert_eq!(s.desktop(Method::PUT, "/me/name", &new, Some(json!({ "name": "Budi Santoso" }))).await.status, StatusCode::OK);
 
     let list = s.admin(Method::GET, "/installs?filter=duplicates", None).await.json();
-    assert_eq!(list.as_array().unwrap().len(), 2);
+    assert_eq!(list["total"], 2);
 
     // The request names the newer install as primary; the older one still wins.
     let merged = s.admin(Method::POST, "/installs/merge", Some(json!({ "primary": "new", "secondary": "old", "keep_name": "primary" }))).await;
@@ -298,13 +305,13 @@ async fn merge_carries_names_and_limit_then_split() {
     assert_eq!(locked.status, StatusCode::CONFLICT);
 
     let list = s.admin(Method::GET, "/installs?q=budi%20s.", None).await.json();
-    assert_eq!(list.as_array().unwrap().len(), 1, "merged installs leave the list; old names still match");
+    assert_eq!(list["items"].as_array().unwrap().len(), 1, "merged installs leave the list; old names still match");
 
     assert_eq!(s.admin(Method::POST, "/installs/new/split", None).await.status, StatusCode::NO_CONTENT);
     let d = s.admin(Method::GET, "/installs/old", None).await.json();
     assert_eq!(d["name"], "Budi");
     assert_eq!(d["merged_from"], json!([]));
-    assert_eq!(s.admin(Method::GET, "/installs", None).await.json().as_array().unwrap().len(), 2);
+    assert_eq!(s.admin(Method::GET, "/installs", None).await.json()["total"], 2);
 }
 
 #[tokio::test]
@@ -355,6 +362,11 @@ async fn library_download_needs_a_delivery() {
     s.admin(Method::POST, &format!("/library/{hash}/block"), Some(json!({ "blocked": true }))).await;
     assert_eq!(s.desktop(Method::GET, &path, &a, None).await.status, StatusCode::NOT_FOUND);
 
+    let lib = s.admin(Method::GET, "/library", None).await.json();
+    assert_eq!(lib["total"], 1);
+    assert_eq!(lib["items"][0]["hash"], hash.as_str());
+    assert_eq!(s.admin(Method::GET, "/library?q=nothing-like-this", None).await.json()["total"], 0);
+
     // A single file has nothing to organize.
     assert_eq!(s.admin(Method::GET, "/library/organize", None).await.json(), json!({ "changes": [] }));
     assert_eq!(s.admin(Method::POST, "/library/organize/apply", None).await.json(), json!({ "applied": 0 }));
@@ -394,7 +406,9 @@ async fn name_changes_csv() {
     let token = s.register("inst-1", "Budi").await;
     s.desktop(Method::PUT, "/me/name", &token, Some(json!({ "name": "Santoso, Budi" }))).await;
 
-    let rows = s.admin(Method::GET, "/name-changes", None).await.json();
+    let page = s.admin(Method::GET, "/name-changes", None).await.json();
+    assert_eq!(page["total"], 2);
+    let rows = &page["items"];
     assert_eq!(rows.as_array().unwrap().len(), 2);
     assert_eq!(rows[0]["by"], "user");
     assert!(rows[0]["next_allowed"].is_string());
@@ -407,6 +421,9 @@ async fn name_changes_csv() {
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(lines[0], "at,install_ids,old_name,new_name,by,next_allowed");
     assert_eq!(lines.len(), 2);
+    let second = s.admin(Method::GET, "/name-changes?offset=1&limit=1", None).await.json();
+    assert_eq!(second["items"][0]["by"], "first");
+    assert_eq!(second["total"], 2);
     assert!(lines[1].contains(",inst-1,Budi,\"Santoso, Budi\",user,"), "{}", lines[1]);
 }
 
@@ -421,9 +438,44 @@ async fn overview_and_spa_fallback() {
     assert_eq!(o["os"]["windows"], 1);
     assert_eq!(o["recent"].as_array().unwrap().len(), 2);
     let reports = s.admin(Method::GET, "/organize/reports", None).await.json();
-    assert_eq!(reports[0]["duplicates"], 3);
+    assert_eq!(reports["items"][0]["duplicates"], 3);
+    assert_eq!(reports["total"], 1);
 
     let page = s.send(Method::GET, "/installs/a", &[], None).await;
     assert_eq!(page.status, StatusCode::OK);
     assert!(String::from_utf8_lossy(&page.body).contains("not built"));
+}
+
+#[tokio::test]
+async fn admin_lists_are_paged() {
+    let s = Server::new().await;
+    for (id, name) in [("a", "Ana"), ("b", "Budi"), ("c", "Citra")] {
+        s.register(id, name).await;
+    }
+    let first = s.admin(Method::GET, "/installs?limit=2", None).await.json();
+    assert_eq!(first["total"], 3);
+    let names: Vec<&str> = first["items"].as_array().unwrap().iter().map(|i| i["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["Ana", "Budi"]);
+    let second = s.admin(Method::GET, "/installs?offset=2&limit=2", None).await.json();
+    assert_eq!(second["items"].as_array().unwrap().len(), 1);
+    assert_eq!(second["items"][0]["name"], "Citra");
+    assert_eq!(s.admin(Method::GET, "/installs?q=bud&limit=2", None).await.json()["total"], 1);
+
+    // 250 fonts: the default page is 50, the limit is capped at 200, and search/active filter in SQL.
+    let token = s.register("d", "Dewi").await;
+    let active: Vec<Value> = (0..250)
+        .map(|i| json!({ "hash": format!("h{i:03}"), "ps_name": format!("Font{i:03}-Regular"), "family": format!("Font {i:03}"), "style": "Regular", "source": "user" }))
+        .collect();
+    assert_eq!(s.desktop(Method::PUT, "/me/fonts", &token, Some(json!({ "active": active }))).await.status, StatusCode::NO_CONTENT);
+    let page = s.admin(Method::GET, "/installs/d/fonts", None).await.json();
+    assert_eq!((page["total"].as_u64(), page["items"].as_array().unwrap().len()), (Some(250), 50));
+    let capped = s.admin(Method::GET, "/installs/d/fonts?limit=1000", None).await.json();
+    assert_eq!(capped["items"].as_array().unwrap().len(), 200);
+    let last = s.admin(Method::GET, "/installs/d/fonts?offset=200&limit=200", None).await.json();
+    assert_eq!(last["items"].as_array().unwrap().len(), 50);
+    assert_eq!(last["items"][0]["family"], "Font 200");
+    let found = s.admin(Method::GET, "/installs/d/fonts?q=font%2024", None).await.json();
+    assert_eq!(found["total"], 10); // Font 240..249
+    assert_eq!(s.admin(Method::GET, "/installs/d/fonts?active=false", None).await.json()["total"], 0);
+    assert_eq!(s.admin(Method::GET, "/installs/x/fonts", None).await.status, StatusCode::NOT_FOUND);
 }
