@@ -21,7 +21,8 @@ type St<'a> = State<'a, Ctx>;
 pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         get_app_state, complete_onboarding, change_name,
-        list_families, get_family, set_active,
+        list_families, family_page, library_counts, get_faces, get_family, set_active,
+        folder_tree, set_folder_active, set_folder_auto,
         list_folders, add_folder, remove_folder, locate_folder,
         list_collections, create_collection, rename_collection, delete_collection, add_to_collection, remove_from_collection,
         list_tags, set_tags, set_license,
@@ -74,27 +75,38 @@ pub async fn change_name(ctx: St<'_>, name: String) -> R<NameResult> {
 // ---- Library ----
 
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
-pub async fn list_families(
-    ctx: St<'_>,
-    search: Option<String>,
-    filter: Option<FamilyFilter>,
-    collection_id: Option<i64>,
-    folder_id: Option<i64>,
-    tag: Option<String>,
-    license: Option<License>,
-    sort: Option<SortBy>,
-) -> R<Vec<Family>> {
-    let q = FamilyQuery {
-        search,
-        filter: filter.unwrap_or_default(),
-        collection_id,
-        folder_id,
-        tag,
-        license,
-        sort: sort.unwrap_or_default(),
-    };
-    ctx.run(move |e| e.list_families(&q)).await
+pub async fn list_families(ctx: St<'_>, query: FamilyQuery) -> R<Vec<Family>> {
+    ctx.run(move |e| e.list_families(&query)).await
+}
+
+#[tauri::command]
+pub async fn family_page(ctx: St<'_>, query: FamilyQuery, offset: usize, limit: usize) -> R<FamilyPage> {
+    ctx.run(move |e| e.family_page(&query, offset, limit)).await
+}
+
+#[tauri::command]
+pub async fn library_counts(ctx: St<'_>) -> R<LibraryCounts> {
+    ctx.run(|e| e.library_counts()).await
+}
+
+#[tauri::command]
+pub async fn get_faces(ctx: St<'_>, hashes: Vec<String>) -> R<Vec<Face>> {
+    ctx.run(move |e| e.faces(&hashes)).await
+}
+
+#[tauri::command]
+pub async fn folder_tree(ctx: St<'_>) -> R<Vec<FolderNode>> {
+    ctx.run(|e| e.folder_tree()).await
+}
+
+#[tauri::command]
+pub async fn set_folder_active(ctx: St<'_>, path: String, active: bool, confirm_unknown_license: Option<bool>) -> R<Vec<ActivationResult>> {
+    ctx.run(move |e| e.set_folder_active(&path, active, confirm_unknown_license.unwrap_or(false))).await
+}
+
+#[tauri::command]
+pub async fn set_folder_auto(ctx: St<'_>, path: String, on: bool, confirm_unknown_license: Option<bool>) -> R<Vec<ActivationResult>> {
+    ctx.run(move |e| e.set_folder_auto(&path, on, confirm_unknown_license.unwrap_or(false))).await
 }
 
 #[tauri::command]

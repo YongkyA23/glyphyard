@@ -5,7 +5,7 @@ import { api, type GoogleFont } from '../api'
 import { loadGoogle } from '../fonts'
 import { cssStagger, dur, easeOut } from '../motion'
 import { useApp } from '../state'
-import { Check, Chip, errMsg, plural, Skel, Spinner } from '../ui'
+import { Check, Chip, errMsg, Pager, plural, Skel, Spinner, useSeen } from '../ui'
 
 // Chip label → Google Fonts metadata category (the contract doesn't fix these values).
 const CATS: [string, string | undefined][] = [
@@ -20,27 +20,6 @@ type Loaded = { items: GoogleFont[]; total: number; at: number }
 // Pages already fetched per search + category + page, kept across visits so going back is instant.
 // ponytail: unbounded map of small objects; a handful of pages per session is fine.
 const cache = new Map<string, Loaded>()
-
-/** Page numbers to show: first, last, and two around the current one, with gaps as null. */
-function pageList(current: number, last: number): (number | null)[] {
-  const keep = new Set([1, last, current - 1, current, current + 1].filter((p) => p >= 1 && p <= last))
-  const sorted = [...keep].sort((a, b) => a - b)
-  return sorted.flatMap((p, i) => (i > 0 && p - sorted[i - 1] > 1 ? [null, p] : [p]))
-}
-
-/** True once the element has come near the viewport (it never goes back to false). */
-function useSeen<T extends Element>(margin = '200px') {
-  const ref = useRef<T>(null)
-  const [seen, setSeen] = useState(false)
-  useEffect(() => {
-    const el = ref.current
-    if (!el || seen) return
-    const io = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && setSeen(true), { rootMargin: margin })
-    io.observe(el)
-    return () => io.disconnect()
-  }, [seen, margin])
-  return [ref, seen] as const
-}
 
 export function GoogleFonts() {
   const { toast } = useApp()
@@ -82,7 +61,6 @@ export function GoogleFonts() {
     }
   }, [key, search, category, page])
 
-  const pages = data ? Math.max(1, Math.ceil(data.total / PAGE)) : 1
   const go = useCallback((p: number) => {
     setPage(p)
     top.current?.scrollIntoView({ block: 'start' })
@@ -129,27 +107,7 @@ export function GoogleFonts() {
         ))}
       </div>
       {data && data.total > 0 && (
-        <nav aria-label="Pages" className="pager">
-          <span className="faint" role="status" style={{ fontSize: 12 }}>
-            {((page - 1) * PAGE + 1).toLocaleString()}–{Math.min(page * PAGE, data.total).toLocaleString()} of {data.total.toLocaleString()}
-          </span>
-          {pages > 1 && (
-            <span className="pager-buttons">
-              <button type="button" className="btn small" disabled={page === 1} onClick={() => go(page - 1)}>‹ Prev</button>
-              {pageList(page, pages).map((p, i) =>
-                p === null ? (
-                  <span key={`gap-${i}`} className="faint" aria-hidden="true">…</span>
-                ) : (
-                  <button
-                    key={p} type="button" className={p === page ? 'btn small primary' : 'btn small'} aria-current={p === page ? 'page' : undefined}
-                    aria-label={`Page ${p}`} onClick={() => go(p)}
-                  >{p}</button>
-                ),
-              )}
-              <button type="button" className="btn small" disabled={page === pages} onClick={() => go(page + 1)}>Next ›</button>
-            </span>
-          )}
-        </nav>
+        <Pager page={page} size={PAGE} total={data.total} onPage={go} />
       )}
     </div>
   )

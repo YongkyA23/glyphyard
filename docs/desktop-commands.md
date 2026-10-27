@@ -35,7 +35,13 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `get_app_state` | → `AppState` |
 | `complete_onboarding` | `{ name }` → `AppState` (registers with the server; rejects `{code:"offline"}` without a connection) |
 | `change_name` | `{ name }` → `{ name, nextNameChange }`; rejects `{code:"name_locked", nextNameChange}` or `{code:"offline"}` |
-| `list_families` | `{ search?, filter?: "all"\|"active"\|"inactive"\|"admin"\|"unknown_license"\|"duplicates"\|"system", collectionId?, folderId?, tag?, license?, sort?: "name"\|"name_desc"\|"date"\|"foundry" }` → `Family[]`. System-only families appear only with `filter: "system"` (or in a collection/tag) |
+| `list_families` | `{ query: { search?, filter?: "all"\|"active"\|"inactive"\|"admin"\|"unknown_license"\|"duplicates"\|"system", collectionId?, folderId?, path?, keys?, tag?, license?, sort?: "name"\|"name_desc"\|"date"\|"foundry" } }` → `Family[]`. `path`: a folder or subfolder (from `folder_tree`); `keys`: only these families. System-only families appear only with `filter: "system"`, `keys` or in a collection/tag. Lists that can grow use `family_page` |
+| `family_page` | `{ query, offset, limit }` (limit ≤ 200) → `{ items: Family[], total }` |
+| `library_counts` | → `{ library, active, system, licenses: { [License]: number } }` |
+| `get_faces` | `{ hashes }` → `Face[]` |
+| `folder_tree` | → `FolderNode[]` = `{ path, name, fontCount, activeCount, autoActivate, children: FolderNode[] }`, one root per watched folder |
+| `set_folder_active` | `{ path, active, confirmUnknownLicense? }` → `ActivationResult[]` (every font in the folder and below) |
+| `set_folder_auto` | `{ path, on, confirmUnknownLicense? }` → `ActivationResult[]`; on: turns on what is there now and every font that lands in the folder later |
 | `get_family` | `{ key }` → `FamilyDetail` |
 | `set_active` | `{ hashes, active, confirmUnknownLicense? }` → `ActivationResult[]`; rejects `{code:"unknown_license", families}` when not confirmed |
 | `list_folders` / `add_folder {path}` / `remove_folder {id}` / `locate_folder {id, path}` | → `Folder[]` |

@@ -391,6 +391,11 @@ impl Engine {
             folder_dto(&db, &row, None)?
         };
         self.ui(UiEvent::FolderStatus(dto));
+        let arrived: Vec<(PathBuf, String)> =
+            scanned.iter().filter(|s| !s.faces.is_empty()).map(|s| (root.join(&s.rel), s.hash.clone())).collect();
+        if !arrived.is_empty() {
+            self.auto_activate(&arrived)?;
+        }
         Ok(changed)
     }
 

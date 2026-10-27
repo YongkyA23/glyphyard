@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useOutlet, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { api, on, type Collection, type Family, type Folder, type License, type ProjectSet } from './api'
+import { api, on, type Collection, type Folder, type FolderNode, type LibraryCounts, type License, type ProjectSet } from './api'
 import { route, spring } from './motion'
 import { useApp } from './state'
 import { ago, initials, LICENSE_LABEL, Num } from './ui'
@@ -13,11 +13,49 @@ const Hi = ({ id }: { id: string }) => <motion.span layoutId={id} className="sid
 const LIC_DOT: Record<License, string> = { licensed: 'var(--ok-dot)', personal: 'var(--accent)', client: 'var(--violet-dot)', unknown: 'var(--amber)' }
 const LIC_NAME: Record<License, string> = { ...LICENSE_LABEL, unknown: 'Unknown' }
 
+/** Inside `dir` (not `dir` itself), for either path separator. */
+const isUnder = (path: string | null, dir: string) => !!path && (path.startsWith(dir + '\\') || path.startsWith(dir + '/'))
+
+/** A folder and its subfolders; opens by itself when the current folder is inside it. */
+function TreeNode({ node, depth, folder }: { node: FolderNode; depth: number; folder?: Folder }) {
+  const [params] = useSearchParams()
+  const selected = params.get('path')
+  const [open, setOpen] = useState(() => isUnder(selected, node.path))
+  useEffect(() => void (isUnder(selected, node.path) && setOpen(true)), [selected, node.path])
+  const here = selected === node.path
+  const status = folder?.status
+  return (
+    <>
+      <div className="tree-row" style={{ paddingLeft: depth * 12 }}>
+        {node.children.length ? (
+          <button type="button" className="tree-caret" aria-expanded={open} aria-label={`${open ? 'Collapse' : 'Expand'} ${node.name}`} onClick={() => setOpen((o) => !o)}>
+            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M3 1.5 6.5 5 3 8.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </button>
+        ) : <span className="tree-caret" aria-hidden="true" />}
+        <Link to={`/?path=${encodeURIComponent(node.path)}`} className="side-item" aria-current={here ? 'true' : undefined} title={node.path}>
+          {here && <Hi id="side-item-hi" />}
+          {folder && <span aria-hidden="true" className={`dot ${status}`} style={{ background: status === 'offline' ? 'var(--amber)' : status === 'scanning' ? 'var(--accent)' : 'var(--ok-dot)' }} />}
+          <span className="ellipsis" style={{ flex: 1 }}>{node.name}</span>
+          {node.autoActivate && <span className="tree-auto" title="New fonts here are turned on automatically">AUTO</span>}
+          {status === 'offline' ? (
+            <span className="side-count" style={{ color: 'var(--warn)' }}>Offline</span>
+          ) : status === 'scanning' ? (
+            <span className="side-count">Scanning…</span>
+          ) : (
+            <span className="side-count"><Num value={node.fontCount} /></span>
+          )}
+        </Link>
+      </div>
+      {open && node.children.map((c) => <TreeNode key={c.path} node={c} depth={depth + 1} />)}
+    </>
+  )
+}
+
 function Sidebar() {
   const { app, libVersion, organizeCount, setOrganizeCount } = useApp()
-  const [families, setFamilies] = useState<Family[] | null>(null)
-  const [systemCount, setSystemCount] = useState<number | null>(null)
+  const [counts, setCounts] = useState<LibraryCounts | null>(null)
   const [folders, setFolders] = useState<Folder[]>([])
+  const [tree, setTree] = useState<FolderNode[]>([])
   const [collections, setCollections] = useState<Collection[]>([])
   const [sets, setSets] = useState<ProjectSet[]>([])
   const [params] = useSearchParams()
@@ -25,9 +63,9 @@ function Sidebar() {
   const current = (to: string) => (to === '/' ? pathname === '/' || pathname.startsWith('/family/') : pathname.startsWith(to))
 
   useEffect(() => {
-    api.listFamilies({}).then(setFamilies, () => {})
-    api.listFamilies({ filter: 'system' }).then((f) => setSystemCount(f.length), () => {})
+    api.libraryCounts().then(setCounts, () => {})
     api.listFolders().then(setFolders, () => {})
+    api.folderTree().then(setTree, () => {})
     api.listCollections().then(setCollections, () => {})
     api.listProjectSets().then(setSets, () => {})
   }, [libVersion])
@@ -38,7 +76,7 @@ function Sidebar() {
   }, [organizeCount, setOrganizeCount])
 
   const nav: [string, string, number | null][] = [
-    ['/', 'Library', families ? families.length : null],
+    ['/', 'Library', counts ? counts.library : null],
     ['/playground', 'Playground', null],
     ['/sets', 'Project sets', sets.length || null],
     ['/google', 'Google Fonts', null],
@@ -46,7 +84,8 @@ function Sidebar() {
     ['/pdf', 'Fonts in a PDF', null],
     ['/settings', 'Settings', null],
   ]
-  const licCount = (l: License) => families?.filter((f) => f.license === l).length ?? 0
+  const licCount = (l: License) => counts?.licenses[l] ?? 0
+  const systemCount = counts?.system ?? 0
   const sel = (k: string, v: string | number) => params.get(k) === String(v)
   const c = app.connection
   const sync =
@@ -69,20 +108,10 @@ function Sidebar() {
       </div>
       <div className="side-group">
         <span className="side-head">Folders</span>
-        {folders.map((f) => (
-          <Link key={f.id} to={`/?folder=${f.id}`} className="side-item" aria-current={sel('folder', f.id) ? 'true' : undefined} title={f.path}>
-            {sel('folder', f.id) && <Hi id="side-item-hi" />}
-            <span aria-hidden="true" className={`dot ${f.status}`} style={{ background: f.status === 'offline' ? 'var(--amber)' : f.status === 'scanning' ? 'var(--accent)' : 'var(--ok-dot)' }} />
-            <span className="ellipsis" style={{ flex: 1 }}>{f.path}</span>
-            {f.status === 'offline' ? (
-              <span className="side-count" style={{ color: 'var(--warn)' }}>Offline</span>
-            ) : f.status === 'scanning' ? (
-              <span className="side-count">Scanning…</span>
-            ) : (
-              <span className="side-count"><Num value={f.fontCount} /></span>
-            )}
-          </Link>
-        ))}
+        {folders.map((f) => {
+          const node = tree.find((n) => n.path === f.path) ?? { path: f.path, name: f.path, fontCount: f.fontCount, activeCount: 0, autoActivate: false, children: [] }
+          return <TreeNode key={f.id} node={node} depth={0} folder={f} />
+        })}
         {!!systemCount && (
           <Link to="/?system=1" className="side-item" aria-current={sel('system', 1) ? 'true' : undefined} title="Fonts installed in the operating system (always on)">
             {sel('system', 1) && <Hi id="side-item-hi" />}

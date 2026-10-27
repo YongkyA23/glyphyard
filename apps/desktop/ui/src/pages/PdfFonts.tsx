@@ -29,8 +29,8 @@ export function PdfFonts() {
       const res = await api.pdfFonts(p)
       setRows(res)
       if (res.some((r) => r.hash)) {
-        const fams = await api.listFamilies({})
-        setFaces(new Map(fams.flatMap((f) => f.faces).map((f) => [f.hash, f])))
+        const faces = await api.getFaces(res.flatMap((r) => (r.hash ? [r.hash] : [])))
+        setFaces(new Map(faces.map((f) => [f.hash, f])))
       }
     } catch (e) {
       setRows(null)

@@ -46,7 +46,11 @@ export type FamilyFilter = 'all' | 'active' | 'inactive' | 'admin' | 'unknown_li
 export type FamilySort = 'name' | 'name_desc' | 'date' | 'foundry'
 export type ListFamiliesArgs = {
   search?: string; filter?: FamilyFilter; collectionId?: number; folderId?: number; tag?: string; license?: License; sort?: FamilySort
+  /** Folder or subfolder path from folderTree. */ path?: string; keys?: string[]
 }
+export type FamilyPage = { items: Family[]; total: number }
+export type LibraryCounts = { library: number; active: number; system: number; licenses: Partial<Record<License, number>> }
+export type FolderNode = { path: string; name: string; fontCount: number; activeCount: number; autoActivate: boolean; children: FolderNode[] }
 export type Tag = { name: string; count: number }
 export type OrganizePlan = { changes: OrganizeChange[]; scanned: number; scannedAt: string }
 export type HistoryEntry = { id: number; kind: string; summary: string; at: string; undone: boolean }
@@ -96,7 +100,15 @@ export const api = {
   completeOnboarding: (name: string) => call<AppState>('complete_onboarding', { name }),
   changeName: (name: string) => call<{ name: string; nextNameChange: string | null }>('change_name', { name }),
 
-  listFamilies: (args: ListFamiliesArgs = {}) => call<Family[]>('list_families', args),
+  listFamilies: (query: ListFamiliesArgs = {}) => call<Family[]>('list_families', { query }),
+  familyPage: (query: ListFamiliesArgs, offset: number, limit: number) => call<FamilyPage>('family_page', { query, offset, limit }),
+  libraryCounts: () => call<LibraryCounts>('library_counts'),
+  getFaces: (hashes: string[]) => call<Face[]>('get_faces', { hashes }),
+  folderTree: () => call<FolderNode[]>('folder_tree'),
+  setFolderActive: (path: string, active: boolean, confirmUnknownLicense?: boolean) =>
+    call<ActivationResult[]>('set_folder_active', { path, active, confirmUnknownLicense }),
+  setFolderAuto: (path: string, on: boolean, confirmUnknownLicense?: boolean) =>
+    call<ActivationResult[]>('set_folder_auto', { path, on, confirmUnknownLicense }),
   getFamily: (key: string) => call<FamilyDetail>('get_family', { key }),
   setActive: (hashes: string[], active: boolean, confirmUnknownLicense?: boolean) =>
     call<ActivationResult[]>('set_active', { hashes, active, confirmUnknownLicense }),

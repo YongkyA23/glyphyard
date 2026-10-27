@@ -94,7 +94,10 @@ CREATE TABLE history (
     undone INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-"#];
+"#,
+    // 2: folders whose new fonts are turned on as they arrive.
+    "CREATE TABLE auto_folders (path TEXT PRIMARY KEY);",
+];
 
 pub(crate) fn open(path: &Path) -> rusqlite::Result<Connection> {
     let mut conn = Connection::open(path)?;

@@ -1,7 +1,7 @@
 // Small shared pieces: switches, chips, badges, dialog, formatting.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { animate, AnimatePresence, motion, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
-import type { License } from './api'
+import { api, type Family, type License } from './api'
 import { dur, easeOut, pop, spring } from './motion'
 
 export const LICENSE_LABEL: Record<License, string> = {
@@ -139,3 +139,95 @@ export const errMsg = (e: unknown) =>
   e && typeof e === 'object' && 'message' in e && typeof (e as { message: unknown }).message === 'string'
     ? (e as { message: string }).message
     : 'Something went wrong.'
+
+/** Page numbers to show: first, last, and two around the current one, with gaps as null. */
+export function pageList(current: number, last: number): (number | null)[] {
+  const keep = new Set([1, last, current - 1, current, current + 1].filter((p) => p >= 1 && p <= last))
+  const sorted = [...keep].sort((a, b) => a - b)
+  return sorted.flatMap((p, i) => (i > 0 && p - sorted[i - 1] > 1 ? [null, p] : [p]))
+}
+
+/** True once the element has come near the viewport (it never goes back to false). */
+export function useSeen<T extends Element>(margin = '200px') {
+  const ref = useRef<T>(null)
+  const [seen, setSeen] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || seen) return
+    const io = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && setSeen(true), { rootMargin: margin })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [seen, margin])
+  return [ref, seen] as const
+}
+
+/** "1–30 of 1,950" plus numbered page buttons. */
+export function Pager({ page, size, total, onPage }: { page: number; size: number; total: number; onPage: (p: number) => void }) {
+  const pages = Math.max(1, Math.ceil(total / size))
+  if (!total) return null
+  return (
+    <nav aria-label="Pages" className="pager">
+      <span className="faint" role="status" style={{ fontSize: 12 }}>
+        {num((page - 1) * size + 1)}–{num(Math.min(page * size, total))} of {num(total)}
+      </span>
+      {pages > 1 && (
+        <span className="pager-buttons">
+          <button type="button" className="btn small" disabled={page === 1} onClick={() => onPage(page - 1)}>‹ Prev</button>
+          {pageList(page, pages).map((p, i) =>
+            p === null ? (
+              <span key={`gap-${i}`} className="faint" aria-hidden="true">…</span>
+            ) : (
+              <button
+                key={p} type="button" className={p === page ? 'btn small primary' : 'btn small'} aria-current={p === page ? 'page' : undefined}
+                aria-label={`Page ${p}`} onClick={() => onPage(p)}
+              >{p}</button>
+            ),
+          )}
+          <button type="button" className="btn small" disabled={page === pages} onClick={() => onPage(page + 1)}>Next ›</button>
+        </span>
+      )}
+    </nav>
+  )
+}
+
+/** Search-as-you-type family picker: asks the backend for at most 30 matches instead of listing the library. */
+export function FamilyPicker({ id, label, value, onChange }: { id: string; label: string; value?: Family; onChange: (key: string) => void }) {
+  const [q, setQ] = useState('')
+  const [open, setOpen] = useState(false)
+  const [hits, setHits] = useState<Family[]>([])
+  const [hi, setHi] = useState(0)
+  useEffect(() => {
+    if (!open) return
+    const t = setTimeout(() => api.familyPage({ search: q.trim() || undefined, sort: 'name' }, 0, 30).then((p) => (setHits(p.items), setHi(0)), () => {}), 120)
+    return () => clearTimeout(t)
+  }, [q, open])
+  const choose = (f?: Family) => {
+    if (f) onChange(f.key)
+    setOpen(false)
+  }
+  return (
+    <label htmlFor={id} className="field-label picker">
+      {label}
+      <input
+        id={id} className="input" style={{ minWidth: 200 }} role="combobox" aria-expanded={open} aria-controls={`${id}-list`} aria-autocomplete="list"
+        aria-activedescendant={open && hits[hi] ? `${id}-${hi}` : undefined}
+        placeholder={value?.family ?? 'Search fonts'} value={open ? q : (value?.family ?? '')}
+        onFocus={() => (setQ(''), setOpen(true))} onBlur={() => setOpen(false)} onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') (e.preventDefault(), setHi((i) => Math.min(i + 1, hits.length - 1)))
+          else if (e.key === 'ArrowUp') (e.preventDefault(), setHi((i) => Math.max(i - 1, 0)))
+          else if (e.key === 'Enter') (e.preventDefault(), choose(hits[hi]))
+          else if (e.key === 'Escape') setOpen(false)
+        }}
+      />
+      {open && (
+        <ul id={`${id}-list`} role="listbox" className="picker-list">
+          {hits.map((f, i) => (
+            <li key={f.key} id={`${id}-${i}`} role="option" aria-selected={i === hi} onMouseDown={(e) => (e.preventDefault(), choose(f))}>{f.family}</li>
+          ))}
+          {!hits.length && <li className="faint" aria-disabled="true">No fonts match</li>}
+        </ul>
+      )}
+    </label>
+  )
+}

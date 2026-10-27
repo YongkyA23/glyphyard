@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import { api, type Face, type Family } from '../api'
 import { familyStyle } from '../fonts'
+import { FamilyPicker } from '../ui'
 import { dur, easeOut } from '../motion'
 import { useApp } from '../state'
 
@@ -23,17 +24,22 @@ export function Playground() {
   const [base, setBase] = useState(17)
   const [ratio, setRatio] = useState(1.3)
 
+  // Start with two fonts that are already on (or any two).
   useEffect(() => {
-    api.listFamilies({ sort: 'name' }).then((list) => {
-      setFamilies(list)
-      // Start with fonts that are already on.
-      const on = list.filter((f) => f.activeState !== 'none')
-      const pool = on.length >= 2 ? on : list
-      const first = params.get('a') ?? pool[0]?.key ?? ''
-      setA((cur) => cur || first)
+    if (a && b) return
+    ;(async () => {
+      let pool = (await api.familyPage({ filter: 'active', sort: 'name' }, 0, 2)).items
+      if (pool.length < 2) pool = (await api.familyPage({ sort: 'name' }, 0, 2)).items
+      const first = a || pool[0]?.key || ''
+      setA(first)
       setB((cur) => cur || pool.find((f) => f.key !== first)?.key || '')
-    }, () => {})
-  }, [libVersion, params])
+    })().catch(() => {})
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // Only the two chosen families are loaded.
+  useEffect(() => {
+    const keys = [a, b].filter(Boolean)
+    if (keys.length) api.listFamilies({ keys }).then(setFamilies, () => {})
+  }, [a, b, libVersion])
 
   const fa = families.find((f) => f.key === a)
   const fb = families.find((f) => f.key === b)
@@ -68,12 +74,7 @@ export function Playground() {
   }
 
   const select = (id: string, label: string, value: string, set: (v: string) => void) => (
-    <label htmlFor={id} className="field-label">
-      {label}
-      <select id={id} className="select" style={{ minWidth: 180 }} value={value} onChange={(e) => set(e.target.value)}>
-        {families.map((f) => <option key={f.key} value={f.key}>{f.family}</option>)}
-      </select>
-    </label>
+    <FamilyPicker id={id} label={label} value={families.find((f) => f.key === value)} onChange={set} />
   )
 
   return (

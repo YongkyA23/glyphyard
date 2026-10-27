@@ -205,6 +205,40 @@ pub struct FamilyQuery {
     pub tag: Option<String>,
     pub license: Option<License>,
     pub sort: SortBy,
+    /// Only families with a file in this folder or below it (a node of `folder_tree`).
+    pub path: Option<String>,
+    /// Only these families (system families included).
+    pub keys: Option<Vec<String>>,
+}
+
+/// One page of `list_families`.
+#[derive(Debug, Clone, Serialize)]
+pub struct FamilyPage {
+    pub items: Vec<Family>,
+    pub total: usize,
+}
+
+/// Sidebar and status-bar numbers, without sending every family over.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryCounts {
+    pub library: usize,
+    pub active: usize,
+    pub system: usize,
+    pub licenses: std::collections::BTreeMap<String, usize>,
+}
+
+/// A watched folder or a subfolder of one that holds fonts.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderNode {
+    pub path: String,
+    pub name: String,
+    pub font_count: u32,
+    pub active_count: u32,
+    /// New fonts in this folder are turned on automatically.
+    pub auto_activate: bool,
+    pub children: Vec<FolderNode>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

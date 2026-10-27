@@ -1,19 +1,23 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { api, type Family, type FamilyFilter, type Folder, type Health, type License, type ListFamiliesArgs } from '../api'
+import {
+  api, type ActivationResult, type Family, type FamilyFilter, type FamilyPage, type FamilySort, type Folder, type FolderNode, type Health, type LibraryCounts,
+  type License, type ListFamiliesArgs,
+} from '../api'
 import { familyStyle } from '../fonts'
-import { collapse, dur, easeOut, rise, spring, STAGGER_CAP, staggerDelay } from '../motion'
+import { collapse, dur, easeOut, rise, STAGGER_CAP, staggerDelay } from '../motion'
 import { useApp } from '../state'
-import { ago, andList, Badge, Chip, fmtWhen, LICENSE_LABEL, LicenseBadge, num, plural, Skel, Switch } from '../ui'
+import { ago, andList, Badge, Chip, errMsg, fmtWhen, LICENSE_LABEL, LicenseBadge, num, Pager, plural, Skel, Switch, useSeen } from '../ui'
 
 const FILTERS: [FamilyFilter, string][] = [
   ['all', 'All'], ['active', 'Active'], ['inactive', 'Inactive'], ['admin', 'Set by admin'], ['unknown_license', 'Unknown license'], ['duplicates', 'Duplicates'],
 ]
+const SORTS: [FamilySort, string][] = [['name', 'Name A–Z'], ['name_desc', 'Name Z–A'], ['date', 'Recently added'], ['foundry', 'Foundry']]
 const ADMIN_VERB = { activated: 'turned on', deactivated: 'turned off', blocked: 'blocked', delivered: 'added' }
 const DEFAULT_SAMPLE = 'Sphinx of black quartz, judge my vow'
-/** Above this many rows, skip enter/exit/layout animation so filtering stays fluid. */
-const ANIMATE_MAX = 150
+/** Families per page; previews load only for rows that scroll into view. */
+const PAGE = 50
 
 const RowSkeleton = ({ size }: { size: number }) => (
   <div className="font-row" aria-hidden="true">
@@ -25,42 +29,120 @@ const RowSkeleton = ({ size }: { size: number }) => (
   </div>
 )
 
+function findNode(nodes: FolderNode[], path: string): FolderNode | null {
+  for (const n of nodes) {
+    if (n.path === path) return n
+    const hit = findNode(n.children, path)
+    if (hit) return hit
+  }
+  return null
+}
+
+type RowProps = { f: Family; i: number; first: boolean; sample: string; size: number; error?: string; onToggle: (f: Family) => void }
+
+/** One family. The font file is only requested once the row is near the viewport. */
+const FamilyRow = memo(function FamilyRow({ f, i, first, sample, size, error, onToggle }: RowProps) {
+  const [ref, seen] = useSeen<HTMLDivElement>()
+  const on = f.activeState !== 'none'
+  return (
+    <motion.div
+      ref={ref} className="font-row"
+      initial={first && i < STAGGER_CAP ? rise.initial : false} animate={rise.animate}
+      transition={{ duration: dur.slow, ease: easeOut, delay: first ? staggerDelay(i) : 0 }}
+    >
+      <Switch
+        on={on} mixed={f.activeState === 'some'} disabled={f.system} onClick={() => onToggle(f)}
+        label={f.system ? `${f.family} is a system font, always on` : `${f.activeState === 'all' ? 'Deactivate' : 'Activate'} ${f.family}`}
+      />
+      <div style={{ width: 200, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <Link to={`/family/${encodeURIComponent(f.key)}`} className="plain-link" style={{ fontWeight: 500 }}>{f.family}</Link>
+        <span className="faint" style={{ fontSize: 12 }}>
+          {plural(f.styles, 'style')} · {f.foundry}{f.isVariable && ' · variable'}
+        </span>
+        <span style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          <LicenseBadge license={f.license} />
+          {f.system && <Badge tone="neutral">System</Badge>}
+          {f.adminSet && <Badge tone="accent">Set by admin</Badge>}
+          {f.hasDuplicates && <Link to="/organize" className="badge warn" style={{ textDecoration: 'none' }}>Duplicates</Link>}
+        </span>
+      </div>
+      <div className="sample" style={{ ...(seen ? familyStyle(f) : {}), fontSize: size, color: on ? 'var(--ink)' : 'var(--disabled)' }}>{sample}</div>
+      {error && <p role="alert" className="row-error">{error}</p>}
+    </motion.div>
+  )
+})
+
+/** Turn a whole folder (and its subfolders) on or off, and auto-activate what lands in it later. */
+function FolderBar({ node, onDone }: { node: FolderNode; onDone: () => void }) {
+  const { activate, toast } = useApp()
+  const [busy, setBusy] = useState(false)
+  async function run(fn: (confirm: boolean) => Promise<ActivationResult[]>) {
+    setBusy(true)
+    await activate(fn)
+    setBusy(false)
+    onDone()
+  }
+  return (
+    <div className="folder-bar">
+      <span className="faint" style={{ fontSize: 13 }}>{num(node.activeCount)} of {plural(node.fontCount, 'font')} on</span>
+      <button type="button" className="btn small" disabled={busy || node.activeCount === node.fontCount} onClick={() => run((c) => api.setFolderActive(node.path, true, c))}>Turn all on</button>
+      <button type="button" className="btn small" disabled={busy || node.activeCount === 0} onClick={() => run((c) => api.setFolderActive(node.path, false, c))}>Turn all off</button>
+      <label className="check">
+        <input type="checkbox" checked={node.autoActivate} disabled={busy} onChange={(e) => run((c) => api.setFolderAuto(node.path, e.target.checked, c))} />
+        Auto-activate new fonts in this folder
+      </label>
+      <button type="button" className="btn small" onClick={() => api.showInFolder(node.path).catch((e) => toast(errMsg(e)))}>Show in folder</button>
+    </div>
+  )
+}
+
 export function Library() {
   const { libVersion, activate, adminChange, dismissAdmin } = useApp()
   const [params, setParams] = useSearchParams()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<FamilyFilter>('all')
+  const [sort, setSort] = useState<FamilySort>('name')
   const [sample, setSample] = useState(DEFAULT_SAMPLE)
   const [size, setSize] = useState(32)
-  const [rows, setRows] = useState<Family[] | null>(null)
-  const [all, setAll] = useState<Family[]>([])
+  const [page, setPage] = useState(1)
+  const [data, setData] = useState<FamilyPage | null>(null)
+  const [counts, setCounts] = useState<LibraryCounts | null>(null)
   const [folders, setFolders] = useState<Folder[]>([])
+  const [node, setNode] = useState<FolderNode | null>(null)
   const [health, setHealth] = useState<Health | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [reload, setReload] = useState(0)
-  // Rows stagger in only on the first load; later filtering just fades rows in/out.
+  const top = useRef<HTMLDivElement>(null)
+  // Rows stagger in only on the first load; later pages and filters just appear.
   const firstLoad = useRef(true)
-  useEffect(() => void (rows && (firstLoad.current = false)), [rows])
+  useEffect(() => void (data && (firstLoad.current = false)), [data])
 
-  const folderId = params.get('folder'), collectionId = params.get('collection'), license = params.get('license') as License | null
+  const path = params.get('path'), collectionId = params.get('collection'), license = params.get('license') as License | null
   const system = params.get('system') === '1'
+  const scopeKey = [search.trim(), filter, sort, path, collectionId, license, system].join('|')
 
   useEffect(() => {
     api.getSettings().then((s) => s.sampleText && setSample(s.sampleText), () => {})
     api.health().then(setHealth, () => {})
   }, [])
   useEffect(() => {
-    api.listFamilies({}).then(setAll, () => {})
+    api.libraryCounts().then(setCounts, () => {})
     api.listFolders().then(setFolders, () => {})
   }, [libVersion, reload])
   useEffect(() => {
-    const args: ListFamiliesArgs = { search: search.trim() || undefined, filter: system ? 'system' : filter }
-    if (folderId) args.folderId = Number(folderId)
+    if (!path) return setNode(null)
+    api.folderTree().then((t) => setNode(findNode(t, path)), () => setNode(null))
+  }, [path, libVersion, reload])
+  // A new search or scope starts at page 1.
+  useEffect(() => setPage(1), [scopeKey])
+  useEffect(() => {
+    const args: ListFamiliesArgs = { search: search.trim() || undefined, filter: system ? 'system' : filter, sort }
+    if (path) args.path = path
     if (collectionId) args.collectionId = Number(collectionId)
     if (license) args.license = license
-    const t = setTimeout(() => api.listFamilies(args).then(setRows, () => setRows([])), search ? 150 : 0)
+    const t = setTimeout(() => api.familyPage(args, (page - 1) * PAGE, PAGE).then(setData, () => setData({ items: [], total: 0 })), search ? 150 : 0)
     return () => clearTimeout(t)
-  }, [search, filter, system, folderId, collectionId, license, libVersion, reload])
+  }, [scopeKey, page, libVersion, reload]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function toggle(f: Family) {
     const active = f.activeState !== 'all'
@@ -72,20 +154,26 @@ export function Library() {
     })
     setReload((n) => n + 1)
   }
+  function go(p: number) {
+    setPage(p)
+    top.current?.scrollIntoView({ block: 'start' })
+  }
 
-  const scope = system ? 'System fonts · always on' : folderId
-    ? `Folder: ${folders.find((d) => String(d.id) === folderId)?.path ?? ''}`
+  const scope = system ? 'System fonts · always on' : path ? `Folder: ${path}`
     : collectionId ? 'Collection' : license ? `License: ${LICENSE_LABEL[license]}` : null
-  const activeCount = all.filter((f) => f.activeState !== 'none').length
   const offline = folders.filter((f) => f.status === 'offline').length
   const adminFamilies = adminChange ? [...new Set(adminChange.fonts.map((f) => f.family))] : []
-  const big = (rows?.length ?? 0) > ANIMATE_MAX
+  const rows = data?.items ?? null
+  const first = firstLoad.current
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
-      <div className="toolbar">
+      <div className="toolbar" ref={top}>
         <label htmlFor="search" className="sr-only">Search fonts</label>
-        <input id="search" type="search" className="input" style={{ flex: '1 1 220px' }} placeholder={`Search ${num(all.length)} fonts`} value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input
+          id="search" type="search" className="input" style={{ flex: '1 1 220px' }} value={search} onChange={(e) => setSearch(e.target.value)}
+          placeholder={counts ? `Search ${num(counts.library)} fonts` : 'Search fonts'}
+        />
         <label htmlFor="sample" className="sr-only">Sample text</label>
         <input
           id="sample" type="text" className="input" style={{ flex: '2 1 260px' }} value={sample} onChange={(e) => setSample(e.target.value)}
@@ -96,6 +184,10 @@ export function Library() {
           <input type="range" min={16} max={72} value={size} onChange={(e) => setSize(Number(e.target.value))} style={{ width: 120 }} />
           <span style={{ width: 36 }}>{size}px</span>
         </label>
+        <label className="sr-only" htmlFor="sort">Sort</label>
+        <select id="sort" className="select" value={sort} onChange={(e) => setSort(e.target.value as FamilySort)} style={{ width: 'auto' }}>
+          {SORTS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+        </select>
       </div>
 
       <div className="chips" style={{ padding: '12px 24px' }}>
@@ -108,6 +200,7 @@ export function Library() {
           </Chip>
         )}
       </div>
+      {node && <FolderBar node={node} onDone={() => setReload((n) => n + 1)} />}
 
       <AnimatePresence initial={false}>
       {adminChange && (
@@ -125,47 +218,18 @@ export function Library() {
       )}
       </AnimatePresence>
 
-      <div className={big ? 'rows-big' : undefined} style={{ display: 'flex', flexDirection: 'column', padding: '0 24px 24px', position: 'relative' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', padding: '0 24px 24px', position: 'relative' }}>
         {rows === null && [0, 1, 2, 3, 4, 5].map((i) => <RowSkeleton key={i} size={size} />)}
         {rows?.length === 0 && <motion.p className="faint" style={{ padding: '24px 0' }} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>No fonts match.</motion.p>}
-        <AnimatePresence mode="popLayout" initial={false}>
-        {rows?.map((f, i) => {
-          const on = f.activeState !== 'none'
-          // ponytail: read during render on purpose; it only picks each row's mount delay and must not trigger re-renders.
-          const first = firstLoad.current
-          return (
-            <motion.div
-              key={f.key} className="font-row" layout={big ? false : 'position'}
-              initial={big || (first && i >= STAGGER_CAP) ? false : rise.initial} animate={rise.animate} exit={big ? undefined : rise.exit}
-              transition={{ duration: dur.slow, ease: easeOut, delay: first ? staggerDelay(i) : 0, layout: spring.glide }}
-            >
-              <Switch
-                on={on} mixed={f.activeState === 'some'} disabled={f.system} onClick={() => toggle(f)}
-                label={f.system ? `${f.family} is a system font, always on` : `${f.activeState === 'all' ? 'Deactivate' : 'Activate'} ${f.family}`}
-              />
-              <div style={{ width: 200, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <Link to={`/family/${encodeURIComponent(f.key)}`} className="plain-link" style={{ fontWeight: 500 }}>{f.family}</Link>
-                <span className="faint" style={{ fontSize: 12 }}>
-                  {plural(f.styles, 'style')} · {f.foundry}{f.isVariable && ' · variable'}
-                </span>
-                <span style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  <LicenseBadge license={f.license} />
-                  {f.system && <Badge tone="neutral">System</Badge>}
-                  {f.adminSet && <Badge tone="accent">Set by admin</Badge>}
-                  {f.hasDuplicates && <Link to="/organize" className="badge warn" style={{ textDecoration: 'none' }}>Duplicates</Link>}
-                </span>
-              </div>
-              <div className="sample" style={{ ...familyStyle(f), fontSize: size, color: on ? 'var(--ink)' : 'var(--disabled)' }}>{sample}</div>
-              {errors[f.key] && <p role="alert" className="row-error">{errors[f.key]}</p>}
-            </motion.div>
-          )
-        })}
-        </AnimatePresence>
+        {rows?.map((f, i) => (
+          <FamilyRow key={f.key} f={f} i={i} first={first} sample={sample} size={size} error={errors[f.key]} onToggle={toggle} />
+        ))}
+        {data && <div style={{ paddingTop: 16 }}><Pager page={page} size={PAGE} total={data.total} onPage={go} /></div>}
       </div>
 
       <div className="statusbar">
-        <span>{num(activeCount)} active</span>
-        <span>{plural(all.length, 'font')}</span>
+        {counts && <span>{num(counts.active)} active</span>}
+        {counts && <span>{plural(counts.library, 'font')}</span>}
         <span>
           {folders.length - offline} {folders.length - offline === 1 ? 'folder' : 'folders'} watching{offline ? ` · ${offline} offline` : ''}
         </span>

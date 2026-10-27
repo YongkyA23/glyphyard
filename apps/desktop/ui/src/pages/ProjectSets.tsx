@@ -17,12 +17,23 @@ export function ProjectSets() {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [draftError, setDraftError] = useState<string | null>(null)
   const [pick, setPick] = useState('')
+  const [hits, setHits] = useState<Family[]>([])
 
   const loadSets = () => api.listProjectSets().then(setSets, (e) => toast(errMsg(e)))
   useEffect(() => {
     loadSets()
-    api.listFamilies({ sort: 'name' }).then(setFamilies, () => {})
   }, [libVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Only the families the sets use are loaded.
+  const usedKeys = [...new Set(sets?.flatMap((s) => s.familyKeys) ?? [])].sort().join('\n')
+  useEffect(() => {
+    if (usedKeys) api.listFamilies({ keys: usedKeys.split('\n') }).then(setFamilies, () => {})
+  }, [usedKeys, libVersion])
+  // The editor's font list: search results, at most 40 at a time.
+  useEffect(() => {
+    if (!draft) return
+    const t = setTimeout(() => api.familyPage({ search: pick.trim() || undefined, sort: 'name' }, 0, 40).then((p) => setHits(p.items), () => {}), 150)
+    return () => clearTimeout(t)
+  }, [pick, draft === null]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const byKey = new Map(families.map((f) => [f.key, f]))
   const current = sets?.find((s) => s.id === sel) ?? sets?.[0]
@@ -164,9 +175,9 @@ export function ProjectSets() {
             <fieldset className="fieldset" style={{ padding: 12, gap: 8 }}>
               <legend>Fonts · {draft.familyKeys.length} chosen</legend>
               <label htmlFor="set-filter" className="sr-only">Filter fonts</label>
-              <input id="set-filter" type="search" className="input" placeholder="Filter fonts" value={pick} onChange={(e) => setPick(e.target.value)} />
+              <input id="set-filter" type="search" className="input" placeholder="Search fonts to add" value={pick} onChange={(e) => setPick(e.target.value)} />
               <div className="check-list">
-                {families.filter((f) => f.family.toLowerCase().includes(pick.trim().toLowerCase())).map((f) => (
+                {hits.map((f) => (
                   <label key={f.key} className="check-row">
                     <input
                       type="checkbox" checked={draft.familyKeys.includes(f.key)}

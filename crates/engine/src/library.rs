@@ -3,7 +3,7 @@
 use crate::activation::{parse_source_opt, set_keys, version_key};
 use crate::{
     not_found, store, ActiveState, Axis, Builtin, Collection, Engine, EngineError, Face, Family, FamilyDetail,
-    FamilyFilter, FamilyQuery, FileRow, FileStatus, License, LicenseInfo, ProjectSet, Result, SortBy, TagCount,
+    FamilyFilter, FamilyPage, FamilyQuery, FileRow, FileStatus, LibraryCounts, License, LicenseInfo, ProjectSet, Result, SortBy, TagCount,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -235,13 +235,15 @@ impl Engine {
         for (key, rows) in groups {
             if collection.as_ref().is_some_and(|c| !c.contains(key))
                 || tagged.as_ref().is_some_and(|t| !t.contains(key))
+                || q.keys.as_ref().is_some_and(|k| !k.iter().any(|k| k == key))
                 || q.folder_id.is_some_and(|id| !rows.iter().any(|r| r.folder_id == id))
+                || q.path.as_deref().is_some_and(|p| !rows.iter().any(|r| Path::new(&r.path).starts_with(p)))
             {
                 continue;
             }
             let fam = build_family(key, &rows, licenses.get(key).copied().unwrap_or(License::Unknown));
-            // System-only families stay out of the library lists unless asked for (or collected/tagged).
-            if fam.system && q.filter != FamilyFilter::System && collection.is_none() && tagged.is_none() {
+            // System-only families stay out of the library lists unless asked for (or collected/tagged/picked).
+            if fam.system && q.filter != FamilyFilter::System && collection.is_none() && tagged.is_none() && q.keys.is_none() {
                 continue;
             }
             let keep = match q.filter {
@@ -267,6 +269,39 @@ impl Engine {
             SortBy::Foundry => out.sort_by_key(|(f, _)| (f.foundry.to_lowercase(), name(f))),
         }
         Ok(out.into_iter().map(|(f, _)| f).collect())
+    }
+
+    /// One page of `list_families` (at most 200 families).
+    // ponytail: builds the whole filtered list and slices it; fine for tens of thousands of faces,
+    // push LIMIT/OFFSET into SQL if libraries get far bigger.
+    pub fn family_page(&self, q: &FamilyQuery, offset: usize, limit: usize) -> Result<FamilyPage> {
+        let all = self.list_families(q)?;
+        let total = all.len();
+        Ok(FamilyPage { items: all.into_iter().skip(offset).take(limit.min(200)).collect(), total })
+    }
+
+    pub fn library_counts(&self) -> Result<LibraryCounts> {
+        let library = self.list_families(&FamilyQuery::default())?;
+        let system = self.list_families(&FamilyQuery { filter: FamilyFilter::System, ..Default::default() })?.len();
+        let mut licenses = BTreeMap::new();
+        for f in &library {
+            *licenses.entry(f.license.as_str().to_string()).or_insert(0) += 1;
+        }
+        Ok(LibraryCounts {
+            library: library.len(),
+            active: library.iter().filter(|f| f.active_state != ActiveState::None).count(),
+            system,
+            licenses,
+        })
+    }
+
+    /// Faces by file hash (for previews of fonts found elsewhere, e.g. in a PDF).
+    pub fn faces(&self, hashes: &[String]) -> Result<Vec<Face>> {
+        let wanted: HashSet<&str> = hashes.iter().map(String::as_str).collect();
+        let db = self.db();
+        let rows = load_rows(&db, None)?;
+        let rows: Vec<&Row> = rows.iter().filter(|r| wanted.contains(r.hash.as_str())).collect();
+        Ok(unique_faces(&rows))
     }
 
     pub fn get_family(&self, key: &str) -> Result<FamilyDetail> {

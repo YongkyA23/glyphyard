@@ -242,6 +242,8 @@ function listFamilies(a: ListFamiliesArgs): Family[] {
       if (!p || !f.faces.some((x) => x.path.startsWith(p))) return false
     }
     if (a.license && f.license !== a.license) return false
+    if (a.path && !f.faces.some((x) => x.path.startsWith(a.path!))) return false
+    if (a.keys && !a.keys.includes(f.key)) return false
     if (a.tag && !f.tags.includes(a.tag)) return false
     return true
   })
@@ -273,7 +275,22 @@ const handlers: Record<string, (a: Args) => unknown> = {
     emit('name-changed', { name: app.name, nextNameChange: app.nextNameChange })
     return { name: app.name, nextNameChange: app.nextNameChange }
   },
-  list_families: (a) => listFamilies(a),
+  list_families: ({ query }) => listFamilies(query ?? {}),
+  family_page: ({ query, offset, limit }) => {
+    const all = listFamilies(query ?? {})
+    return { items: all.slice(offset, offset + limit), total: all.length }
+  },
+  library_counts: () => {
+    const all = listFamilies({})
+    const licenses: Record<string, number> = {}
+    for (const f of all) licenses[f.license] = (licenses[f.license] ?? 0) + 1
+    return { library: all.length, active: all.filter((f) => f.activeState !== 'none').length, system: 0, licenses }
+  },
+  get_faces: ({ hashes }) => families.flatMap((f) => f.faces).filter((x) => hashes.includes(x.hash)),
+  folder_tree: () => folders.map((d) => ({ path: d.path, name: d.path, fontCount: d.fontCount, activeCount: 0, autoActivate: false, children: [] })),
+  set_folder_active: ({ path, active, confirmUnknownLicense }) =>
+    activate(families.flatMap((f) => f.faces).filter((x) => x.path.startsWith(path)).map((x) => x.hash), active, confirmUnknownLicense),
+  set_folder_auto: () => [],
   get_family: ({ key }) => {
     const f = fam(key)
     if (!f) throw err('not_found', 'This font family is no longer in your library.')

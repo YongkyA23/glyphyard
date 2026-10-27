@@ -334,3 +334,23 @@ h1, h2 { margin: 0; }
   }
   .btn:hover, .btn:active, .select-card:hover, .select-card:active, .glyph:hover, .dropzone.over { transform: none !important; }
 }
+
+/* Folder scope in the library: turn a folder on/off, auto-activate. */
+.folder-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 24px 8px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.check input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+/* Folder tree in the sidebar */
+.tree-row { display: flex; align-items: center; }
+.tree-row .side-item { flex: 1; min-width: 0; }
+.tree-caret { flex: 0 0 auto; width: 20px; height: 24px; display: grid; place-items: center; border: 0; background: none; color: var(--faint); cursor: pointer; border-radius: 6px; }
+.tree-caret:hover { color: var(--ink); background: var(--neutral-soft); }
+.tree-caret svg { transition: transform var(--dur-fast, .15s) ease; }
+.tree-caret[aria-expanded="true"] svg { transform: rotate(90deg); }
+.tree-auto { font-size: 10px; letter-spacing: .02em; color: var(--accent-ink); background: var(--accent-soft, var(--neutral-soft)); border-radius: 4px; padding: 1px 4px; }
+
+/* Family picker dropdown */
+.picker { position: relative; }
+.picker-list { position: absolute; z-index: 20; top: 100%; left: 0; right: 0; margin: 4px 0 0; padding: 4px; list-style: none; max-height: 280px; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgb(0 0 0 / .15); font-size: 14px; color: var(--ink); }
+.picker-list li { padding: 7px 10px; border-radius: 6px; cursor: pointer; }
+.picker-list li[aria-selected="true"], .picker-list li:hover { background: var(--neutral-soft); }

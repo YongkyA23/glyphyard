@@ -5,6 +5,7 @@
 mod activation;
 mod admin;
 mod backup;
+mod folders;
 mod google;
 mod library;
 mod organize;

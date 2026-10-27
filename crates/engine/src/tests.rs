@@ -702,3 +702,45 @@ fn system_fonts_are_listed_read_only() {
     let lib = fx.family("Arial");
     assert!(!lib.system);
 }
+
+#[test]
+fn folder_tree_and_folder_activation() {
+    let fx = fixture!();
+    let Some(bold) = system_font("arialbd.ttf") else { return };
+    fx.put("a/arial.ttf", &system_font("arial.ttf").unwrap());
+    fx.put("a/b/arialbd.ttf", &bold);
+    fx.engine.add_folder(&fx.root).unwrap();
+    fx.license_all();
+
+    let tree = fx.engine.folder_tree().unwrap();
+    assert_eq!(tree.len(), 1);
+    assert_eq!(tree[0].font_count, 2);
+    let a = &tree[0].children[0];
+    assert_eq!((a.name.as_str(), a.font_count), ("a", 2));
+    let b = &a.children[0];
+    assert_eq!((b.name.as_str(), b.font_count, b.active_count), ("b", 1, 0));
+
+    // A subfolder on/off touches only its own fonts.
+    fx.engine.set_folder_active(&b.path, true, false).unwrap();
+    assert_eq!(fx.os.registered().len(), 1);
+    assert_eq!(fx.engine.folder_tree().unwrap()[0].children[0].active_count, 1);
+    fx.engine.set_folder_active(&a.path, false, false).unwrap();
+    assert!(fx.os.registered().is_empty());
+
+    // Paging and the path filter.
+    let q = FamilyQuery { path: Some(b.path.clone()), ..Default::default() };
+    let page = fx.engine.family_page(&q, 0, 10).unwrap();
+    assert_eq!(page.total, 1);
+    assert!(fx.engine.family_page(&FamilyQuery::default(), 5, 10).unwrap().items.is_empty());
+    assert_eq!(fx.engine.library_counts().unwrap().library, 1);
+
+    // Auto-activate turns on what is there and what arrives later (picked up by a rescan).
+    fx.engine.set_folder_auto(&b.path, true, false).unwrap();
+    assert_eq!(fx.os.registered().len(), 1);
+    let Some(italic) = system_font("ariali.ttf") else { return };
+    fx.put("a/b/ariali.ttf", &italic);
+    fx.put("a/ignored-italic.ttf", &system_font("arialbi.ttf").unwrap_or_default());
+    fx.engine.rescan().unwrap();
+    assert_eq!(fx.os.registered().len(), 2, "only the new file inside the auto folder is turned on");
+    assert!(fx.engine.folder_tree().unwrap()[0].children[0].children[0].auto_activate);
+}

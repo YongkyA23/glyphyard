@@ -71,7 +71,11 @@ export function Organize() {
   const changes = plan?.changes ?? []
   const count = (k: OrganizeCase) => changes.filter((c) => c.case === k).length
   const caseKeys = (Object.keys(CASES) as OrganizeCase[]).filter((k) => k !== 'tidy' || tidy)
-  const rows = changes.filter((c) => filter === 'all' || c.case === filter)
+  const matching = changes.filter((c) => filter === 'all' || c.case === filter)
+  // Big plans render 100 rows at a time.
+  const [shown, setShown] = useState(100)
+  useEffect(() => setShown(100), [filter, plan])
+  const rows = matching.slice(0, shown)
   const selected = changes.filter((c) => !excluded.has(c.id)).length
 
   async function apply() {
@@ -155,6 +159,11 @@ export function Organize() {
           </tbody>
         </table>
       </div>
+      {matching.length > shown && (
+        <button type="button" className="btn" style={{ alignSelf: 'center' }} onClick={() => setShown((n) => n + 100)}>
+          Show {Math.min(100, matching.length - shown)} more of {matching.length - shown}
+        </button>
+      )}
 
       <label className="card" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14, borderRadius: 10 }}>
         <input type="checkbox" checked={tidy} onChange={() => setTidy(!tidy)} style={{ marginTop: 2, width: 16, height: 16 }} />
