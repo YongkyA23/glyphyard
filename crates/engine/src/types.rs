@@ -328,6 +328,8 @@ pub struct Collection {
     pub name: String,
     pub parent_id: Option<i64>,
     pub count: u32,
+    /// Families in the collection with at least one font on (all / some / none indicator).
+    pub active: u32,
     pub builtin: Option<Builtin>,
 }
 

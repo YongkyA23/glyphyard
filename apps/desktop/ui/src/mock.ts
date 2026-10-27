@@ -134,7 +134,7 @@ let folders: Folder[] = [
   { id: 2, path: 'D:\\Fonts\\Client work', status: 'watching', fontCount: 340, offlineSince: null },
   { id: 3, path: 'E:\\Archive', status: 'offline', fontCount: 132, offlineSince: new Date(Date.now() - 3 * day).toISOString() },
 ]
-let collections: Collection[] = [
+let collections: Omit<Collection, 'active'>[] = [
   { id: 1, name: 'Favorites', parentId: null, count: 0, builtin: 'favorites' },
   { id: 2, name: 'Recently used', parentId: null, count: 0, builtin: 'recent' },
   { id: 3, name: 'Headlines', parentId: null, count: 0, builtin: null },
@@ -144,7 +144,11 @@ const collItems: Record<number, Set<string>> = {
   2: new Set(['fraunces', 'dm-serif-display', 'space-grotesk']),
   3: new Set(['fraunces', 'dm-serif-display', 'bebas-neue', 'archivo-black', 'instrument-serif']),
 }
-const collList = () => collections.map((c) => ({ ...c, count: collItems[c.id]?.size ?? 0 }))
+const collList = (): Collection[] => collections.map((c) => ({
+  ...c,
+  count: collItems[c.id]?.size ?? 0,
+  active: [...(collItems[c.id] ?? [])].filter((k) => (fam(k)?.activeState ?? 'none') !== 'none').length,
+}))
 
 let sets: ProjectSet[] = [
   { id: 1, name: 'Northwind rebrand', note: 'Client', familyKeys: ['dm-serif-display', 'space-grotesk', 'ibm-plex-mono', 'archivo-black', 'syne'], on: true, lastUsed: iso(-2 * 3600_000) },

@@ -1219,3 +1219,24 @@ fn a_stalled_os_call_does_not_lock_the_library() {
     off.join().unwrap().unwrap();
     assert_eq!(engine.library_counts().unwrap().active, 0);
 }
+
+#[test]
+fn collections_report_how_many_families_are_on() {
+    let fx = fixture!();
+    fx.put("arial.ttf", &system_font("arial.ttf").unwrap());
+    let Some(times) = system_font("times.ttf") else { return };
+    fx.put("times.ttf", &times);
+    fx.engine.add_folder(&fx.root).unwrap();
+    let id = fx.engine.create_collection("Pair", None).unwrap().into_iter().find(|c| c.name == "Pair").unwrap().id;
+    let keys = vec![fx.family("Arial").key, fx.family("Times New Roman").key];
+    fx.engine.add_to_collection(id, &keys).unwrap();
+    let state = |fx: &Fixture| {
+        let c = fx.engine.list_collections().unwrap().into_iter().find(|c| c.id == id).unwrap();
+        (c.active, c.count)
+    };
+    assert_eq!(state(&fx), (0, 2), "none on");
+    fx.engine.set_active(&fx.hashes("Arial"), true).unwrap();
+    assert_eq!(state(&fx), (1, 2), "some on");
+    fx.engine.set_active(&fx.hashes("Times New Roman"), true).unwrap();
+    assert_eq!(state(&fx), (2, 2), "all on");
+}

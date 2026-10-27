@@ -41,7 +41,7 @@ export type FontDetails = {
 /** A Unicode block and the codepoints the face maps in it. */
 export type GlyphBlock = { name: string; start: number; end: number; chars: number[] }
 export type Folder = { id: number; path: string; status: 'watching' | 'offline' | 'scanning'; fontCount: number; offlineSince: string | null }
-export type Collection = { id: number; name: string; parentId: number | null; count: number; builtin: 'favorites' | 'recent' | null }
+export type Collection = { id: number; name: string; parentId: number | null; count: number; /** Families with a font on. */ active: number; builtin: 'favorites' | 'recent' | null }
 export type ProjectSet = { id: number; name: string; note: string; familyKeys: string[]; on: boolean; lastUsed: string | null }
 export type OrganizeCase = 'exact_copy' | 'different_version' | 'other_format' | 'name_clash' | 'variable_static' | 'in_system' | 'junk' | 'tidy'
 export type OrganizeChange = { id: number; case: OrganizeCase; action: { op: string; [k: string]: unknown }; note: string }

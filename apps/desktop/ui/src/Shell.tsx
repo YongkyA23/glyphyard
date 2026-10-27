@@ -24,6 +24,18 @@ const countHidden = (nodes: FolderNode[]): number => nodes.reduce((n, x) => n + 
 
 type NodeMenu = (e: ReactMouseEvent<Element>, node: FolderNode, folder?: Folder) => void
 
+/** Like FontBase: a filled dot when everything inside is on, a ring in the "on" colour when some of it is,
+ *  an empty ring when none is. `extra` adds a folder state (offline / scanning). */
+function OnDot({ on, total, extra }: { on: number; total: number; extra?: string }) {
+  const state = on <= 0 || total <= 0 ? 'none' : on >= total ? 'all' : 'some'
+  const label = state === 'all' ? 'All on' : state === 'some' ? `${on} of ${total} on` : 'None on'
+  return (
+    <span className={`on-dot ${state}${extra ? ` ${extra}` : ''}`} title={label}>
+      <span className="sr-only">{label}</span>
+    </span>
+  )
+}
+
 /** A folder and its subfolders; opens by itself when the current folder is inside it. Hidden ones show only with `showHidden`. */
 function TreeNode({ node, depth, folder, showHidden, onMenu }: { node: FolderNode; depth: number; folder?: Folder; showHidden: boolean; onMenu: NodeMenu }) {
   const [params] = useSearchParams()
@@ -46,7 +58,7 @@ function TreeNode({ node, depth, folder, showHidden, onMenu }: { node: FolderNod
           onContextMenu={(e) => onMenu(e, node, folder)}
         >
           {here && <Hi id="side-item-hi" />}
-          {folder && <span aria-hidden="true" className={`dot ${status}`} style={{ background: status === 'offline' ? 'var(--amber)' : status === 'scanning' ? 'var(--accent)' : 'var(--ok-dot)' }} />}
+          <OnDot on={node.activeCount} total={node.fontCount} extra={status === 'offline' || status === 'scanning' ? status : undefined} />
           <span className="ellipsis" style={{ flex: 1 }}>{node.name}</span>
           {node.hidden && <span className="tree-flag" title="Its fonts are left out of the library">HIDDEN</span>}
           {node.autoActivate && <span className="tree-auto" title="New fonts here are turned on automatically">AUTO</span>}
@@ -299,7 +311,7 @@ function Sidebar() {
         {!!systemCount && (
           <Link to="/?system=1" className="side-item" aria-current={sel('system', 1) ? 'true' : undefined} title="Fonts installed in the operating system (always on)">
             {sel('system', 1) && <Hi id="side-item-hi" />}
-            <span aria-hidden="true" className="dot" style={{ background: 'var(--faint)' }} />
+            <OnDot on={1} total={1} />
             <span className="ellipsis" style={{ flex: 1 }}>System fonts</span>
             <span className="side-count"><Num value={systemCount} /></span>
           </Link>
@@ -337,6 +349,7 @@ function Sidebar() {
           >
             {sel('collection', col.id) && <Hi id="side-item-hi" />}
             {depth > 0 && <span aria-hidden="true" className="coll-branch" />}
+            <OnDot on={col.active} total={col.count} />
             <span className="ellipsis" style={{ flex: 1 }}>{col.name}</span>
             <span className="side-count"><Num value={col.count} /></span>
           </Link>

@@ -599,7 +599,9 @@ impl Engine {
     pub fn list_collections(&self) -> Result<Vec<Collection>> {
         let db = self.db();
         let mut stmt = db.prepare(
-            "SELECT c.id, c.name, c.parent_id, c.builtin, (SELECT COUNT(*) FROM collection_items WHERE collection_id = c.id)
+            "SELECT c.id, c.name, c.parent_id, c.builtin, (SELECT COUNT(*) FROM collection_items WHERE collection_id = c.id),
+                    (SELECT COUNT(*) FROM collection_items ci WHERE ci.collection_id = c.id
+                       AND EXISTS (SELECT 1 FROM faces f JOIN activations a ON a.hash = f.hash WHERE f.family_key = ci.family_key))
              FROM collections c ORDER BY c.builtin IS NULL, c.name COLLATE NOCASE",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -609,6 +611,7 @@ impl Engine {
                 name: r.get(1)?,
                 parent_id: r.get(2)?,
                 count: r.get(4)?,
+                active: r.get(5)?,
                 builtin: builtin.map(|b| if b == "recent" { Builtin::Recent } else { Builtin::Favorites }),
             })
         })?;
