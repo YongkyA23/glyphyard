@@ -258,8 +258,14 @@ pub async fn pdf_fonts(ctx: St<'_>, path: String) -> R<Vec<PdfFont>> {
 // ---- Google Fonts, backup ----
 
 #[tauri::command]
-pub async fn google_catalog(ctx: St<'_>, search: Option<String>, category: Option<String>) -> R<Vec<GoogleFamily>> {
-    ctx.run(move |e| e.google_catalog(search.as_deref(), category.as_deref())).await
+pub async fn google_catalog(
+    ctx: St<'_>,
+    search: Option<String>,
+    category: Option<String>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> R<GooglePage> {
+    ctx.run(move |e| e.google_catalog(search.as_deref(), category.as_deref(), offset.unwrap_or(0), limit.unwrap_or(30))).await
 }
 
 #[tauri::command]

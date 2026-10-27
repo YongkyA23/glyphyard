@@ -2,11 +2,12 @@
 //! Network code is the three small functions at the top; everything else is testable offline.
 
 use crate::library::set_license_row;
-use crate::{EngineError, Engine, GoogleFamily, GoogleInstall, License, Result};
+use crate::{EngineError, Engine, GoogleFamily, GoogleInstall, GooglePage, License, Result};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 use typeshelf_core::organize::sanitize;
 use typeshelf_protocol::Source;
 
@@ -78,7 +79,14 @@ pub(crate) struct Meta {
     fonts: Map<String, Value>,
     #[serde(default)]
     axes: Vec<Value>,
+    /// Google's popularity rank (1 = most popular); 0 when missing.
+    #[serde(default)]
+    popularity: u32,
 }
+
+/// How long the downloaded catalog is reused before asking Google again.
+const CATALOG_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+pub const GOOGLE_PAGE_MAX: usize = 100;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -102,20 +110,30 @@ impl Engine {
         self.data_dir.join("google-fonts.json")
     }
 
-    /// Memory, then network (cached to disk), then the disk copy when offline.
-    fn catalog(&self) -> Result<Vec<Meta>> {
+    /// Memory, then the disk copy if it is younger than a day, then the network (cached to disk),
+    /// then any disk copy when offline. Sorted by popularity once, here.
+    fn catalog(&self) -> Result<Arc<Vec<Meta>>> {
         let mut cached = self.google_catalog.lock().unwrap();
         if let Some(c) = cached.as_ref() {
             return Ok(c.clone());
         }
-        let text = match fetch_catalog() {
-            Ok(t) => {
-                let _ = std::fs::write(self.catalog_cache(), &t);
-                t
-            }
-            Err(e) => std::fs::read_to_string(self.catalog_cache()).map_err(|_| e)?,
+        let path = self.catalog_cache();
+        let fresh = std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .is_ok_and(|t| t.elapsed().is_ok_and(|age| age < CATALOG_TTL));
+        let text = match fresh.then(|| std::fs::read_to_string(&path).ok()).flatten() {
+            Some(t) => t,
+            None => match fetch_catalog() {
+                Ok(t) => {
+                    let _ = std::fs::write(&path, &t);
+                    t
+                }
+                Err(e) => std::fs::read_to_string(&path).map_err(|_| e)?,
+            },
         };
-        let list = parse_catalog(&text)?;
+        let mut list = parse_catalog(&text)?;
+        list.sort_by_key(|m| (m.popularity == 0, m.popularity));
+        let list = Arc::new(list);
         *cached = Some(list.clone());
         Ok(list)
     }
@@ -123,27 +141,34 @@ impl Engine {
     /// Google family names (lowercase, no spaces) known without touching the network.
     pub(crate) fn google_names(&self) -> HashSet<String> {
         let list = self.google_catalog.lock().unwrap().clone().or_else(|| {
-            std::fs::read_to_string(self.catalog_cache()).ok().and_then(|t| parse_catalog(&t).ok())
+            std::fs::read_to_string(self.catalog_cache()).ok().and_then(|t| parse_catalog(&t).ok()).map(Arc::new)
         });
-        list.unwrap_or_default().iter().map(|m| m.family.to_lowercase().replace(' ', "")).collect()
+        list.map(|l| l.iter().map(|m| m.family.to_lowercase().replace(' ', "")).collect()).unwrap_or_default()
     }
 
-    pub fn google_catalog(&self, search: Option<&str>, category: Option<&str>) -> Result<Vec<GoogleFamily>> {
+    /// One page of the catalog (most popular first), filtered by search text and category.
+    pub fn google_catalog(&self, search: Option<&str>, category: Option<&str>, offset: usize, limit: usize) -> Result<GooglePage> {
         let needle = search.map(|s| s.trim().to_lowercase()).unwrap_or_default();
         let base = self.google_dir();
-        Ok(self
-            .catalog()?
-            .into_iter()
+        let catalog = self.catalog()?;
+        let matches: Vec<&Meta> = catalog
+            .iter()
             .filter(|m| m.family.to_lowercase().contains(&needle))
             .filter(|m| category.is_none_or(|c| m.category.eq_ignore_ascii_case(c)))
+            .collect();
+        let items = matches
+            .iter()
+            .skip(offset)
+            .take(limit.clamp(1, GOOGLE_PAGE_MAX))
             .map(|m| GoogleFamily {
                 installed: base.join(sanitize(&m.family)).is_dir(),
                 styles: m.fonts.len() as u32,
                 variable: !m.axes.is_empty(),
-                category: m.category,
-                family: m.family,
+                category: m.category.clone(),
+                family: m.family.clone(),
             })
-            .collect())
+            .collect();
+        Ok(GooglePage { items, total: matches.len() })
     }
 
     /// Downloads the family into the managed "Google Fonts" folder and labels it Licensed (OFL).

@@ -636,3 +636,31 @@ fn watcher_picks_up_new_files() {
     engine.stop_watching();
 }
 
+
+#[test]
+fn google_catalog_pages_popular_first_from_fresh_cache() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tmp.path().join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    // A fresh cache file must be used as-is: no network in tests.
+    std::fs::write(
+        data.join("google-fonts.json"),
+        r#"{"familyMetadataList":[
+          {"family":"Lora","category":"Serif","popularity":3},
+          {"family":"Roboto","category":"Sans Serif","popularity":1},
+          {"family":"Unranked","category":"Serif"},
+          {"family":"Inter","category":"Sans Serif","popularity":2}]}"#,
+    )
+    .unwrap();
+    let engine = Engine::open(&data, FakeOs::default()).unwrap();
+    let names = |p: &GooglePage| p.items.iter().map(|f| f.family.clone()).collect::<Vec<_>>();
+
+    let first = engine.google_catalog(None, None, 0, 2).unwrap();
+    assert_eq!((names(&first), first.total), (vec!["Roboto".to_string(), "Inter".to_string()], 4));
+    let second = engine.google_catalog(None, None, 2, 2).unwrap();
+    assert_eq!(names(&second), ["Lora", "Unranked"]);
+    assert!(engine.google_catalog(None, None, 4, 2).unwrap().items.is_empty());
+
+    let serif = engine.google_catalog(Some("l"), Some("Serif"), 0, 30).unwrap();
+    assert_eq!((names(&serif), serif.total), (vec!["Lora".to_string()], 1));
+}

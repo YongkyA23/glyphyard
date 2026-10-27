@@ -39,7 +39,7 @@ pub struct Engine {
     last_plan: Mutex<Option<(bool, Vec<OrganizeChange>)>>,
     connection_state: Mutex<(ConnectionStatus, Option<String>)>,
     watcher: Mutex<Option<watch::Watcher>>,
-    google_catalog: Mutex<Option<Vec<google::Meta>>>,
+    google_catalog: Mutex<Option<std::sync::Arc<Vec<google::Meta>>>>,
 }
 
 impl Engine {

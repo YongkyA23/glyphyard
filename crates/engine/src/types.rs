@@ -347,6 +347,13 @@ pub struct GoogleFamily {
     pub installed: bool,
 }
 
+/// One page of the Google catalog; `total` counts every match so the UI knows when to stop.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct GooglePage {
+    pub items: Vec<GoogleFamily>,
+    pub total: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct GoogleInstall {
     pub family: String,

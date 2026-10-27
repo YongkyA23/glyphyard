@@ -16,8 +16,8 @@ function addRule(id: string, css: string) {
 }
 
 /** Loads a Google Fonts CSS2 family spec (e.g. "Lora:wght@500"); `text` limits the download to those characters. */
-export function loadGoogle(spec: string, text?: string) {
-  const href = `https://fonts.googleapis.com/css2?family=${spec}&display=block${text ? `&text=${encodeURIComponent(text)}` : ''}`
+export function loadGoogle(spec: string, text?: string, display: 'block' | 'swap' = 'block') {
+  const href = `https://fonts.googleapis.com/css2?family=${spec}&display=${display}${text ? `&text=${encodeURIComponent(text)}` : ''}`
   if (done.has(href)) return
   done.add(href)
   const link = document.createElement('link')

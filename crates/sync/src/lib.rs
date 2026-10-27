@@ -120,6 +120,10 @@ pub struct SyncClient {
 impl SyncClient {
     /// To apply a changed server URL / key: cancel the old `run`, drop the client, make a new one.
     pub fn new(config: Config) -> Self {
+        // tokio-tungstenite builds its TLS config from rustls' process default. In a host that links
+        // both rustls backends (ring + aws-lc-rs, e.g. the desktop app) there is no default, and the
+        // WebSocket connect panics — the app then stays "Offline" forever. Pick one; ignore "already set".
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         let http = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
             .read_timeout(Duration::from_secs(30))

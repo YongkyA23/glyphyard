@@ -52,6 +52,7 @@ export type PdfFont = {
   detail: string; hash: string | null; google: boolean
 }
 export type GoogleFont = { family: string; category: string; styles: number; variable: boolean; installed: boolean }
+export type GooglePage = { items: GoogleFont[]; total: number }
 export type Settings = {
   startAtLogin: boolean; startHidden: boolean; autoUpdate: boolean; deactivateOnQuit: boolean
   quickShortcut: string; theme: 'system' | 'light' | 'dark'; sampleText: string
@@ -128,7 +129,8 @@ export const api = {
   repairNow: () => call<Health>('repair_now'),
   pdfFonts: (path: string) => call<PdfFont[]>('pdf_fonts', { path }),
 
-  googleCatalog: (search?: string, category?: string) => call<GoogleFont[]>('google_catalog', { search, category }),
+  googleCatalog: (search: string | undefined, category: string | undefined, offset: number, limit: number) =>
+    call<GooglePage>('google_catalog', { search, category, offset, limit }),
   googleInstall: (family: string) => call<{ family: string; installed: boolean }>('google_install', { family }),
   googleRemove: (family: string) => call<{ family: string; installed: boolean }>('google_remove', { family }),
 

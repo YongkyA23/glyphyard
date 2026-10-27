@@ -1,5 +1,5 @@
 // Main window layout: DeskSidebar + routed page.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useOutlet, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import { api, on, type Collection, type Family, type Folder, type License, type ProjectSet } from './api'
@@ -117,12 +117,18 @@ function Sidebar() {
 export function Shell() {
   const outlet = useOutlet()
   const { pathname } = useLocation()
+  const main = useRef<HTMLElement>(null)
+  // The content column is the scroller now, so each page starts at its top.
+  // (Block body: newer Chromium's scrollTo returns a Promise, which React would take as a cleanup.)
+  useEffect(() => {
+    main.current?.scrollTo(0, 0)
+  }, [pathname])
   return (
     <div className="shell">
       <div className="shell-side">
         <Sidebar />
       </div>
-      <main className="shell-main">
+      <main className="shell-main" ref={main}>
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div key={pathname} className="route" {...route}>{outlet}</motion.div>
         </AnimatePresence>

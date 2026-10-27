@@ -362,9 +362,10 @@ const handlers: Record<string, (a: Args) => unknown> = {
       { psName: 'BrandonGrotesque-Bold', display: 'Brandon Grotesque Bold', pages: 4, status: 'missing', detail: 'Only a subset is embedded in the PDF', hash: null, google: false },
     ] satisfies PdfFont[]
   },
-  google_catalog: ({ search, category }) => {
+  google_catalog: ({ search, category, offset = 0, limit = 30 }) => {
     const q = search?.trim().toLowerCase()
-    return google.filter((g) => (!q || g.family.toLowerCase().includes(q)) && (!category || g.category === category))
+    const all = google.filter((g) => (!q || g.family.toLowerCase().includes(q)) && (!category || g.category === category))
+    return { items: all.slice(offset, offset + limit), total: all.length }
   },
   google_install: ({ family }) => {
     const g = google.find((x) => x.family === family)!
