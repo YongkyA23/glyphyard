@@ -156,8 +156,9 @@ const DEFAULT_CONN = { serverUrl: 'https://fonts.northwind-studio.com', installK
 let connection: Connection = {
   status: 'connected', ...DEFAULT_CONN, editable: true, lastSync: iso(-60_000), installId: '7F3A-2C9E-91C2', error: null,
 }
-// The onboarding name survives reloads within the tab so `bun run dev` doesn't ask every time.
-const savedName = sessionStorage.getItem('typeshelf-mock-name') ?? ''
+// The onboarding name survives reloads within the tab so `bun run dev` doesn't ask every time;
+// `?mockName=Ayu` skips onboarding (used for README screenshots with a headless browser).
+const savedName = new URLSearchParams(location.search).get('mockName') ?? sessionStorage.getItem('typeshelf-mock-name') ?? ''
 let app: AppState = {
   onboarded: !!savedName, name: savedName, nextNameChange: null, nameChangeDays: 30, connection, platform: 'windows', appVersion: '1.0.0',
 }
