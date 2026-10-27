@@ -12,13 +12,12 @@ needs no new forwarding rules; it only needs a static DHCP lease so qrvm keeps 1
 ~/typeshelf/bin/typeshelf-server    Linux binary (cross-compiled on Windows, see below)
 ~/typeshelf/static/                 admin UI (apps/admin-ui build)
 ~/typeshelf/data/                   SQLite DB + shared library files (back this up)
-~/typeshelf/deploy/typeshelf.service   serve --host 192.168.8.102 --port 8095
+~/.config/systemd/user/typeshelf.service   serve --host 192.168.8.102 --port 8095 (user service, no sudo)
 ```
-One-time (sudo):
+It runs as a systemd **user** service of `qr`; `loginctl enable-linger qr` makes it start at boot without a login.
 ```
-sudo cp ~/typeshelf/deploy/typeshelf.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now typeshelf
-~/typeshelf/bin/typeshelf-server create-admin you@example.com --data ~/typeshelf/data
+systemctl --user status typeshelf        # restart / stop / journalctl --user -u typeshelf
+~/typeshelf/bin/typeshelf-server create-admin you@example.com --data ~/typeshelf/data   # prompts for a password
 ```
 
 ## vpnwg
@@ -46,7 +45,7 @@ cargo zigbuild -p typeshelf-server --release --target x86_64-unknown-linux-gnu.2
 cd apps/admin-ui; bun run build   # → apps/server/static
 ```
 Upload the binary to `~/typeshelf/bin/` and `apps/server/static/*` to `~/typeshelf/static/`, then
-`sudo systemctl restart typeshelf`.
+`systemctl --user restart typeshelf`.
 
 ## Installer for this server
 ```
