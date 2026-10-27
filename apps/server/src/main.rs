@@ -20,6 +20,9 @@ enum Cmd {
         /// Address to listen on; use 127.0.0.1 behind a reverse proxy or tunnel.
         #[arg(long, default_value = "0.0.0.0")]
         host: std::net::IpAddr,
+        /// Public address desktop apps use (shown in admin Settings), e.g. https://fonts.example.com.
+        #[arg(long)]
+        public_url: Option<String>,
         #[arg(long, default_value = "./data")]
         data: PathBuf,
         /// Built admin UI (contains index.html).
@@ -54,8 +57,13 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     match Cli::parse().command {
-        Cmd::Serve { port, host, data, static_dir } => {
+        Cmd::Serve { port, host, public_url, data, static_dir } => {
             let conn = open_db(&data)?;
+            if let Some(url) = public_url {
+                let mut s = db::settings(&conn)?;
+                s.server_url = url.trim().trim_end_matches('/').to_string();
+                db::save_settings(&conn, &s)?;
+            }
             let state = AppState::new(conn, data.clone());
             let addr = SocketAddr::new(host, port);
             let listener = tokio::net::TcpListener::bind(addr).await.with_context(|| format!("binding {addr}"))?;

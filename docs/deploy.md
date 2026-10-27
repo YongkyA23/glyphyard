@@ -1,4 +1,4 @@
-﻿# Deploying the server (qrvm → https://fonts.collabproject.web.id)
+# Deploying the server (qrvm → https://fonts.collabproject.web.id)
 
 ```
 Internet ─HTTPS─▶ Cloudflare (proxied A record) ─▶ vpnwg 103.150.196.24 nginx + Let's Encrypt
@@ -12,7 +12,7 @@ plus a static DHCP lease so qrvm keeps 192.168.8.102.
 ~/typeshelf/bin/typeshelf-server    Linux binary (cross-compiled on Windows, see below)
 ~/typeshelf/static/                 admin UI (apps/admin-ui build)
 ~/typeshelf/data/                   SQLite DB + shared library files (back this up)
-~/.config/systemd/user/typeshelf.service   serve --host 192.168.8.102 --port 8095 (user service, no sudo)
+~/.config/systemd/user/typeshelf.service   serve --host 192.168.8.102 --port 8095 --public-url https://fonts.collabproject.web.id (user service, no sudo)
 ```
 It runs as a systemd **user** service of `qr`; `loginctl enable-linger qr` makes it start at boot without a login.
 ```

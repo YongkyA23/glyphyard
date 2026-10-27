@@ -110,21 +110,31 @@ async fn ensure_registered(app: &AppHandle, engine: &Arc<Engine>, client: &SyncC
             return true;
         }
         if name.is_empty() {
-            return false;
-        }
-        match register(engine, client, &name).await {
-            Ok(()) => return true,
-            Err(e) => {
-                tracing::warn!("registering again: {e}");
-                let status = if e.code == "offline" { ConnectionStatus::Offline } else { ConnectionStatus::Error };
-                engine.set_connection_status(status, (status == ConnectionStatus::Error).then(|| e.message.clone()));
-                emit_connection(app).await;
+            // Not onboarded yet (onboarding restarts sync): report whether the server is reachable,
+            // so the onboarding screen shows the real status instead of "Not connected".
+            let (status, error) = match client.health().await {
+                Ok(()) => (ConnectionStatus::Connected, None),
+                Err(SyncError::Offline) => (ConnectionStatus::Offline, None),
+                Err(e) => (ConnectionStatus::Error, Some(e.to_string())),
+            };
+            engine.set_connection_status(status, error);
+            emit_connection(app).await;
+        } else {
+            match register(engine, client, &name).await {
+                Ok(()) => return true,
+                Err(e) => {
+                    tracing::warn!("registering again: {e}");
+                    let status = if e.code == "offline" { ConnectionStatus::Offline } else { ConnectionStatus::Error };
+                    engine.set_connection_status(status, (status == ConnectionStatus::Error).then(|| e.message.clone()));
+                    emit_connection(app).await;
+                }
             }
         }
-        // ponytail: fixed 30 s retry; the WebSocket loop has the real backoff once registered.
+        // ponytail: fixed retry; the WebSocket loop has the real backoff once registered.
+        let wait = if name.is_empty() { 15 } else { 30 };
         tokio::select! {
             _ = cancel.cancelled() => return false,
-            _ = tokio::time::sleep(Duration::from_secs(30)) => {}
+            _ = tokio::time::sleep(Duration::from_secs(wait)) => {}
         }
     }
 }
