@@ -39,6 +39,16 @@ bunx @tauri-apps/cli dev
 ```
 Both UIs also run in a plain browser with sample data: desktop `bun run dev` in `apps/desktop/ui`, admin with `?mock=1`.
 
+## Windows installer
+```
+cargo run -p typeshelf-server -- install-key --data ./data   # the key users' apps will carry
+./scripts/build-windows.ps1 -ServerUrl https://fonts.example.com -InstallKey <key>
+```
+Produces `dist/Typeshelf_<version>_x64-setup.exe` (NSIS, per-user install, no admin prompt) with the server URL
+and install key compiled in and the Adobe plug-in packages bundled. Uninstalling first removes every font
+registration Typeshelf made. The installer is unsigned, so Windows SmartScreen shows "More info → Run anyway".
+Regenerating the install key on the server means rebuilding the installer.
+
 ## Test
 ```
 cargo test --workspace
@@ -46,6 +56,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 ## Not done yet
-- Installers: Windows NSIS build, macOS universal `.dmg` (must be built on a Mac; unsigned without an Apple Developer account).
+- macOS universal `.dmg` (must be built on a Mac; unsigned without an Apple Developer account).
+- Code signing for the Windows installer.
 - Auto-updater.
 - Plug-ins and macOS code are compile-checked only; they need a run inside the real Adobe apps and on a Mac.

@@ -5781,6 +5781,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "typeshelf-activation",
  "typeshelf-adobe-bridge",
  "typeshelf-core",
  "typeshelf-engine",

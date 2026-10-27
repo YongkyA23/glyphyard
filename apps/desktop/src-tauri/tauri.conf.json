@@ -6,8 +6,8 @@
   "build": {
     "devUrl": "http://localhost:1420",
     "frontendDist": "../ui/dist",
-    "beforeDevCommand": "bun run --cwd ../ui dev",
-    "beforeBuildCommand": "bun run --cwd ../ui build"
+    "beforeDevCommand": "bun run --cwd ui dev",
+    "beforeBuildCommand": "bun run --cwd ui build && bun ../../plugins/build.ts"
   },
   "app": {
     "windows": [
@@ -57,6 +57,18 @@
     ],
     "resources": {
       "../../../plugins/dist": "plugins"
+    },
+    "publisher": "Typeshelf",
+    "shortDescription": "Font manager",
+    "category": "GraphicsAndDesign",
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "installerHooks": "windows/hooks.nsh"
+      }
     }
   }
 }

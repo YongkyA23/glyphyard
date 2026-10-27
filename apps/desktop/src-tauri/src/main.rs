@@ -255,6 +255,11 @@ fn shutdown(app: &AppHandle) {
 }
 
 fn main() {
+    // Run by the uninstaller: remove every font registration Typeshelf made, so nothing stale is left behind.
+    if std::env::args().any(|a| a == "--unregister-fonts") {
+        typeshelf_activation::reconcile(&[]);
+        return;
+    }
     tauri::Builder::default()
         // Must be the first plugin.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| show_main(app)))

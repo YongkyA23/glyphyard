@@ -1,4 +1,6 @@
 /target
+/dist
+/data
 node_modules/
 dist/
 *.db

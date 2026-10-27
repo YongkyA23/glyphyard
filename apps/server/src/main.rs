@@ -29,6 +29,11 @@ enum Cmd {
         #[arg(long, default_value = "./data")]
         data: PathBuf,
     },
+    /// Print the install key to bake into desktop installers.
+    InstallKey {
+        #[arg(long, default_value = "./data")]
+        data: PathBuf,
+    },
 }
 
 fn open_db(data: &Path) -> anyhow::Result<rusqlite::Connection> {
@@ -54,6 +59,7 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("listening on http://{addr} (data in {})", data.display());
             axum::serve(listener, app(state, &static_dir)).await?;
         }
+        Cmd::InstallKey { data } => println!("{}", db::settings(&open_db(&data)?)?.install_key),
         Cmd::CreateAdmin { email, data } => {
             if !email.contains('@') {
                 bail!("`{email}` is not an email address");
