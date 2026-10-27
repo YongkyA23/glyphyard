@@ -180,7 +180,7 @@ cd apps/admin-ui && bunx tsc --noEmit -p tsconfig.app.json
 
 ## Acknowledgements
 
-Inspired by [FontBase](https://fontba.se). Built with [Tauri](https://tauri.app), [Axum](https://github.com/tokio-rs/axum), [SQLite](https://sqlite.org), [skrifa](https://github.com/googlefonts/fontations) and [React](https://react.dev).
+Built with [Tauri](https://tauri.app), [Axum](https://github.com/tokio-rs/axum), [SQLite](https://sqlite.org), [skrifa](https://github.com/googlefonts/fontations) and [React](https://react.dev).
 
 ## License
 
