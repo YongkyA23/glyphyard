@@ -102,6 +102,8 @@ pub struct Face {
     pub weight: f32,
     pub italic: bool,
     pub is_variable: bool,
+    /// Installed in an OS font folder: always on, cannot be turned off here.
+    pub system: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -124,6 +126,8 @@ pub struct Family {
     pub active_state: ActiveState,
     pub admin_set: bool,
     pub has_duplicates: bool,
+    /// Every copy is in an OS font folder.
+    pub system: bool,
     pub faces: Vec<Face>,
 }
 
@@ -135,6 +139,8 @@ pub enum FileStatus {
     Alternate,
     Grouped,
     Inactive,
+    /// The copy in an OS font folder.
+    System,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -174,6 +180,8 @@ pub enum FamilyFilter {
     Admin,
     UnknownLicense,
     Duplicates,
+    /// Families with a copy in an OS font folder.
+    System,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]

@@ -52,7 +52,7 @@ const families: Fam[] = SEEDS.map((s) => {
       const file = s.variable ? `${base}${italic ? '-Italic' : ''}[${(s.axes ?? []).map((a) => a.tag).join(',')}].ttf` : `${base}-${style}.otf`
       faces.push({
         hash: nextHash(), psName: `${base}-${style}`, family: s.family, style, fullName: `${s.family} ${style}`, version: s.dupe ? '2.000' : '1.000',
-        path: `${dir}\\${file}`, active: s.on, source: s.on ? (s.admin ? 'admin' : 'user') : null, weight: w, italic, isVariable: !!s.variable,
+        path: `${dir}\\${file}`, active: s.on, source: s.on ? (s.admin ? 'admin' : 'user') : null, weight: w, italic, isVariable: !!s.variable, system: false,
       })
     }
   }
@@ -65,7 +65,7 @@ const families: Fam[] = SEEDS.map((s) => {
   if (s.family === 'Space Grotesk') files.push({ path: 'D:\\Fonts\\Client work\\SpaceGrotesk-Medium.ttf', version: '1.000', status: 'alternate' })
   return {
     key: keyOf(s.family), family: s.family, foundry: s.foundry, styles: faces.length, isVariable: !!s.variable,
-    license: s.license, activeState: s.on ? 'all' : 'none', adminSet: !!s.admin, hasDuplicates: !!s.dupe, faces,
+    license: s.license, activeState: s.on ? 'all' : 'none', adminSet: !!s.admin, hasDuplicates: !!s.dupe, system: false, faces,
     axes: s.axes ?? [], features: s.features, glyphCount: s.family === 'Fraunces' ? 612 : 380 + s.family.length * 11, designer: s.designer, files,
     licenseInfo: {
       label: s.license,
@@ -234,6 +234,7 @@ function listFamilies(a: ListFamiliesArgs): Family[] {
       case 'admin': if (!f.adminSet) return false; break
       case 'unknown_license': if (f.license !== 'unknown') return false; break
       case 'duplicates': if (!f.hasDuplicates) return false; break
+      case 'system': return false
     }
     if (a.collectionId != null && !collItems[a.collectionId]?.has(f.key)) return false
     if (a.folderId != null) {
@@ -411,6 +412,7 @@ const handlers: Record<string, (a: Args) => unknown> = {
   },
   show_in_folder: ({ path }) => console.info('[mock] show_in_folder', path),
   adobe_status: () => adobe,
+  indesign_running: () => false,
   adobe_install: ({ app: a }) => Object.assign(adobe.find((r) => r.app === a)!, { installed: true }),
   adobe_remove: ({ app: a }) => Object.assign(adobe.find((r) => r.app === a)!, { installed: false, paired: false }),
   adobe_pair_respond: ({ requestId, allow }) => {

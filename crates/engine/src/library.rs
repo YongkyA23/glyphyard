@@ -33,11 +33,13 @@ struct Row {
     added_at: String,
     source: Option<Source>,
     active_path: Option<String>,
+    /// The copy lives in an OS font folder, so the OS has it on regardless of the ledger.
+    system: bool,
 }
 
 impl Row {
     fn active(&self) -> bool {
-        self.source.is_some()
+        self.source.is_some() || self.system
     }
 }
 
@@ -45,7 +47,8 @@ fn load_rows(conn: &Connection, key: Option<&str>) -> rusqlite::Result<Vec<Row>>
     let mut stmt = conn.prepare_cached(
         "SELECT f.hash, f.idx, f.family_key, f.ps_name, f.family, f.style, COALESCE(d.display_name, f.full_name),
                 f.version, f.foundry, f.designer, f.weight, f.italic, f.is_variable, f.glyph_count, f.axes_json,
-                f.features_json, fo.path, fi.rel_path, fi.folder_id, fi.added_at, a.source, a.path
+                f.features_json, fo.path, fi.rel_path, fi.folder_id, fi.added_at, a.source, a.path,
+                fo.managed IS 'system'
          FROM faces f
          JOIN files fi ON fi.hash = f.hash
          JOIN folders fo ON fo.id = fi.folder_id
@@ -77,6 +80,7 @@ fn load_rows(conn: &Connection, key: Option<&str>) -> rusqlite::Result<Vec<Row>>
             added_at: r.get(19)?,
             source: parse_source_opt(r.get(20)?),
             active_path: r.get(21)?,
+            system: r.get(22)?,
         })
     })?;
     rows.collect()
@@ -102,6 +106,7 @@ fn face(row: &Row, path: &str) -> Face {
         weight: row.weight,
         italic: row.italic,
         is_variable: row.is_variable,
+        system: row.system,
     }
 }
 
@@ -112,6 +117,8 @@ fn unique_faces(rows: &[&Row]) -> Vec<Face> {
     for r in rows {
         match seen.get(&(r.hash.as_str(), r.idx)) {
             Some(&i) => {
+                faces[i].active |= r.active();
+                faces[i].system |= r.system;
                 if r.active_path.as_deref() == Some(r.path.as_str()) {
                     faces[i].path = r.path.clone();
                 }
@@ -149,6 +156,7 @@ fn build_family(key: &str, rows: &[&Row], license: License) -> Family {
         active_state,
         admin_set: faces.iter().any(|f| f.source == Some(Source::Admin)),
         has_duplicates: hashes_by_ps.values().any(|h| h.len() > 1) || paths_by_hash.values().any(|p| p.len() > 1),
+        system: rows.iter().all(|r| r.system),
         faces,
     }
 }
@@ -187,7 +195,9 @@ fn file_status(r: &Row, rows: &[&Row], mixed: bool) -> FileStatus {
     let ps = r.ps_name.to_lowercase();
     let same_ps: Vec<&&Row> = rows.iter().filter(|o| o.ps_name.to_lowercase() == ps).collect();
     let newest = same_ps.iter().map(|o| version_key(&o.version)).max().unwrap_or_default();
-    if r.active_path.as_deref() == Some(r.path.as_str()) {
+    if r.system {
+        FileStatus::System
+    } else if r.active_path.as_deref() == Some(r.path.as_str()) {
         FileStatus::Active
     } else if r.active() {
         FileStatus::Alternate
@@ -230,7 +240,12 @@ impl Engine {
                 continue;
             }
             let fam = build_family(key, &rows, licenses.get(key).copied().unwrap_or(License::Unknown));
+            // System-only families stay out of the library lists unless asked for (or collected/tagged).
+            if fam.system && q.filter != FamilyFilter::System && collection.is_none() && tagged.is_none() {
+                continue;
+            }
             let keep = match q.filter {
+                FamilyFilter::System => rows.iter().any(|r| r.system),
                 FamilyFilter::All => true,
                 FamilyFilter::Active => fam.active_state != ActiveState::None,
                 FamilyFilter::Inactive => fam.active_state == ActiveState::None,

@@ -20,6 +20,7 @@ const ON_BY_DEFAULT = new Set(['liga', 'calt', 'kern'])
 
 const FILE_STATUS: Record<FileRow['status'], [string, Tone]> = {
   active: ['Active', 'ok'], older_version: ['Older version', 'warn'], alternate: ['Alternate', 'accent'], grouped: ['Grouped with variable', 'neutral'], inactive: ['Inactive', 'neutral'],
+  system: ['System font', 'neutral'],
 }
 const LICENSE_OPTIONS: [License, string][] = [['licensed', 'Licensed'], ['personal', 'Personal use only'], ['client', 'Client-provided'], ['unknown', 'Unknown']]
 
@@ -140,11 +141,12 @@ export function FamilyPage() {
             <span>{plural(fam.styles, 'style')}{fam.isVariable && ' + variable'}</span>
             {fam.faces[0] && <><span aria-hidden="true">·</span><span>v{fam.faces[0].version}</span></>}
             <LicenseBadge license={fam.license} />
+            {fam.system && <Badge tone="neutral">System font · always on</Badge>}
             {fam.adminSet && <Badge tone="accent">Set by admin</Badge>}
           </div>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          <button type="button" className={allOn ? 'btn primary' : 'btn'} aria-pressed={allOn} onClick={toggleFamily} style={{ fontWeight: 500 }}>
+          <button type="button" className={allOn ? 'btn primary' : 'btn'} aria-pressed={allOn} onClick={toggleFamily} disabled={fam.system} style={{ fontWeight: 500 }}>
             {allOn ? 'Active · turn off' : 'Activate family'}
           </button>
           <button type="button" className="btn" onClick={openSets}>Add to project set</button>

@@ -120,6 +120,26 @@ pub fn remove(app: App) -> io::Result<()> {
     Ok(())
 }
 
+/// InDesign is open. Unlike Photoshop and Illustrator it only sees fonts turned on or off while it runs
+/// after a restart (checked against InDesign 2024 on Windows, also with fonts installed by Windows itself).
+pub fn indesign_running() -> bool {
+    let mut cmd = if cfg!(windows) {
+        let mut c = Command::new("tasklist");
+        c.args(["/FI", "IMAGENAME eq InDesign.exe", "/FO", "CSV", "/NH"]);
+        c
+    } else {
+        let mut c = Command::new("pgrep");
+        c.args(["-f", "Adobe InDesign"]);
+        c
+    };
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    cmd.output().is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).to_lowercase().contains("indesign"))
+}
+
 /// Release years found in folders like `Adobe Photoshop 2026`.
 fn versions(app: App) -> Vec<String> {
     let prefix = format!("Adobe {} ", app.label());

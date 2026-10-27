@@ -101,6 +101,24 @@ pub fn notify_font_change() {
     sys::notify_font_change()
 }
 
+/// Folders the OS installs fonts into (system-wide and per-user).
+pub fn system_font_dirs() -> Vec<PathBuf> {
+    let env = |k| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    let dirs = if cfg!(windows) {
+        let windir = env("WINDIR").unwrap_or_else(|| r"C:\Windows".into());
+        vec![Some(windir.join("Fonts")), env("LOCALAPPDATA").map(|d| d.join(r"Microsoft\Windows\Fonts"))]
+    } else if cfg!(target_os = "macos") {
+        vec![
+            Some("/System/Library/Fonts".into()),
+            Some("/Library/Fonts".into()),
+            env("HOME").map(|h| h.join("Library/Fonts")),
+        ]
+    } else {
+        Vec::new()
+    };
+    dirs.into_iter().flatten().collect()
+}
+
 /// Appends every file under `dir` (recursively) to `out`. Unreadable entries are skipped.
 #[cfg(any(windows, target_os = "macos"))]
 fn walk(dir: &std::path::Path, out: &mut Vec<PathBuf>) {

@@ -16,6 +16,7 @@
  *   documentFonts(id: DocRef["id"]): Promise<DocFont[]>,
  *   activeDocumentId(): Promise<DocRef["id"] | null>,
  *   onChange(callback: () => void): void,
+ *   restartNote?: string,
  * }} Host
  */
 
@@ -189,7 +190,8 @@ function typeshelfPanel(client, host) {
     const r = await client.sendDocument(doc.name, "open", fonts);
     tracked.set(doc.id, doc.name);
     const parts = [];
-    if (r.activated.length) parts.push(`turned on ${r.activated.join(", ")}`);
+    // restartNote: the app (InDesign) only sees fonts turned on while it runs after a restart.
+    if (r.activated.length) parts.push(`turned on ${r.activated.join(", ")}${host.restartNote ? ` (${host.restartNote})` : ""}`);
     if (r.missing.length) parts.push(`not in library: ${r.missing.join(", ")}`);
     if (!parts.length) parts.push("all fonts already on");
     log(`${doc.name}: ${parts.join("; ")}`);

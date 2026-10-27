@@ -9,13 +9,17 @@ export type Source = 'user' | 'admin' | 'project_set' | 'library'
 export type Face = {
   hash: string; psName: string; family: string; style: string; fullName: string; version: string
   path: string; active: boolean; source: Source | null; weight: number; italic: boolean; isVariable: boolean
+  /** Installed in an OS font folder: always on. */
+  system: boolean
 }
 export type Family = {
   key: string; family: string; foundry: string; styles: number; isVariable: boolean; license: License
   activeState: 'all' | 'some' | 'none'; adminSet: boolean; hasDuplicates: boolean; faces: Face[]
+  /** Every copy is in an OS font folder. */
+  system: boolean
 }
 export type Axis = { tag: string; min: number; default: number; max: number }
-export type FileRow = { path: string; version: string; status: 'active' | 'older_version' | 'alternate' | 'grouped' | 'inactive' }
+export type FileRow = { path: string; version: string; status: 'active' | 'older_version' | 'alternate' | 'grouped' | 'inactive' | 'system' }
 export type FamilyDetail = Family & {
   axes: Axis[]; features: string[]; glyphCount: number; designer: string
   files: FileRow[]; licenseInfo: { label: License; file: string | null; note: string }
@@ -38,7 +42,7 @@ export type ActivationResult = {
   error: 'file_missing' | 'in_use' | 'invalid_font' | 'blocked' | 'name_conflict' | 'os' | null; message: string | null
 }
 
-export type FamilyFilter = 'all' | 'active' | 'inactive' | 'admin' | 'unknown_license' | 'duplicates'
+export type FamilyFilter = 'all' | 'active' | 'inactive' | 'admin' | 'unknown_license' | 'duplicates' | 'system'
 export type FamilySort = 'name' | 'name_desc' | 'date' | 'foundry'
 export type ListFamiliesArgs = {
   search?: string; filter?: FamilyFilter; collectionId?: number; folderId?: number; tag?: string; license?: License; sort?: FamilySort
@@ -152,6 +156,7 @@ export const api = {
   adobeInstall: (app: AdobeApp) => call<AdobeRow>('adobe_install', { app }),
   adobeRemove: (app: AdobeApp) => call<AdobeRow>('adobe_remove', { app }),
   adobePairRespond: (requestId: string, allow: boolean) => call<void>('adobe_pair_respond', { requestId, allow }),
+  indesignRunning: () => call<boolean>('indesign_running'),
 
   pickFolder: () => call<string | null>('pick_folder'),
   pickFile: (filters: FileFilter[]) => call<string | null>('pick_file', { filters }),

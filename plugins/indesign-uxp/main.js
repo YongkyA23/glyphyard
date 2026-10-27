@@ -33,6 +33,7 @@
   }
 
   const host = {
+    restartNote: "restart InDesign to use them",
     async listDocuments() {
       const docs = [];
       for (let i = 0; i < app.documents.length; i++) {

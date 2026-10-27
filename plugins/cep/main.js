@@ -51,7 +51,9 @@
   /** CEP host codes → the app ids the Typeshelf bridge knows. @type {Record<string, "illustrator" | "photoshop" | "indesign">} */
   const APPS = { ILST: "illustrator", PHXS: "photoshop", PHSP: "photoshop", IDSN: "indesign" };
 
+  const app = APPS[String(env.appName)] || "illustrator";
   const host = {
+    restartNote: app === "indesign" ? "restart InDesign to use them" : undefined,
     // Documents have no stable id in ExtendScript; the path (or name, if unsaved) identifies them.
     async listDocuments() {
       const names = await evalJson("typeshelfDocuments()");
@@ -78,7 +80,6 @@
     },
   };
 
-  const app = APPS[String(env.appName)] || "illustrator";
   const client = typeshelfClient({ app, appVersion: String(env.appVersion || ""), transport: nodeTransport });
   typeshelfPanel(client, host);
 })();

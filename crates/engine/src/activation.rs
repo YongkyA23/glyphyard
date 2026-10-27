@@ -18,6 +18,10 @@ pub trait OsFonts: Send + Sync {
     fn reconcile(&self, ledger: &[LedgerEntry]) -> ReconcileReport;
     fn installed_ps_names(&self) -> HashSet<String>;
     fn notify_font_change(&self);
+    /// Folders the OS installs fonts into; listed read-only as "System fonts".
+    fn font_dirs(&self) -> Vec<PathBuf> {
+        Vec::new()
+    }
 }
 
 pub struct SystemFonts;
@@ -37,6 +41,9 @@ impl OsFonts for SystemFonts {
     }
     fn notify_font_change(&self) {
         typeshelf_activation::notify_font_change()
+    }
+    fn font_dirs(&self) -> Vec<PathBuf> {
+        typeshelf_activation::system_font_dirs()
     }
 }
 
@@ -110,7 +117,10 @@ pub(crate) struct FontFile {
     pub full_name: String,
     pub version: String,
     pub family_key: String,
+    /// A copy Typeshelf may register; system font folders never count.
     pub path: Option<PathBuf>,
+    /// The OS already has this file installed.
+    pub in_system: bool,
 }
 
 pub(crate) fn font_file(conn: &Connection, hash: &str) -> rusqlite::Result<Option<FontFile>> {
@@ -124,12 +134,13 @@ pub(crate) fn font_file(conn: &Connection, hash: &str) -> rusqlite::Result<Optio
         return Ok(None);
     };
     let mut stmt = conn.prepare_cached(
-        "SELECT fo.path, fi.rel_path FROM files fi JOIN folders fo ON fo.id = fi.folder_id
+        "SELECT fo.path, fi.rel_path, fo.managed IS 'system' FROM files fi JOIN folders fo ON fo.id = fi.folder_id
          WHERE fi.hash = ?1 AND fo.status != 'offline' ORDER BY fo.managed IS NOT NULL, fi.id",
     )?;
-    let paths: Vec<PathBuf> = stmt
-        .query_map([hash], |r| Ok(Path::new(&r.get::<_, String>(0)?).join(r.get::<_, String>(1)?)))?
+    let copies: Vec<(PathBuf, bool)> = stmt
+        .query_map([hash], |r| Ok((Path::new(&r.get::<_, String>(0)?).join(r.get::<_, String>(1)?), r.get(2)?)))?
         .collect::<rusqlite::Result<_>>()?;
+    let in_system = copies.iter().any(|(_, system)| *system);
     Ok(Some(FontFile {
         hash: hash.into(),
         ps_names: faces.iter().map(|f| f.0.to_lowercase()).collect(),
@@ -137,7 +148,8 @@ pub(crate) fn font_file(conn: &Connection, hash: &str) -> rusqlite::Result<Optio
         full_name,
         version,
         family_key,
-        path: paths.into_iter().find(|p| p.is_file()),
+        path: copies.into_iter().find(|(p, system)| !system && p.is_file()).map(|(p, _)| p),
+        in_system,
     }))
 }
 
@@ -251,6 +263,9 @@ impl Engine {
             return Ok((fail(&f.hash, ActivationErrorCode::Blocked, "blocked by your admin"), false));
         }
         let Some(path) = f.path.clone() else {
+            if f.in_system {
+                return Ok((ok(&f.hash, Some(format!("{} is a system font, always on", f.font.ps_name))), false));
+            }
             self.emit(Event::ActivationFailed { font: f.font.clone(), reason: "file_missing".into() });
             return Ok((fail(&f.hash, ActivationErrorCode::FileMissing, "the file is missing or its folder is offline"), false));
         };

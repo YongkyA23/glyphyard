@@ -43,6 +43,7 @@ export function Library() {
   useEffect(() => void (rows && (firstLoad.current = false)), [rows])
 
   const folderId = params.get('folder'), collectionId = params.get('collection'), license = params.get('license') as License | null
+  const system = params.get('system') === '1'
 
   useEffect(() => {
     api.getSettings().then((s) => s.sampleText && setSample(s.sampleText), () => {})
@@ -53,13 +54,13 @@ export function Library() {
     api.listFolders().then(setFolders, () => {})
   }, [libVersion, reload])
   useEffect(() => {
-    const args: ListFamiliesArgs = { search: search.trim() || undefined, filter }
+    const args: ListFamiliesArgs = { search: search.trim() || undefined, filter: system ? 'system' : filter }
     if (folderId) args.folderId = Number(folderId)
     if (collectionId) args.collectionId = Number(collectionId)
     if (license) args.license = license
     const t = setTimeout(() => api.listFamilies(args).then(setRows, () => setRows([])), search ? 150 : 0)
     return () => clearTimeout(t)
-  }, [search, filter, folderId, collectionId, license, libVersion, reload])
+  }, [search, filter, system, folderId, collectionId, license, libVersion, reload])
 
   async function toggle(f: Family) {
     const active = f.activeState !== 'all'
@@ -72,7 +73,7 @@ export function Library() {
     setReload((n) => n + 1)
   }
 
-  const scope = folderId
+  const scope = system ? 'System fonts · always on' : folderId
     ? `Folder: ${folders.find((d) => String(d.id) === folderId)?.path ?? ''}`
     : collectionId ? 'Collection' : license ? `License: ${LICENSE_LABEL[license]}` : null
   const activeCount = all.filter((f) => f.activeState !== 'none').length
@@ -98,7 +99,7 @@ export function Library() {
       </div>
 
       <div className="chips" style={{ padding: '12px 24px' }}>
-        {FILTERS.map(([k, label]) => (
+        {!system && FILTERS.map(([k, label]) => (
           <Chip key={k} pressed={filter === k} onClick={() => setFilter(k)}>{label}</Chip>
         ))}
         {scope && (
@@ -138,7 +139,10 @@ export function Library() {
               initial={big || (first && i >= STAGGER_CAP) ? false : rise.initial} animate={rise.animate} exit={big ? undefined : rise.exit}
               transition={{ duration: dur.slow, ease: easeOut, delay: first ? staggerDelay(i) : 0, layout: spring.glide }}
             >
-              <Switch on={on} mixed={f.activeState === 'some'} label={`${f.activeState === 'all' ? 'Deactivate' : 'Activate'} ${f.family}`} onClick={() => toggle(f)} />
+              <Switch
+                on={on} mixed={f.activeState === 'some'} disabled={f.system} onClick={() => toggle(f)}
+                label={f.system ? `${f.family} is a system font, always on` : `${f.activeState === 'all' ? 'Deactivate' : 'Activate'} ${f.family}`}
+              />
               <div style={{ width: 200, display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <Link to={`/family/${encodeURIComponent(f.key)}`} className="plain-link" style={{ fontWeight: 500 }}>{f.family}</Link>
                 <span className="faint" style={{ fontSize: 12 }}>
@@ -146,6 +150,7 @@ export function Library() {
                 </span>
                 <span style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   <LicenseBadge license={f.license} />
+                  {f.system && <Badge tone="neutral">System</Badge>}
                   {f.adminSet && <Badge tone="accent">Set by admin</Badge>}
                   {f.hasDuplicates && <Link to="/organize" className="badge warn" style={{ textDecoration: 'none' }}>Duplicates</Link>}
                 </span>

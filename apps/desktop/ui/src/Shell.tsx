@@ -16,6 +16,7 @@ const LIC_NAME: Record<License, string> = { ...LICENSE_LABEL, unknown: 'Unknown'
 function Sidebar() {
   const { app, libVersion, organizeCount, setOrganizeCount } = useApp()
   const [families, setFamilies] = useState<Family[] | null>(null)
+  const [systemCount, setSystemCount] = useState<number | null>(null)
   const [folders, setFolders] = useState<Folder[]>([])
   const [collections, setCollections] = useState<Collection[]>([])
   const [sets, setSets] = useState<ProjectSet[]>([])
@@ -25,6 +26,7 @@ function Sidebar() {
 
   useEffect(() => {
     api.listFamilies({}).then(setFamilies, () => {})
+    api.listFamilies({ filter: 'system' }).then((f) => setSystemCount(f.length), () => {})
     api.listFolders().then(setFolders, () => {})
     api.listCollections().then(setCollections, () => {})
     api.listProjectSets().then(setSets, () => {})
@@ -81,6 +83,14 @@ function Sidebar() {
             )}
           </Link>
         ))}
+        {!!systemCount && (
+          <Link to="/?system=1" className="side-item" aria-current={sel('system', 1) ? 'true' : undefined} title="Fonts installed in the operating system (always on)">
+            {sel('system', 1) && <Hi id="side-item-hi" />}
+            <span aria-hidden="true" className="dot" style={{ background: 'var(--faint)' }} />
+            <span className="ellipsis" style={{ flex: 1 }}>System fonts</span>
+            <span className="side-count"><Num value={systemCount} /></span>
+          </Link>
+        )}
       </div>
       <div className="side-group">
         <span className="side-head">Collections</span>

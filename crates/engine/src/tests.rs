@@ -9,6 +9,7 @@ use typeshelf_protocol::{CommandKind, Event, FontRef, Source};
 struct FakeState {
     registered: Mutex<HashSet<PathBuf>>,
     notifies: Mutex<u32>,
+    font_dirs: Mutex<Vec<PathBuf>>,
 }
 
 #[derive(Clone, Default)]
@@ -51,6 +52,9 @@ impl OsFonts for FakeOs {
     }
     fn notify_font_change(&self) {
         *self.0.notifies.lock().unwrap() += 1;
+    }
+    fn font_dirs(&self) -> Vec<PathBuf> {
+        self.0.font_dirs.lock().unwrap().clone()
     }
 }
 
@@ -664,4 +668,37 @@ fn google_catalog_pages_a_to_z_from_fresh_cache() {
 
     let serif = engine.google_catalog(Some("LO"), Some("Serif"), 0, 30).unwrap();
     assert_eq!((names(&serif), serif.total), (vec!["Lora".to_string()], 1));
+}
+
+#[test]
+fn system_fonts_are_listed_read_only() {
+    let fx = fixture!();
+    let sys = fx.root.parent().unwrap().join("os-fonts");
+    std::fs::create_dir_all(&sys).unwrap();
+    std::fs::write(sys.join("arial.ttf"), system_font("arial.ttf").unwrap()).unwrap();
+    *fx.os.0.font_dirs.lock().unwrap() = vec![sys.clone()];
+    assert!(fx.engine.rescan().unwrap().is_empty(), "system folders stay out of the folder list");
+
+    // Not in the library view, but listed (always on) under the System filter.
+    assert!(fx.engine.list_families(&FamilyQuery::default()).unwrap().is_empty());
+    let q = FamilyQuery { filter: FamilyFilter::System, ..Default::default() };
+    let sys_fams = fx.engine.list_families(&q).unwrap();
+    assert_eq!(sys_fams.len(), 1);
+    let arial = &sys_fams[0];
+    assert!(arial.system && arial.active_state == ActiveState::All);
+    assert!(fx.engine.get_family(&arial.key).unwrap().files.iter().all(|f| f.status == FileStatus::System));
+
+    // Turning it on or off never registers or touches the OS copy.
+    let hashes: Vec<String> = arial.faces.iter().map(|f| f.hash.clone()).collect();
+    assert!(fx.engine.set_active(&hashes, true, true).unwrap().iter().all(|r| r.ok));
+    assert!(fx.engine.set_active(&hashes, false, true).unwrap().iter().all(|r| r.ok));
+    assert!(fx.os.registered().is_empty());
+    assert!(fx.engine.organize_plan(false).unwrap().changes.is_empty());
+    assert!(sys.join("arial.ttf").is_file());
+
+    // A library copy of the same font shows up in the library and can still be turned on.
+    fx.put("arial.ttf", &system_font("arial.ttf").unwrap());
+    fx.engine.add_folder(&fx.root).unwrap();
+    let lib = fx.family("Arial");
+    assert!(!lib.system);
 }

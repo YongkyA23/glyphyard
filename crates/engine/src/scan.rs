@@ -11,6 +11,8 @@ use typeshelf_core::{file_hash, parse_faces, FaceInfo};
 use walkdir::WalkDir;
 
 const FONT_EXTS: [&str; 6] = ["ttf", "otf", "ttc", "otc", "woff", "woff2"];
+/// `folders.managed` for the OS font folders: read-only, always on, never organized.
+pub(crate) const SYSTEM: &str = "system";
 
 /// Families are grouped by family name + foundry.
 pub(crate) fn family_key(family: &str, foundry: &str) -> String {
@@ -128,10 +130,25 @@ struct Scanned {
 }
 
 impl Engine {
+    /// The user's folders; the system font folders are shown as "System fonts" instead.
     pub fn list_folders(&self) -> Result<Vec<Folder>> {
         let db = self.db();
+        let system: HashSet<i64> = db
+            .prepare("SELECT id FROM folders WHERE managed = ?1")?
+            .query_map([SYSTEM], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
         let rows = folder_rows(&db)?;
-        Ok(rows.iter().map(|f| folder_dto(&db, f, None)).collect::<rusqlite::Result<_>>()?)
+        Ok(rows.iter().filter(|f| !system.contains(&f.id)).map(|f| folder_dto(&db, f, None)).collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Adds the OS font folders the first time they are seen.
+    fn ensure_system_folders(&self) {
+        for dir in self.os.font_dirs() {
+            // ponytail: fonts the registry points at outside these folders are not listed.
+            if dir.is_dir() {
+                let _ = self.insert_folder(&dir, Some(SYSTEM)); // an overlapping user folder wins
+            }
+        }
     }
 
     pub fn add_folder(&self, path: impl AsRef<Path>) -> Result<Vec<Folder>> {
@@ -199,6 +216,7 @@ impl Engine {
 
     /// Full rescan: re-checks which folders are online, then scans every online folder.
     pub fn rescan(&self) -> Result<Vec<Folder>> {
+        self.ensure_system_folders();
         self.refresh_folders()?;
         let ids: Vec<i64> = folder_rows(&self.db())?.into_iter().filter(|f| f.online).map(|f| f.id).collect();
         let mut changed = false;

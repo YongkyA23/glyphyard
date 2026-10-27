@@ -38,6 +38,7 @@ export function AppProvider({ main, children }: { main: boolean; children: React
   const [pair, setPair] = useState<Events['adobe-pair-request'] | null>(null)
   const [organizeCount, setOrganizeCount] = useState<number | null>(null)
   const toastId = useRef(0)
+  const indesignNoted = useRef(0)
   const navigate = useNavigate()
 
   const load = useCallback(() => {
@@ -61,6 +62,13 @@ export function AppProvider({ main, children }: { main: boolean; children: React
         const failed = res.filter((r) => !r.ok)
         if (failed.length && !opts?.quiet)
           toast(`${plural(failed.length, 'font')} couldn’t be changed. ${failed[0].message ?? ''}`.trim())
+        // InDesign only sees font changes after a restart; say so at most every 10 minutes.
+        if (res.some((r) => r.ok) && Date.now() - indesignNoted.current > 600_000)
+          api.indesignRunning().then((open) => {
+            if (!open) return
+            indesignNoted.current = Date.now()
+            toast('InDesign is open: restart it to see these font changes. Photoshop and Illustrator pick them up right away.')
+          }, () => {})
         return res
       }
       try {
@@ -99,7 +107,8 @@ export function AppProvider({ main, children }: { main: boolean; children: React
         on('adobe-activated', ({ app: a, document, activated, missing }) =>
           toast(
             `${ADOBE_LABEL[a]} · ${document}: turned on ${plural(activated.length, 'font')}` +
-              (missing.length ? `, ${missing.length} not in your library (${andList(missing.slice(0, 3))})` : ''),
+              (missing.length ? `, ${missing.length} not in your library (${andList(missing.slice(0, 3))})` : '') +
+              (a === 'indesign' && activated.length ? '. Restart InDesign to use them.' : ''),
           ),
         ),
       )

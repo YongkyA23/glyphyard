@@ -33,7 +33,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         get_settings, update_settings,
         get_connection, test_connection, save_connection, reset_connection,
         quick_search, show_in_folder,
-        adobe_status, adobe_install, adobe_remove, adobe_pair_respond,
+        adobe_status, adobe_install, adobe_remove, adobe_pair_respond, indesign_running,
         pick_folder, pick_file,
     ]
 }
@@ -475,6 +475,11 @@ pub async fn adobe_remove(ctx: St<'_>, app: App) -> R<AdobeRow> {
         let _ = b.revoke(app);
     }
     adobe_row(&ctx, app).await
+}
+
+#[tauri::command]
+pub async fn indesign_running() -> bool {
+    tauri::async_runtime::spawn_blocking(install::indesign_running).await.unwrap_or(false)
 }
 
 #[tauri::command]

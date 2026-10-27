@@ -9,11 +9,12 @@ The UI has a typed wrapper `apps/desktop/ui/src/api.ts` plus a mock implementati
 type License = "licensed" | "personal" | "client" | "unknown";
 type Source = "user" | "admin" | "project_set" | "library";
 type Face = { hash: string; psName: string; family: string; style: string; fullName: string; version: string;
-  path: string; active: boolean; source: Source | null; weight: number; italic: boolean; isVariable: boolean };
+  path: string; active: boolean; source: Source | null; weight: number; italic: boolean; isVariable: boolean;
+  system: boolean };  // in an OS font folder: always on, read-only
 type Family = { key: string; family: string; foundry: string; styles: number; isVariable: boolean; license: License;
-  activeState: "all" | "some" | "none"; adminSet: boolean; hasDuplicates: boolean; faces: Face[] };
+  activeState: "all" | "some" | "none"; adminSet: boolean; hasDuplicates: boolean; system: boolean; faces: Face[] };
 type Axis = { tag: string; min: number; default: number; max: number };
-type FileRow = { path: string; version: string; status: "active" | "older_version" | "alternate" | "grouped" | "inactive" };
+type FileRow = { path: string; version: string; status: "active" | "older_version" | "alternate" | "grouped" | "inactive" | "system" };
 type FamilyDetail = Family & { axes: Axis[]; features: string[]; glyphCount: number; designer: string;
   files: FileRow[]; licenseInfo: { label: License; file: string | null; note: string } };
 type Folder = { id: number; path: string; status: "watching" | "offline" | "scanning"; fontCount: number; offlineSince: string | null };
@@ -34,7 +35,7 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `get_app_state` | → `AppState` |
 | `complete_onboarding` | `{ name }` → `AppState` (registers with the server; rejects `{code:"offline"}` without a connection) |
 | `change_name` | `{ name }` → `{ name, nextNameChange }`; rejects `{code:"name_locked", nextNameChange}` or `{code:"offline"}` |
-| `list_families` | `{ search?, filter?: "all"\|"active"\|"inactive"\|"admin"\|"unknown_license"\|"duplicates", collectionId?, folderId?, tag?, license?, sort?: "name"\|"name_desc"\|"date"\|"foundry" }` → `Family[]` |
+| `list_families` | `{ search?, filter?: "all"\|"active"\|"inactive"\|"admin"\|"unknown_license"\|"duplicates"\|"system", collectionId?, folderId?, tag?, license?, sort?: "name"\|"name_desc"\|"date"\|"foundry" }` → `Family[]`. System-only families appear only with `filter: "system"` (or in a collection/tag) |
 | `get_family` | `{ key }` → `FamilyDetail` |
 | `set_active` | `{ hashes, active, confirmUnknownLicense? }` → `ActivationResult[]`; rejects `{code:"unknown_license", families}` when not confirmed |
 | `list_folders` / `add_folder {path}` / `remove_folder {id}` / `locate_folder {id, path}` | → `Folder[]` |
@@ -59,6 +60,7 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `adobe_status` | → `{ app: "photoshop"\|"illustrator"\|"indesign", label: string, versions: string[], installed: boolean, paired: boolean }[]` |
 | `adobe_install` / `adobe_remove` | `{ app }` → same row |
 | `adobe_pair_respond` | `{ requestId, allow }` → void |
+| `indesign_running` | → boolean: InDesign is open (it only sees font changes after a restart) |
 | `pick_folder` / `pick_file {filters}` | → `string \| null` (native dialogs) |
 
 ## Events (backend → UI, `listen(name, cb)`)
