@@ -236,6 +236,7 @@ export type Events = {
   'connection-changed': Connection
   'folder-status': Folder
   'activation-progress': { done: number; total: number; active: boolean }
+  'activation-done': { total: number; failed: string[] }
   'name-changed': { name: string; nextNameChange: string | null }
   'adobe-pair-request': { requestId: string; app: AdobeApp; appVersion: string }
   'adobe-activated': { app: AdobeApp; document: string; activated: string[]; missing: string[] }

@@ -93,7 +93,7 @@ impl BridgeHandler for Bridge {
                 if !todo.is_empty() {
                     let hashes: Vec<String> = todo.keys().cloned().collect();
                     // The plug-in can't show the unknown-license prompt; the user approved the pairing.
-                    for r in e.set_active(&hashes, true, true)? {
+                    for r in e.set_active_now(&hashes, true, true)? {
                         let names = todo.remove(&r.hash).unwrap_or_default();
                         if r.ok {
                             out.activated.extend(names);
@@ -129,7 +129,7 @@ impl BridgeHandler for Bridge {
                     hashes.extend(faces(e, ps)?.into_iter().filter(|f| f.active && f.source == Some(Source::User)).map(|f| f.hash));
                 }
                 if !hashes.is_empty() {
-                    e.set_active(&hashes, false, false)?;
+                    e.set_active_now(&hashes, false, false)?;
                 }
                 Ok(())
             })

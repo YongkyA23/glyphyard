@@ -7,6 +7,7 @@ use crate::{
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use typeshelf_activation::{ActivationError, LedgerEntry, ReconcileReport};
 use typeshelf_protocol::{ActiveFont, Event, FontRef, FontSnapshot, Source};
@@ -59,6 +60,13 @@ impl OsFonts for SystemFonts {
     fn deactivate_many(&self, entries: &[LedgerEntry]) -> Vec<Result<(), ActivationError>> {
         typeshelf_activation::deactivate_many(entries)
     }
+}
+
+/// A font whose ledger row is written and whose OS registration still has to happen.
+struct Queued {
+    entry: LedgerEntry,
+    font: FontRef,
+    source: Source,
 }
 
 enum Prepared {
@@ -419,10 +427,164 @@ impl Engine {
         Ok((results, changed))
     }
 
+    /// Turns fonts on or off for the user. After [`Engine::activate_in_background`], turning on returns as
+    /// soon as the ledger says so and the OS registration (≈6–10 ms per font on Windows) runs on a
+    /// background thread; failures are switched back off and reported with `activation-done`.
+    /// Turning off is fast and stays direct.
+    pub fn set_active(&self, hashes: &[String], active: bool, confirm_unknown_license: bool) -> Result<Vec<ActivationResult>> {
+        match self.me.get().and_then(std::sync::Weak::upgrade) {
+            Some(me) if active => me.set_active_queued(hashes, confirm_unknown_license),
+            _ => self.set_active_now(hashes, active, confirm_unknown_license),
+        }
+    }
+
+    /// Makes [`Engine::set_active`] queue the OS work (the desktop app does; tests and the Adobe bridge,
+    /// which must wait until fonts are usable, call [`Engine::set_active_now`]).
+    pub fn activate_in_background(self: &Arc<Self>) {
+        let _ = self.me.set(Arc::downgrade(self));
+    }
+
+    /// Waits for queued registrations to finish (before quitting or turning everything off).
+    pub fn wait_for_activations(&self) {
+        let job = self.activation_job.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(job) = job {
+            let _ = job.join();
+        }
+    }
+
+    fn set_active_queued(self: &Arc<Self>, hashes: &[String], confirm_unknown_license: bool) -> Result<Vec<ActivationResult>> {
+        let (results, queued, changed) = {
+            let db = self.db();
+            if !confirm_unknown_license {
+                let families = self.unlicensed_families(&db, hashes)?;
+                if !families.is_empty() {
+                    return Err(unknown_license(families));
+                }
+            }
+            self.claim_activations(&db, hashes, Source::User)?
+        };
+        if changed {
+            self.os.notify_font_change(); // another version was turned off
+        }
+        self.library_changed("activation");
+        if !queued.is_empty() {
+            let me = Arc::clone(self);
+            let mut slot = self.activation_job.lock().unwrap_or_else(|e| e.into_inner());
+            let previous = slot.take();
+            *slot = Some(std::thread::spawn(move || {
+                if let Some(p) = previous {
+                    let _ = p.join();
+                }
+                me.register_queued(queued);
+            }));
+        }
+        Ok(results)
+    }
+
+    /// The database half of turning on: the same checks and newest-version rule as `activate_batch`, and the
+    /// ledger rows written now so the UI shows the fonts as on. Returns what still has to be registered.
+    fn claim_activations(&self, conn: &Connection, hashes: &[String], source: Source) -> Result<(Vec<ActivationResult>, Vec<Queued>, bool)> {
+        let batch = Batch::begin(conn)?;
+        let mut results = Vec::new();
+        let mut by_ps: BTreeMap<String, Vec<FontFile>> = BTreeMap::new();
+        let mut seen = HashSet::new();
+        for h in hashes.iter().filter(|h| seen.insert(h.as_str())) {
+            match font_file(conn, h)? {
+                Some(f) => by_ps.entry(f.ps_names[0].clone()).or_default().push(f),
+                None => results.push(fail(h, ActivationErrorCode::FileMissing, "not in the library")),
+            }
+        }
+        let mut changed = false;
+        let mut queued = Vec::new();
+        let mut recent = BTreeSet::new();
+        for mut group in by_ps.into_values() {
+            group.sort_by(|a, b| {
+                version_key(&b.version)
+                    .cmp(&version_key(&a.version))
+                    .then_with(|| is_otf(b).cmp(&is_otf(a)))
+                    .then_with(|| a.hash.cmp(&b.hash))
+            });
+            let winner = group.remove(0);
+            for loser in group {
+                let msg = format!("{} {} is used instead", winner.full_name, winner.version);
+                results.push(fail(&loser.hash, ActivationErrorCode::NameConflict, msg));
+            }
+            match self.prepare_activation(conn, &winner, source)? {
+                Prepared::Done(result, did) => {
+                    changed |= did;
+                    results.push(result);
+                }
+                Prepared::Register(path) => {
+                    conn.execute(
+                        "INSERT INTO activations (hash, path, full_name, source, activated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                        params![winner.hash, path.to_string_lossy(), winner.full_name, source_str(source), store::now()],
+                    )?;
+                    if matches!(source, Source::User | Source::ProjectSet) {
+                        recent.insert(winner.family_key.clone());
+                    }
+                    let warning = winner
+                        .ps_names
+                        .iter()
+                        .any(|p| self.system_names().contains(p))
+                        .then(|| format!("{} is also installed in the system", winner.font.ps_name));
+                    results.push(ok(&winner.hash, warning));
+                    queued.push(Queued { entry: LedgerEntry { path, full_name: winner.full_name.clone() }, font: winner.font, source });
+                }
+            }
+        }
+        add_recent(conn, recent.iter().map(String::as_str))?;
+        drop(batch);
+        Ok((results, queued, changed))
+    }
+
+    /// The OS half, on the background thread, in chunks so the database stays free between them.
+    fn register_queued(&self, queued: Vec<Queued>) {
+        const CHUNK: usize = 64;
+        let total = queued.len();
+        let mut failed = Vec::new();
+        for (n, chunk) in queued.chunks(CHUNK).enumerate() {
+            let entries: Vec<LedgerEntry> = chunk.iter().map(|q| q.entry.clone()).collect();
+            let outcomes = self.os.activate_many(&entries);
+            let db = self.db();
+            for (q, outcome) in chunk.iter().zip(outcomes) {
+                let path = q.entry.path.to_string_lossy();
+                // The user may have turned it off (or picked another version) while it was queued.
+                let wanted = db
+                    .query_row("SELECT 1 FROM activations WHERE hash = ?1 AND path = ?2", params![q.font.hash, path], |_| Ok(()))
+                    .optional()
+                    .ok()
+                    .flatten()
+                    .is_some();
+                match outcome {
+                    Ok(()) if wanted => self.emit(Event::FontActivated { font: q.font.clone(), source: q.source }),
+                    Ok(()) => {
+                        let _ = self.os.deactivate(&q.entry);
+                    }
+                    Err(e) => {
+                        if wanted {
+                            let _ = db.execute("DELETE FROM activations WHERE hash = ?1 AND path = ?2", params![q.font.hash, path]);
+                        }
+                        self.activation_failed(&db, &q.font.hash, &e);
+                        if failed.len() < 20 {
+                            failed.push(format!("{} {}: {}", q.font.family, q.font.style, error_code(&e).1));
+                        }
+                    }
+                }
+            }
+            drop(db);
+            if total > CHUNK {
+                self.ui(UiEvent::ActivationProgress { done: ((n + 1) * CHUNK).min(total), total, active: true });
+            }
+        }
+        self.os.notify_font_change();
+        self.ui(UiEvent::ActivationDone { total, failed });
+        self.library_changed("activation");
+    }
+
     /// Big selections go in chunks, releasing the database between them so the rest of the app keeps
     /// working, with `activation-progress` events; apps get one font-change broadcast at the end
     /// (Photoshop rebuilds its font list on every one).
-    pub fn set_active(&self, hashes: &[String], active: bool, confirm_unknown_license: bool) -> Result<Vec<ActivationResult>> {
+    pub fn set_active_now(&self, hashes: &[String], active: bool, confirm_unknown_license: bool) -> Result<Vec<ActivationResult>> {
         const CHUNK: usize = 64;
         let chunks: Vec<Vec<String>> = {
             let db = self.db();
@@ -568,6 +730,7 @@ impl Engine {
 
     /// Turns everything off (Settings › "Deactivate all on quit").
     pub fn deactivate_all(&self) -> Result<Vec<ActivationResult>> {
+        self.wait_for_activations();
         let results = {
             let db = self.db();
             let hashes: Vec<String> = self.ledger(&db)?.into_iter().map(|a| a.hash).collect();

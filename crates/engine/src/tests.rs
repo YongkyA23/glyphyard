@@ -9,6 +9,10 @@ use typeshelf_protocol::{CommandKind, Event, FontRef, Source};
 struct FakeState {
     registered: Mutex<HashSet<PathBuf>>,
     notifies: Mutex<u32>,
+    /// activate() fails for these paths.
+    fail: Mutex<HashSet<PathBuf>>,
+    /// Held by a test to keep activate() waiting.
+    gate: Mutex<()>,
     font_dirs: Mutex<Vec<PathBuf>>,
 }
 
@@ -17,6 +21,10 @@ struct FakeOs(Arc<FakeState>);
 
 impl OsFonts for FakeOs {
     fn activate(&self, e: &LedgerEntry) -> std::result::Result<(), ActivationError> {
+        let _gate = self.0.gate.lock().unwrap();
+        if self.0.fail.lock().unwrap().contains(&e.path) {
+            return Err(ActivationError::InvalidFont(e.path.clone()));
+        }
         if !e.path.is_file() {
             return Err(ActivationError::FileMissing(e.path.clone()));
         }
@@ -1131,4 +1139,58 @@ fn big_batches_are_chunked_with_one_broadcast() {
     fx.engine.set_active(&all, false, true).unwrap();
     assert!(fx.os.registered().is_empty());
     assert_eq!(*fx.os.0.notifies.lock().unwrap() - before, 2);
+}
+
+#[test]
+fn background_activation_returns_first_and_reports_failures() {
+    let Some(arial) = system_font("arial.ttf") else { return };
+    let Some(times) = system_font("times.ttf") else { return };
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("fonts");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("arial.ttf"), &arial).unwrap();
+    std::fs::write(root.join("times.ttf"), &times).unwrap();
+    let os = FakeOs::default();
+    let engine = Arc::new(Engine::open(tmp.path().join("data"), os.clone()).unwrap());
+    engine.activate_in_background();
+    engine.add_folder(&root).unwrap();
+    let done = Arc::new(Mutex::new(Vec::new()));
+    let sink = done.clone();
+    engine.on_ui_event(move |e| {
+        if let UiEvent::ActivationDone { failed, .. } = e {
+            sink.lock().unwrap().push(failed);
+        }
+    });
+    let hashes = |name: &str| -> Vec<String> {
+        let all = engine.list_families(&FamilyQuery::default()).unwrap();
+        all.into_iter().find(|f| f.family == name).unwrap().faces.into_iter().map(|f| f.hash).collect()
+    };
+    let (a, t) = (hashes("Arial"), hashes("Times New Roman"));
+    os.0.fail.lock().unwrap().insert(std::path::absolute(root.join("times.ttf")).unwrap());
+
+    // Returns while the OS is still busy: the ledger already says "on".
+    let gate = os.0.gate.lock().unwrap();
+    let r = engine.set_active(&[a.clone(), t.clone()].concat(), true, true).unwrap();
+    assert!(r.iter().all(|r| r.ok));
+    assert!(os.registered().is_empty(), "nothing registered yet");
+    assert_eq!(engine.library_counts().unwrap().active, 2, "but the library already shows both as on");
+    drop(gate);
+    engine.wait_for_activations();
+
+    assert_eq!(os.registered().len(), 1, "Arial registered, Times failed");
+    assert_eq!(engine.library_counts().unwrap().active, 1, "the failed one is switched back off");
+    let failed = done.lock().unwrap().clone();
+    assert_eq!(failed.len(), 1);
+    assert!(failed[0].len() == 1 && failed[0][0].contains("Times"), "{failed:?}");
+
+    // Turned off while still queued: it must not end up registered.
+    engine.set_active(&a, false, true).unwrap();
+    assert!(os.registered().is_empty());
+    let gate = os.0.gate.lock().unwrap();
+    engine.set_active(&a, true, true).unwrap();
+    engine.set_active(&a, false, true).unwrap();
+    drop(gate);
+    engine.wait_for_activations();
+    assert!(os.registered().is_empty(), "registration that was cancelled is undone");
+    assert_eq!(engine.library_counts().unwrap().active, 0);
 }

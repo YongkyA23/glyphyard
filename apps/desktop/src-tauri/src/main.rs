@@ -120,6 +120,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(version = env!("CARGO_PKG_VERSION"), data_dir = %data_dir.display(), "starting");
 
     let engine = Arc::new(Engine::open(&data_dir, SystemFonts)?);
+    engine.activate_in_background();
     if engine.get_connection()?.server_url.is_empty() {
         engine.set_connection(sync::DEFAULT_SERVER_URL, sync::DEFAULT_INSTALL_KEY)?;
     }
@@ -234,6 +235,8 @@ fn on_window_event(window: &Window, event: &WindowEvent) {
 fn shutdown(app: &AppHandle) {
     let ctx = app.state::<Ctx>();
     let engine = &ctx.engine;
+    // Let a running background registration finish so the OS matches the ledger (repair would fix it anyway).
+    engine.wait_for_activations();
     if engine.get_settings().is_ok_and(|s| s.deactivate_on_quit) {
         match engine.deactivate_all() {
             Ok(r) => tracing::info!("deactivated {} fonts on quit", r.iter().filter(|r| r.ok).count()),

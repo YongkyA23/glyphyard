@@ -42,6 +42,10 @@ pub struct Engine {
     connection_state: Mutex<(ConnectionStatus, Option<String>)>,
     watcher: Mutex<Option<watch::Watcher>>,
     google_catalog: Mutex<Option<std::sync::Arc<Vec<google::Meta>>>>,
+    /// Set by `activate_in_background`: turning fonts on returns at once, the OS work runs on a thread.
+    me: OnceLock<std::sync::Weak<Engine>>,
+    /// The running background registration; the next one waits for it, so they apply in order.
+    activation_job: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl Engine {
@@ -62,6 +66,8 @@ impl Engine {
             connection_state: Mutex::new((ConnectionStatus::Offline, None)),
             watcher: Mutex::new(None),
             google_catalog: Mutex::new(None),
+            me: OnceLock::new(),
+            activation_job: Mutex::new(None),
         };
         engine.ensure_install_id()?;
         engine.refresh_folders()?;

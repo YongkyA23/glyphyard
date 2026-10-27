@@ -67,6 +67,14 @@ export function AppProvider({ main, children }: { main: boolean; children: React
     setToasts((ts) => [...ts.slice(-2), { id, msg, action }]) // ponytail: newest 3 stack; older ones drop off
     window.setTimeout(() => dismissToast(id), action ? 9000 : 5000)
   }, [dismissToast])
+  // Fonts turn on at once and register with the OS in the background; the ones that failed are already
+  // switched back off by then, so only say why.
+  useEffect(() => {
+    if (!main) return
+    return on('activation-done', ({ failed }) => {
+      if (failed.length) toast(`${plural(failed.length, 'font')} couldn’t be turned on and ${failed.length === 1 ? 'was' : 'were'} switched back off. ${failed[0]}`)
+    })
+  }, [main, toast])
 
   const activate = useCallback<Ctx['activate']>(
     async (fn, opts) => {

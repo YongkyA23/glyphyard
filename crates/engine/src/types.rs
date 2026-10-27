@@ -570,6 +570,8 @@ pub enum UiEvent {
     FolderStatus(Folder),
     /// Progress of a big on/off batch (more than one chunk).
     ActivationProgress { done: usize, total: usize, active: bool },
+    /// A background registration finished; `failed` = "Family Style: reason" (at most 20), already switched back off.
+    ActivationDone { total: usize, failed: Vec<String> },
 }
 
 impl UiEvent {
@@ -580,6 +582,7 @@ impl UiEvent {
             UiEvent::OrganizeRequested {} => "organize-requested",
             UiEvent::FolderStatus(_) => "folder-status",
             UiEvent::ActivationProgress { .. } => "activation-progress",
+            UiEvent::ActivationDone { .. } => "activation-done",
         }
     }
 
