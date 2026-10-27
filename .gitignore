@@ -11,3 +11,6 @@ dist/
 apps/server/static/
 apps/desktop/src-tauri/gen/
 apps/setup/gen/
+
+# Local research notes, not part of the repo
+docs/research/
