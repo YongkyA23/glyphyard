@@ -25,6 +25,25 @@ pub const DEFAULT_INSTALL_KEY: &str = match option_env!("TYPESHELF_INSTALL_KEY")
     None => "",
 };
 
+/// Marker next to the database: the person saved an empty server address, so the baked-in one stays out.
+// ponytail: a file because the engine has no key-value call for the shell; move it into the settings store
+// if the engine gains one.
+const SERVER_CLEARED: &str = "server-cleared";
+
+/// Whether start-up fills in the installer defaults: nothing stored yet, and the address was not cleared.
+pub fn seed_defaults(data_dir: &Path, stored_url: &str) -> bool {
+    stored_url.is_empty() && !data_dir.join(SERVER_CLEARED).exists()
+}
+
+/// Set when a connection save leaves no address, lifted by any save with one (or "Use installer defaults").
+pub fn set_server_cleared(data_dir: &Path, on: bool) {
+    let path = data_dir.join(SERVER_CLEARED);
+    let res = if on { std::fs::write(&path, b"") } else { std::fs::remove_file(&path).or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) }) };
+    if let Err(e) = res {
+        tracing::warn!("remembering that the server address was cleared: {e}");
+    }
+}
+
 pub fn new_client(data_dir: &Path, server_url: String, install_key: String, token: Option<String>) -> Arc<SyncClient> {
     Arc::new(SyncClient::new(Config { server_url, install_key, token, outbox_path: data_dir.join("outbox.jsonl") }))
 }
@@ -149,7 +168,13 @@ async fn ensure_registered(app: &AppHandle, engine: &Arc<Engine>, client: &SyncC
                 15
             }
             Step::Register(name) => match register(engine, client, &name).await {
-                Ok(()) => return true,
+                Ok(()) => {
+                    // The server's name is stored, which can differ from one changed while this request ran.
+                    if let Ok(s) = blocking(engine, |e| e.get_app_state()).await {
+                        let _ = app.emit("name-changed", json!({ "name": s.name, "nextNameChange": s.next_name_change }));
+                    }
+                    return true;
+                }
                 Err(e) if e.code == "invalid_name" => {
                     // The server refused a name chosen offline: retrying can't help. Forget it so the app goes
                     // back to onboarding, which shows why and asks for another one.
@@ -213,13 +238,30 @@ async fn watch_status(app: AppHandle, client: Arc<SyncClient>, cancel: Cancellat
         let (s, error) = match status {
             Status::Connected => (ConnectionStatus::Connected, None),
             Status::Offline => (ConnectionStatus::Offline, None),
-            Status::Error(e) => (ConnectionStatus::Error, Some(e)),
+            Status::Error(e) => (ConnectionStatus::Error, Some(refused(&client, e).await)),
         };
         engine.set_connection_status(s, error);
         if connected {
             on_connect(&app, &engine, &client).await;
         }
         emit_connection(&app).await;
+    }
+}
+
+/// Shown when the admin removed this computer (`401 revoked`); saving the connection again registers anew.
+pub const REVOKED: &str = "This computer was removed by your admin. Save the connection again to rejoin.";
+
+/// The text for a refused connection. The WebSocket handshake error carries only the HTTP status, so a 401 is
+/// looked up with one `GET /me` (read-only, the request every connect makes anyway) to tell a removed computer.
+// ponytail: costs one extra request per failed reconnect while refused; read the code from the handshake body if
+// the sync crate starts exposing it.
+async fn refused(client: &SyncClient, error: String) -> String {
+    if !error.contains("401") {
+        return error;
+    }
+    match client.me().await {
+        Err(SyncError::Server { code, .. }) if code == "revoked" => REVOKED.into(),
+        _ => error,
     }
 }
 
@@ -316,6 +358,20 @@ mod tests {
         assert_eq!(next_step(false, false, ""), Step::Standalone);
         assert_eq!(next_step(false, false, "Ana"), Step::Standalone);
         assert_eq!(next_step(false, true, "Ana"), Step::Standalone);
+    }
+
+    #[test]
+    fn a_cleared_server_address_is_not_filled_in_again_at_start() {
+        let dir = std::env::temp_dir().join(format!("typeshelf-seed-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(seed_defaults(&dir, ""), "first start: the installer defaults are filled in");
+        assert!(!seed_defaults(&dir, "https://fonts.example.com"), "an address is already stored");
+        set_server_cleared(&dir, true);
+        assert!(!seed_defaults(&dir, ""), "the person cleared the address");
+        set_server_cleared(&dir, false);
+        assert!(seed_defaults(&dir, ""), "a later save or \"Use installer defaults\" lifts it");
+        set_server_cleared(&dir, false);
     }
 
     #[test]

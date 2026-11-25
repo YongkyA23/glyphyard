@@ -130,7 +130,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     let engine = Arc::new(Engine::open(&data_dir, SystemFonts)?);
     engine.activate_in_background();
-    if engine.get_connection()?.server_url.is_empty() {
+    if sync::seed_defaults(&data_dir, &engine.get_connection()?.server_url) {
         engine.set_connection(sync::DEFAULT_SERVER_URL, sync::DEFAULT_INSTALL_KEY)?;
     }
     // Previews read font files through the asset protocol, which allows nothing by default: allow every
@@ -291,6 +291,13 @@ fn shutdown(app: &AppHandle) {
     let engine = &ctx.engine;
     // Let a running background registration finish so the OS matches the ledger (repair would fix it anyway).
     engine.wait_for_activations();
+    // Nobody runs the timer while the app is closed (or Setup reinstalls it): every temporary font goes off now,
+    // "for 2 hours" ones included (the latest possible time makes each of them due).
+    match engine.expire_temporary(chrono::DateTime::<chrono::Utc>::MAX_UTC, true) {
+        Ok(n) if n > 0 => tracing::info!("turned off {n} temporary fonts on quit"),
+        Ok(_) => {}
+        Err(e) => tracing::error!("temporary fonts on quit: {e}"),
+    }
     if engine.get_settings().is_ok_and(|s| s.deactivate_on_quit) {
         match engine.deactivate_all() {
             Ok(r) => tracing::info!("deactivated {} fonts on quit", r.iter().filter(|r| r.ok).count()),

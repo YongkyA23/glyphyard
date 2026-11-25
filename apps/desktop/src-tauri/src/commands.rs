@@ -46,15 +46,28 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
 
 // ---- Identity ----
 
+/// The app state plus whether this computer holds a server token (the name rule applies only then).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStateView {
+    #[serde(flatten)]
+    state: AppState,
+    registered: bool,
+}
+
+fn app_state(e: &Engine) -> R<AppStateView> {
+    Ok(AppStateView { state: e.get_app_state()?, registered: e.token()?.is_some() })
+}
+
 #[tauri::command]
-pub async fn get_app_state(ctx: St<'_>) -> R<AppState> {
-    ctx.run(|e| e.get_app_state()).await
+pub async fn get_app_state(ctx: St<'_>) -> R<AppStateView> {
+    ctx.run(app_state).await
 }
 
 /// `offline`: the person chose "Continue offline". Without a server, or offline, the name is kept here and
 /// the sync loop registers with it once the server answers.
 #[tauri::command]
-pub async fn complete_onboarding(app: AppHandle, ctx: St<'_>, name: String, offline: Option<bool>) -> R<AppState> {
+pub async fn complete_onboarding(app: AppHandle, ctx: St<'_>, name: String, offline: Option<bool>) -> R<AppStateView> {
     let name = typeshelf_core::name_rule::validate_name(&name).map_err(|m| EngineError::new("invalid_name", m))?;
     let state = ctx.run(|e| e.get_app_state()).await?;
     if state.server_configured && !offline.unwrap_or(false) {
@@ -65,7 +78,7 @@ pub async fn complete_onboarding(app: AppHandle, ctx: St<'_>, name: String, offl
         ctx.run(move |e| e.set_identity(&name, None)).await?;
     }
     sync::restart(&app).await?;
-    ctx.run(|e| e.get_app_state()).await
+    ctx.run(app_state).await
 }
 
 #[derive(Serialize)]
@@ -507,16 +520,17 @@ pub async fn test_connection(ctx: St<'_>, server_url: String, install_key: Strin
 }
 
 /// A different server/key means a different registration: the token is dropped and `sync::restart`
-/// registers again with the stored name.
+/// registers again with the stored name. So does saving the same values once the admin removed this computer.
 async fn change_connection(app: &AppHandle, ctx: &Ctx, server_url: &str, install_key: &str) -> R<Connection> {
     let (url, key) = (server_url.trim().to_string(), install_key.trim().to_string());
+    let cleared = url.is_empty();
     let changed = ctx
         .run(move |e| {
             if !e.policy()?.allow_connection_edit {
                 return Err(EngineError::new("connection_locked", "Your admin has locked the connection settings."));
             }
             let c = e.get_connection()?;
-            if c.server_url == url && c.install_key == key {
+            if c.server_url == url && c.install_key == key && c.error.as_deref() != Some(sync::REVOKED) {
                 return Ok(false);
             }
             e.set_connection(&url, &key)?;
@@ -526,6 +540,8 @@ async fn change_connection(app: &AppHandle, ctx: &Ctx, server_url: &str, install
             Ok(true)
         })
         .await?;
+    // An emptied address stays empty after a restart (the installer defaults are not filled in again).
+    sync::set_server_cleared(&ctx.data_dir, cleared);
     if changed {
         tracing::info!(server_url, "connection changed");
         sync::restart(app).await?;
