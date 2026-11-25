@@ -728,7 +728,7 @@ impl Engine {
                 "SELECT DISTINCT f.hash FROM faces f WHERE f.family_key = ?1
                    AND EXISTS (SELECT 1 FROM files WHERE hash = f.hash)
                    AND (?2 = 0 OR NOT EXISTS (SELECT 1 FROM activations a JOIN faces g ON g.hash = a.hash
-                                              WHERE g.ps_name = f.ps_name COLLATE NOCASE))",
+                                              WHERE g.ps_name = f.ps_name COLLATE NOCASE AND a.hash != f.hash))",
             )?;
             let mut hashes = Vec::new();
             for k in &keys {

@@ -494,9 +494,11 @@ const handlers: Record<string, (a: Args) => unknown> = {
   },
   set_active: ({ hashes, active }) => activate(hashes, active),
   set_active_for: ({ hashes, until }) => {
+    // Fonts already on for good stay on for good, like the engine.
+    const permanent = new Set(families.flatMap((f) => f.faces).filter((x) => x.active && !x.temporaryUntil).map((x) => x.hash))
     const results = activate(hashes, true)
     const at = until === 'restart' ? 'restart' : new Date(Date.now() + until.minutes * 60_000).toISOString()
-    const faces = families.flatMap((f) => f.faces).filter((x) => results.some((r) => r.ok && r.hash === x.hash))
+    const faces = families.flatMap((f) => f.faces).filter((x) => !permanent.has(x.hash) && results.some((r) => r.ok && r.hash === x.hash))
     for (const x of faces) x.temporaryUntil = at
     // Like the engine's minute sweep; "restart" ones go when the page reloads, since the mock starts fresh.
     if (at !== 'restart') setTimeout(() => {

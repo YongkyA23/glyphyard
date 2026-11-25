@@ -77,3 +77,39 @@ fn expiry_keeps_fonts_that_another_reason_needs() {
     assert_eq!(fx.engine.expire_temporary(Utc::now(), true).unwrap(), 0);
     assert_eq!(fx.os.registered().len(), 1);
 }
+
+#[test]
+fn turning_on_a_collection_makes_a_temporary_font_permanent() {
+    let fx = fixture!();
+    let hashes = arial(&fx);
+    fx.engine.set_active_for(&hashes, Until::Minutes(30)).unwrap();
+    let cols = fx.engine.create_collection("Picks", None).unwrap();
+    let id = cols.iter().find(|c| c.name == "Picks").unwrap().id;
+    fx.engine.add_to_collection(id, &[fx.family("Arial").key]).unwrap();
+    fx.engine.set_collection_active(id, true).unwrap();
+    assert_eq!(fx.engine.expire_temporary(Utc::now() + Duration::hours(1), false).unwrap(), 0);
+    assert_eq!(fx.os.registered().len(), 1);
+}
+
+#[test]
+fn turn_on_for_leaves_fonts_that_were_already_on_permanently() {
+    let fx = fixture!();
+    let Some(bold) = system_font("arialbd.ttf") else { return };
+    fx.put("arialbd.ttf", &bold);
+    let hashes = arial(&fx);
+    let regular = fx.family("Arial").faces.into_iter().find(|f| f.style == "Regular").unwrap().hash;
+    fx.engine.set_active(std::slice::from_ref(&regular), true).unwrap();
+
+    fx.engine.set_active_for(&hashes, Until::Minutes(120)).unwrap();
+    assert_eq!(fx.os.registered().len(), 2);
+    assert_eq!(fx.engine.expire_temporary(Utc::now() + Duration::hours(3), false).unwrap(), 1);
+    let on: Vec<String> = fx.family("Arial").faces.into_iter().filter(|f| f.active).map(|f| f.hash).collect();
+    assert_eq!(on, vec![regular.clone()]);
+
+    // Choosing "2 hours" again for a font that is on temporarily still extends it.
+    let bold: Vec<String> = hashes.into_iter().filter(|h| *h != regular).collect();
+    fx.engine.set_active_for(&bold, Until::Minutes(10)).unwrap();
+    fx.engine.set_active_for(&bold, Until::Minutes(120)).unwrap();
+    assert_eq!(fx.engine.expire_temporary(Utc::now() + Duration::minutes(60), false).unwrap(), 0);
+    assert_eq!(fx.os.registered().len(), 2);
+}

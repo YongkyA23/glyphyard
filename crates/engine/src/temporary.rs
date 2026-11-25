@@ -6,7 +6,7 @@ use crate::{store, ActivationResult, Engine, Result};
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OptionalExtension};
 use serde::Deserialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use typeshelf_protocol::Source;
 
 const KEY: &str = "temporary";
@@ -53,8 +53,14 @@ fn needed_by_a_set(conn: &Connection, hash: &str) -> rusqlite::Result<bool> {
 }
 
 impl Engine {
-    /// Turns fonts on like `set_active` and records when each one turns off again.
+    /// Turns fonts on like `set_active` and records when each one turns off again. A font that is already on
+    /// for good stays on for good; one that is already on temporarily gets the new time.
     pub fn set_active_for(&self, hashes: &[String], until: Until) -> Result<Vec<ActivationResult>> {
+        let permanent: HashSet<String> = {
+            let db = self.db();
+            let records: Records = store::get(&db, KEY)?.unwrap_or_default();
+            self.ledger(&db)?.into_iter().map(|r| r.hash).filter(|h| !records.contains_key(h)).collect()
+        };
         let results = self.set_active(hashes, true)?;
         let value = match until {
             Until::Restart => RESTART.to_string(),
@@ -65,7 +71,7 @@ impl Engine {
         {
             let db = self.db();
             let mut records: Records = store::get(&db, KEY)?.unwrap_or_default();
-            for r in results.iter().filter(|r| r.ok) {
+            for r in results.iter().filter(|r| r.ok && !permanent.contains(&r.hash)) {
                 records.insert(r.hash.clone(), value.clone());
             }
             save(&db, &records)?;
