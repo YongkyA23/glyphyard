@@ -193,7 +193,7 @@ fn a_folder_that_fails_to_scan_does_not_skip_the_others() {
     let (path, _) = arial_on(&fx, "a/arial.ttf");
     let id = fx.engine.list_folders().unwrap()[0].id;
     std::fs::remove_file(&path).unwrap();
-    let err = fx.engine.scan_folders(&[id, 9999]).unwrap_err(); // 9999: no such folder
+    let err = fx.engine.scan_folders(&[id, 9999], "scan").unwrap_err(); // 9999: no such folder
     assert_eq!(err.code, "not_found", "the error is still returned");
     assert!(fx.os.registered().is_empty() && ledger_paths(&fx).is_empty(), "the folder that scanned was reconciled");
 }

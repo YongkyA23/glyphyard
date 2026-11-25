@@ -301,7 +301,7 @@ impl Engine {
         self.adopt_managed_folders();
         self.refresh_folders()?;
         let ids: Vec<i64> = folder_rows(&self.db())?.into_iter().filter(|f| f.online).map(|f| f.id).collect();
-        let changed = self.scan_folders(&ids)?;
+        let changed = self.scan_folders(&ids, "scan")?;
         if changed {
             self.library_changed("scan");
         }
@@ -411,7 +411,7 @@ impl Engine {
 
     /// Scans one folder and reconciles the ledger after it (see `scan_folders`). Returns whether anything changed.
     pub(crate) fn scan_folder(&self, id: i64) -> Result<bool> {
-        self.scan_folders(&[id])
+        self.scan_folders(&[id], "scan")
     }
 
     /// Incremental scan: only files whose size or mtime changed are read, hashed and parsed (in

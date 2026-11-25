@@ -121,3 +121,37 @@ fn an_expiry_the_os_refuses_keeps_its_record() {
     assert_eq!(fx.engine.expire_temporary(Utc::now() + Duration::minutes(6), false).unwrap(), 1);
     assert!(fx.os.registered().is_empty());
 }
+
+// E4: reconcile.
+
+#[test]
+fn a_follow_that_cannot_register_turns_the_font_off() {
+    let fx = fixture!();
+    let old = fx.put("a/arial.ttf", &system_font("arial.ttf").unwrap());
+    fx.engine.add_folder(&fx.root).unwrap();
+    let hash = fx.hashes("Arial")[0].clone();
+    fx.engine.set_active(std::slice::from_ref(&hash), true).unwrap();
+    let new = fx.root.join("b").join("arial.ttf");
+    std::fs::create_dir_all(new.parent().unwrap()).unwrap();
+    std::fs::rename(&old, &new).unwrap();
+    fx.os.0.fail.lock().unwrap().insert(std::path::absolute(&new).unwrap());
+    fx.engine.rescan().unwrap();
+    assert!(fx.os.registered().is_empty());
+    let rows: i64 = fx.engine.db().query_row("SELECT COUNT(*) FROM activations", [], |r| r.get(0)).unwrap();
+    assert_eq!(rows, 0, "not shown as on while unregistered");
+    assert!(fx.events.lock().unwrap().iter().any(|e| matches!(e, Event::ActivationFailed { font, .. } if font.hash == hash)));
+}
+
+#[test]
+fn a_partly_failed_scan_still_tells_the_ui() {
+    let fx = fixture!();
+    let path = fx.put("a/arial.ttf", &system_font("arial.ttf").unwrap());
+    fx.engine.add_folder(&fx.root).unwrap();
+    let id = fx.engine.list_folders().unwrap()[0].id;
+    std::fs::remove_file(&path).unwrap();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let sink = events.clone();
+    fx.engine.on_ui_event(move |e| sink.lock().unwrap().push(e));
+    assert!(fx.engine.scan_folders(&[id, 9999], "scan").is_err());
+    assert!(events.lock().unwrap().iter().any(|e| matches!(e, UiEvent::LibraryChanged { .. })));
+}

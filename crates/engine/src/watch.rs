@@ -40,7 +40,7 @@ impl Engine {
 
     fn on_fs_change(&self, paths: &[PathBuf]) -> Result<()> {
         let ids = self.folders_containing(paths)?;
-        let changed = self.scan_folders(&ids)?;
+        let changed = self.scan_folders(&ids, "watch")?;
         if changed {
             self.library_changed("watch");
         }

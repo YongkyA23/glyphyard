@@ -31,8 +31,9 @@ impl Engine {
     /// Scans `ids`, then reconciles the ledger once for all of them, so a font moved from one folder to another
     /// is found in the other whatever the scan order. Faces are pruned after it, so a font turned off is reported by
     /// name; auto-activation runs last, so turning off a replaced file cannot unload a font just registered at its path.
-    /// A folder that fails to scan does not stop the others from being reconciled; the first error is returned.
-    pub(crate) fn scan_folders(&self, ids: &[i64]) -> Result<bool> {
+    /// A folder that fails to scan does not stop the others from being reconciled; the first error is returned,
+    /// after `library_changed(why)` when another folder did scan (the caller skips it on an error).
+    pub(crate) fn scan_folders(&self, ids: &[i64], why: &'static str) -> Result<bool> {
         let mut changed = false;
         let mut scanned = Vec::new();
         let mut first_err = None;
@@ -61,7 +62,12 @@ impl Engine {
         };
         finish()?;
         match first_err {
-            Some(e) => Err(e),
+            Some(e) => {
+                if !scanned.is_empty() {
+                    self.library_changed(why);
+                }
+                Err(e)
+            }
             None => Ok(changed),
         }
     }
@@ -135,19 +141,22 @@ impl Engine {
         let _ = self.os.deactivate(&row.entry());
         let registered = self.os.activate(&new);
         let db = self.db();
+        if let Err(e) = registered {
+            // Not registered at the new path: turned off, not shown as on until the next start-up repair.
+            db.execute("DELETE FROM activations WHERE hash = ?1 AND path IN (?2, ?3)", params![row.hash, row.path, new.path.to_string_lossy()])?;
+            crate::temporary::forget(&db, std::slice::from_ref(&row.hash))?;
+            self.activation_failed(&db, &row.hash, &e);
+            return Ok(());
+        }
         let moved = db.execute(
             // `?3` too: another reconciliation may have followed the same row already.
             "UPDATE activations SET path = ?3 WHERE hash = ?1 AND path IN (?2, ?3)",
             params![row.hash, row.path, new.path.to_string_lossy()],
         )?;
-        match registered {
-            Err(e) => self.activation_failed(&db, &row.hash, &e),
-            // Turned off meanwhile: undo the registration.
-            Ok(()) if moved == 0 => {
-                drop(db);
-                let _ = self.os.deactivate(&new);
-            }
-            Ok(()) => {}
+        // Turned off meanwhile: undo the registration.
+        if moved == 0 {
+            drop(db);
+            let _ = self.os.deactivate(&new);
         }
         Ok(())
     }
