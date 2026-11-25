@@ -157,6 +157,7 @@ function Sidebar() {
   keys.current = { add, newCollection }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
       if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.repeat || keysBusy(e)) return
       const { add, newCollection } = keys.current
       const run = ({ f: add.addFonts, d: add.addFolder, w: add.watchFolder, c: newCollection } as Record<string, () => unknown>)[e.key.toLowerCase()]

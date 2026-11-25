@@ -21,7 +21,8 @@ export function ShortcutField({ value, platform, onSave }: { value: string; plat
       return
     }
     e.preventDefault()
-    const r = shortcutFromKey(e.nativeEvent, platform)
+    e.stopPropagation()
+    const r =shortcutFromKey(e.nativeEvent, platform)
     if (!r) return
     if ('error' in r) return setError(r.error)
     setError(null)
@@ -42,13 +43,13 @@ export function ShortcutField({ value, platform, onSave }: { value: string; plat
       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <kbd className="kbd">{formatShortcut(value, platform)}</kbd>
         <button
-          type="button" className={recording ? 'btn small outline-accent' : 'btn small'} aria-label={recording || busy ? undefined : 'Change quick activate shortcut'} aria-describedby={error ? 'shortcut-error' : undefined}
+          type="button" className={recording ? 'btn small outline-accent' : 'btn small'} aria-label={recording || busy ? undefined : 'Change quick activate shortcut'} aria-describedby={error ? 'shortcut-error' : recording ? 'shortcut-hint' : undefined}
           onClick={() => (setError(null), setRecording(!recording))} onKeyDown={onKey} onBlur={() => !busy && stop()}
         >
           {busy ? 'Saving…' : recording ? 'Press the new shortcut…' : 'Change'}
         </button>
       </span>
-      {recording && !error && <span className="faint" style={{ fontSize: 12 }}>Hold two modifier keys and press a key. Esc cancels.</span>}
+      {recording && !error && <span id="shortcut-hint" className="faint" style={{ fontSize: 12 }}>Hold two modifier keys and press a key. Esc cancels.</span>}
       {error && <span id="shortcut-error" role="alert" style={{ fontSize: 12, color: 'var(--bad)', textAlign: 'right' }}>{error}</span>}
     </span>
   )
