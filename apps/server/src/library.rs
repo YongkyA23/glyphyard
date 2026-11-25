@@ -276,7 +276,11 @@ async fn deliver(State(s): State<AppState>, admin: Admin, Path(hash): Path<Strin
         Target::Installs(ids) => ids.join(", "),
     };
     let on = if activate { ", turned on" } else { "" };
-    audit::record(&tx, &admin.email, "font_delivered", &hash, &format!("{} to {targets}{on}", file.ps_name))?;
+    if targets.is_empty() {
+        audit::record(&tx, &admin.email, "font_undelivered", &hash, &file.ps_name)?;
+    } else {
+        audit::record(&tx, &admin.email, "font_delivered", &hash, &format!("{} to {targets}{on}", file.ps_name))?;
+    }
     tx.commit()?;
     Ok(Json(file))
 }
@@ -331,15 +335,18 @@ fn set_delivery(c: &Connection, hub: &Hub, hash: &str, target: &Target, activate
     load(c, hash)
 }
 
-async fn remove(State(s): State<AppState>, _: Admin, Path(hash): Path<String>) -> ApiResult<StatusCode> {
-    remove_file(&s, &s.db(), &hash)?;
+async fn remove(State(s): State<AppState>, admin: Admin, Path(hash): Path<String>) -> ApiResult<StatusCode> {
+    let db = s.db();
+    let filename = remove_file(&s, &db, &hash)?;
+    audit::record(&db, &admin.email, "font_deleted", &hash, &filename)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 /// Takes a file out of the library: the stored file moves to the quarantine folder (as organize does) and its
 /// deliveries go with the row. Desktops keep the copies they have. A blocked file is refused (409 `blocked`): its
 /// row is what keeps the block listed, sent to new installs and liftable.
-fn remove_file(s: &AppState, c: &Connection, hash: &str) -> ApiResult<()> {
+/// Returns the file's name.
+fn remove_file(s: &AppState, c: &Connection, hash: &str) -> ApiResult<String> {
     let file = load(c, hash)?;
     if file.blocked {
         return Err(ApiError::new(StatusCode::CONFLICT, "blocked", "unblock this font before deleting it"));
@@ -350,7 +357,7 @@ fn remove_file(s: &AppState, c: &Connection, hash: &str) -> ApiResult<()> {
         _ => {}
     }
     c.execute("DELETE FROM library_files WHERE hash = ?1", [hash])?;
-    Ok(())
+    Ok(file.filename)
 }
 
 #[derive(Deserialize, Clone, Copy, PartialEq)]
@@ -376,7 +383,7 @@ struct BulkBody {
 /// One action over many files. Unknown files, files already blocked/unblocked, and blocked files asked to be
 /// delivered or deleted are skipped and counted. A delete that fails for one file is counted as failed and the
 /// rest go on (files already moved stay moved).
-async fn bulk(State(s): State<AppState>, _: Admin, Json(body): Json<BulkBody>) -> ApiResult<Json<Value>> {
+async fn bulk(State(s): State<AppState>, admin: Admin, Json(body): Json<BulkBody>) -> ApiResult<Json<Value>> {
     let mut db = s.db();
     let hashes: Vec<String> = match (body.hashes, &body.q) {
         (Some(h), _) => h,
@@ -408,7 +415,7 @@ async fn bulk(State(s): State<AppState>, _: Admin, Json(body): Json<BulkBody>) -
     if body.action == BulkAction::Delete {
         // No transaction: a moved file must not get its row back from a rollback.
         for h in &hashes {
-            count(remove_file(&s, &db, h).map(|()| true), true)?;
+            count(remove_file(&s, &db, h).map(|_| true), true)?;
         }
     } else {
         let tx = db.transaction()?;
@@ -427,6 +434,13 @@ async fn bulk(State(s): State<AppState>, _: Admin, Json(body): Json<BulkBody>) -
         }
         tx.commit()?;
     }
+    let action = match body.action {
+        BulkAction::Deliver => "bulk_deliver",
+        BulkAction::Block => "bulk_block",
+        BulkAction::Unblock => "bulk_unblock",
+        BulkAction::Delete => "bulk_delete",
+    };
+    audit::record(&db, &admin.email, action, "", &format!("{changed} changed, {skipped} skipped, {failed} failed"))?;
     Ok(Json(json!({ "changed": changed, "skipped": skipped, "failed": failed })))
 }
 

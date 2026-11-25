@@ -2,7 +2,7 @@
 
 use crate::auth::Admin;
 use crate::db::{self, GROUP};
-use crate::{ApiError, ApiResult, AppState, Page, Paging};
+use crate::{audit, ApiError, ApiResult, AppState, Page, Paging};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
@@ -95,23 +95,26 @@ async fn list(State(s): State<AppState>, _: Admin, Query(q): Query<ListQuery>, Q
     Ok(Json(Page { items, total }))
 }
 
-fn set_done(s: &AppState, id: i64, done: bool) -> ApiResult<StatusCode> {
-    let changed = s.db().execute(
+fn set_done(s: &AppState, admin: &Admin, id: i64, done: bool) -> ApiResult<StatusCode> {
+    let db = s.db();
+    let changed = db.execute(
         "UPDATE font_requests SET done_at = CASE WHEN ?2 THEN COALESCE(done_at, ?3) END WHERE id = ?1",
         params![id, done, db::now()],
     )?;
     if changed == 0 {
         return Err(ApiError::not_found(format!("no request {id}")));
     }
+    let name: String = db.query_row("SELECT font_name FROM font_requests WHERE id = ?1", [id], |r| r.get(0))?;
+    audit::record(&db, &admin.email, if done { "font_request_done" } else { "font_request_reopened" }, &id.to_string(), &name)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn done(State(s): State<AppState>, _: Admin, Path(id): Path<i64>) -> ApiResult<StatusCode> {
-    set_done(&s, id, true)
+async fn done(State(s): State<AppState>, admin: Admin, Path(id): Path<i64>) -> ApiResult<StatusCode> {
+    set_done(&s, &admin, id, true)
 }
 
-async fn reopen(State(s): State<AppState>, _: Admin, Path(id): Path<i64>) -> ApiResult<StatusCode> {
-    set_done(&s, id, false)
+async fn reopen(State(s): State<AppState>, admin: Admin, Path(id): Path<i64>) -> ApiResult<StatusCode> {
+    set_done(&s, &admin, id, false)
 }
 
 /// For the overview's attention block.

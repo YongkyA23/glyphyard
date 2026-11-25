@@ -989,6 +989,21 @@ async fn deleting_a_library_file_moves_it_to_quarantine() {
 }
 
 #[tokio::test]
+async fn revoking_and_deleting_are_audited() {
+    let s = Server::new().await;
+    s.register("a", "Ana").await;
+    let hash = s.seed_file("Gone.ttf", b"bytes of gone");
+    assert_eq!(s.admin(Method::DELETE, "/installs/a", None).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(s.admin(Method::DELETE, &format!("/library/{hash}"), None).await.status, StatusCode::NO_CONTENT);
+    let revoked = s.audit("?action=install_revoked").await;
+    assert_eq!(revoked["total"], 1);
+    assert_eq!((revoked["items"][0]["admin"].as_str(), revoked["items"][0]["target"].as_str()), (Some("admin@example.com"), Some("a")));
+    let deleted = s.audit("?action=font_deleted").await;
+    assert_eq!(deleted["total"], 1);
+    assert_eq!((deleted["items"][0]["target"].as_str(), deleted["items"][0]["detail"].as_str()), (Some(hash.as_str()), Some("Gone.ttf")));
+}
+
+#[tokio::test]
 async fn bulk_library_actions_take_ids_or_the_filter() {
     let s = Server::new().await;
     let a = s.register("a", "Ana").await;

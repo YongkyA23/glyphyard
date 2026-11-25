@@ -463,7 +463,7 @@ async fn split(State(s): State<AppState>, admin: Admin, Path(id): Path<String>) 
 /// Removes a computer and every install merged into it (one person's computers): their tokens are refused, they
 /// leave every list and count, deliveries aimed at them and unsent commands are dropped, and open sockets are
 /// closed. Names and timeline events stay for the name-history export.
-async fn revoke(State(s): State<AppState>, _: Admin, Path(id): Path<String>) -> ApiResult<StatusCode> {
+async fn revoke(State(s): State<AppState>, admin: Admin, Path(id): Path<String>) -> ApiResult<StatusCode> {
     let ids = {
         let mut db = s.db();
         let tx = db.transaction()?;
@@ -479,6 +479,7 @@ async fn revoke(State(s): State<AppState>, _: Admin, Path(id): Path<String>) -> 
             tx.execute("DELETE FROM deliveries WHERE target = ?1", [i])?;
             db::insert_event(&tx, i, "system", "admin", "Removed by an admin", "{}", &now)?;
         }
+        audit::record(&tx, &admin.email, "install_revoked", &id, "")?;
         tx.commit()?;
         ids
     };

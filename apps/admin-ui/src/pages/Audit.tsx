@@ -16,6 +16,9 @@ const LABELS: Record<string, string> = {
   font_delivered: 'Delivered a font', organize_applied: 'Applied auto-organize', font_on: 'Turned a font on remotely',
   font_off: 'Turned a font off remotely', name_limit_reset: 'Reset the name-change limit', organize_requested: 'Asked an install to organize',
   installs_merged: 'Merged installs', install_split: 'Split an install back out',
+  install_revoked: 'Removed a computer', font_undelivered: 'Stopped delivering a font', font_deleted: 'Deleted a font',
+  bulk_deliver: 'Delivered fonts in bulk', bulk_block: 'Blocked fonts in bulk', bulk_unblock: 'Unblocked fonts in bulk', bulk_delete: 'Deleted fonts in bulk',
+  font_request_done: 'Marked a font request done', font_request_reopened: 'Reopened a font request',
 }
 const label = (action: string) => LABELS[action] ?? action
 
