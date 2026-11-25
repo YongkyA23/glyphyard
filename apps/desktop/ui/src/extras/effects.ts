@@ -2,8 +2,13 @@
 import { useRef } from 'react'
 import { api, type Family, type ListFamiliesArgs } from '../api'
 
+/** The last value read; null until the first read. Lets the listeners stay idle while the setting is off. */
+let known: boolean | null = null
 /** Read when an egg fires (rare), so turning the setting off takes effect at once. A missing value means on. */
-export const playful = () => api.getSettings().then((s) => s.playful !== false, () => false)
+export const playful = () => api.getSettings().then((s) => (known = s.playful !== false), () => (known = false))
+/** Known to be off: listeners return before doing any work. Refreshed by `refreshPlayful` (Extras: route change, window focus). */
+export const playfulOff = () => known === false
+export const refreshPlayful = () => void playful()
 
 export const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -16,14 +21,17 @@ export function swapFont(kind: EggFont) {
   timer = window.setTimeout(clearFont, 5000)
 }
 export function clearFont() {
+  if (document.documentElement.dataset.eggFont === undefined) return
   clearTimeout(timer)
   delete document.documentElement.dataset.eggFont
 }
 
-/** Calls `fn` on the `n`th click in a row, each within 600 ms of the last. */
-export function useTaps(n: number, fn: () => void) {
+/** Calls `fn` on the `n`th click in a row, each within 600 ms of the last. Idle while the setting is known to be off,
+ *  unless `always` (the Settings page's own egg, where the switch can be turned back on without a route change). */
+export function useTaps(n: number, fn: () => void, always = false) {
   const t = useRef({ count: 0, at: 0 })
   return () => {
+    if (!always && playfulOff()) return
     const c = t.current
     const now = Date.now()
     c.count = now - c.at < 600 ? c.count + 1 : 1

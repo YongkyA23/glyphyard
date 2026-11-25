@@ -8,7 +8,7 @@ import { NameThatFont } from './NameThatFont'
 export function VersionGames({ version }: { version: string }) {
   const [shown, setShown] = useState(false)
   const [game, setGame] = useState<'kern' | 'name' | null>(null)
-  const tap = useTaps(3, () => void playful().then((on) => on && setShown(true)))
+  const tap = useTaps(3, () => void playful().then((on) => on && setShown(true)), true)
   return (
     <span className="egg-games">
       <button type="button" className="egg-plain" onClick={tap}>Typeshelf {version}</button>
