@@ -184,6 +184,19 @@ fn blocking_a_second_file_keeps_the_first_blocked() {
 }
 
 #[test]
+fn deactivating_a_font_that_is_off_reports_no_admin_change() {
+    let fx = fixture!();
+    fx.put("arial.ttf", &system_font("arial.ttf").unwrap());
+    fx.engine.add_folder(&fx.root).unwrap();
+    let ui = Arc::new(Mutex::new(Vec::new()));
+    let sink = ui.clone();
+    fx.engine.on_ui_event(move |e| sink.lock().unwrap().push(e));
+
+    fx.engine.apply_command(&CommandKind::Deactivate { font: arial_ref(&fx) }).unwrap();
+    assert!(!ui.lock().unwrap().iter().any(|e| matches!(e, UiEvent::AdminChange { .. })), "no \"turned off 0 fonts\"");
+}
+
+#[test]
 fn active_fonts_come_back_when_their_folder_returns() {
     let fx = fixture!();
     fx.put("lib/arial.ttf", &system_font("arial.ttf").unwrap());

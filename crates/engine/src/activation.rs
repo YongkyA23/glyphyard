@@ -746,8 +746,12 @@ impl Engine {
             .collect()
     }
 
+    /// Tells the user what an admin command changed; a command that changed no font says nothing.
     pub(crate) fn admin_change(&self, action: &'static str, fonts: Vec<crate::FontLabel>) {
-        self.ui(UiEvent::AdminChange { action, fonts });
+        if !fonts.is_empty() {
+            self.ui(UiEvent::AdminChange { action, fonts });
+        }
+        // Still refreshed: a block changes the library even when no font was on.
         self.library_changed("admin");
     }
 }
