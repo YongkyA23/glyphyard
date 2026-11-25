@@ -207,7 +207,8 @@ struct FontsQuery {
     active: Option<bool>,
 }
 
-/// The install's reported fonts, active first.
+/// The fonts reported by the install and every install merged into it, active first: one row per font, on if any
+/// of them has it on, the other fields from the newest report.
 async fn fonts(
     State(s): State<AppState>,
     _: Admin,
@@ -219,10 +220,16 @@ async fn fonts(
     exists(&db, &id)?;
     let (offset, limit) = paging.window(Paging::DEFAULT, Paging::MAX);
     let needle = q.q.unwrap_or_default().trim().to_lowercase();
-    let filter = "install_id = ?1 AND instr(lower(family || ' ' || style || ' ' || ps_name), ?2) > 0 AND (?3 IS NULL OR active = ?3)";
-    let total: i64 = db.query_row(&format!("SELECT COUNT(*) FROM font_states WHERE {filter}"), params![id, needle, q.active], |r| r.get(0))?;
+    let group = format!(
+        "WITH g AS (SELECT hash, ps_name, family, style, source, overridden_at,
+                           MAX(active) OVER (PARTITION BY hash) AS active,
+                           ROW_NUMBER() OVER (PARTITION BY hash ORDER BY updated_at DESC, install_id) AS newest
+                    FROM font_states WHERE install_id IN {GROUP})"
+    );
+    let filter = "newest = 1 AND instr(lower(family || ' ' || style || ' ' || ps_name), ?2) > 0 AND (?3 IS NULL OR active = ?3)";
+    let total: i64 = db.query_row(&format!("{group} SELECT COUNT(*) FROM g WHERE {filter}"), params![id, needle, q.active], |r| r.get(0))?;
     let mut stmt = db.prepare(&format!(
-        "SELECT {FONT_COLUMNS} FROM font_states WHERE {filter} ORDER BY active DESC, family COLLATE NOCASE, style, hash LIMIT ?4 OFFSET ?5"
+        "{group} SELECT {FONT_COLUMNS} FROM g WHERE {filter} ORDER BY active DESC, family COLLATE NOCASE, style, hash LIMIT ?4 OFFSET ?5"
     ))?;
     let items = stmt.query_map(params![id, needle, q.active, limit, offset], font_row)?.collect::<Result<_, _>>()?;
     Ok(Json(Page { items, total }))
@@ -310,13 +317,18 @@ struct FontBody {
     active: bool,
 }
 
-/// Queues Activate/Deactivate. The font is looked up on the install first, then in the shared library.
+/// Queues Activate/Deactivate for the install and its merged installs. The font is looked up on that group first
+/// (as the fonts list shows it), then in the shared library.
 async fn set_font(State(s): State<AppState>, _: Admin, Path(id): Path<String>, Json(body): Json<FontBody>) -> ApiResult<Json<Value>> {
     let db = s.db();
     exists(&db, &id)?;
     let font_ref = |r: &rusqlite::Row| Ok(FontRef { hash: body.hash.clone(), ps_name: r.get(0)?, family: r.get(1)?, style: r.get(2)? });
     let on_install = db
-        .query_row("SELECT ps_name, family, style FROM font_states WHERE install_id = ?1 AND hash = ?2", params![id, body.hash], font_ref)
+        .query_row(
+            &format!("SELECT ps_name, family, style FROM font_states WHERE install_id IN {GROUP} AND hash = ?2 ORDER BY updated_at DESC LIMIT 1"),
+            params![id, body.hash],
+            font_ref,
+        )
         .optional()?;
     let in_library: Option<(FontRef, bool)> = db
         .query_row("SELECT ps_name, family, style, blocked FROM library_files WHERE hash = ?1", [&body.hash], |r| {

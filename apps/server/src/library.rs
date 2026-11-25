@@ -293,7 +293,9 @@ pub fn welcome_commands(c: &Connection, hub: &Hub, install_id: &str, deliver_to_
     Ok(())
 }
 
-const DELIVERED_TO_ME: &str = "EXISTS(SELECT 1 FROM deliveries d WHERE d.hash = library_files.hash AND d.target IN ('all', ?1))";
+/// Delivered to all, to this install, or to the install it is merged into (deliveries fan out to the group).
+const DELIVERED_TO_ME: &str = "EXISTS(SELECT 1 FROM deliveries d WHERE d.hash = library_files.hash
+    AND d.target IN ('all', ?1, (SELECT merged_into FROM installs WHERE id = ?1)))";
 
 pub async fn my_library(State(s): State<AppState>, install: Install) -> ApiResult<Json<Vec<WireFile>>> {
     let db = s.db();
@@ -354,13 +356,28 @@ async fn organize_plan(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Va
     Ok(Json(json!({ "changes": changes, "notes": notes })))
 }
 
-/// Applies renames and removals (quarantine/trash); grouping, alternates and skips are advice only.
+/// Moves a stored file to `<data>/quarantine/<filename>`, or `<hash[..8]>-<filename>` when that name is taken.
+fn quarantine_file(s: &AppState, hash: &str, filename: &str) -> std::io::Result<()> {
+    let dir = s.data_dir.join("quarantine");
+    std::fs::create_dir_all(&dir)?;
+    let mut to = dir.join(filename);
+    if to.try_exists()? {
+        to = dir.join(format!("{}-{filename}", &hash[..8]));
+    }
+    if to.try_exists()? {
+        return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, format!("{} already exists", to.display())));
+    }
+    std::fs::rename(store_dir(s).join(hash), to)
+}
+
+/// Applies renames and removals (quarantine/trash move the stored file to `<data>/quarantine/`); grouping,
+/// alternates and skips are advice only.
 async fn organize_apply(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Value>> {
     let changes = library_plan(&s).await?;
     let name = |p: &std::path::Path| p.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
-    let mut removed = Vec::new();
     let mut applied = 0;
     {
+        // ponytail: file moves run under the DB lock; a same-disk rename is quick.
         let db = s.db();
         for change in &changes {
             match &change.action {
@@ -372,21 +389,22 @@ async fn organize_apply(State(s): State<AppState>, _: Admin) -> ApiResult<Json<V
                     }
                 }
                 Action::Trash { path: from, .. } | Action::Quarantine { from, .. } => {
+                    let filename = name(from);
                     let hash: Option<String> = db
-                        .query_row("SELECT hash FROM library_files WHERE filename = ?1", [name(from)], |r| r.get(0))
+                        .query_row("SELECT hash FROM library_files WHERE filename = ?1", [&filename], |r| r.get(0))
                         .optional()?;
-                    if let Some(hash) = hash {
-                        db.execute("DELETE FROM library_files WHERE hash = ?1", [&hash])?;
-                        removed.push(hash);
-                        applied += 1;
+                    let Some(hash) = hash else { continue };
+                    match quarantine_file(&s, &hash, &filename) {
+                        Ok(()) => {
+                            db.execute("DELETE FROM library_files WHERE hash = ?1", [&hash])?;
+                            applied += 1;
+                        }
+                        Err(e) => tracing::warn!("could not quarantine library file {filename} ({hash}): {e}"),
                     }
                 }
                 _ => {}
             }
         }
-    }
-    for hash in removed {
-        let _ = tokio::fs::remove_file(store_dir(&s).join(hash)).await;
     }
     Ok(Json(json!({ "applied": applied })))
 }

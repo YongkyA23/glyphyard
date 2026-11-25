@@ -26,11 +26,12 @@ pub struct AppState {
     db: Arc<Mutex<Connection>>,
     pub data_dir: PathBuf,
     pub hub: Arc<hub::Hub>,
+    pub login_throttle: Arc<auth::LoginThrottle>,
 }
 
 impl AppState {
     pub fn new(conn: Connection, data_dir: PathBuf) -> Self {
-        Self { db: Arc::new(Mutex::new(conn)), data_dir, hub: Arc::default() }
+        Self { db: Arc::new(Mutex::new(conn)), data_dir, hub: Arc::default(), login_throttle: Arc::default() }
     }
 
     pub fn db(&self) -> MutexGuard<'_, Connection> {

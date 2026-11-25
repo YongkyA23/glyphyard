@@ -45,17 +45,24 @@ impl Hub {
     }
 }
 
-/// Stores the command (so it survives offline periods) and pushes it if the install is connected.
+/// Stores the command (so it survives offline periods) for the install and for every install merged into it
+/// (each is still a computer of its own), and pushes it to those connected. Returns the command id of `install_id`.
 pub fn queue(c: &Connection, hub: &Hub, install_id: &str, kind: CommandKind) -> rusqlite::Result<i64> {
     let payload = serde_json::to_value(&kind).expect("command serializes");
     let kind_name = payload["kind"].as_str().unwrap_or_default().to_string();
-    c.execute(
-        "INSERT INTO commands (install_id, kind, payload_json, created_at) VALUES (?1, ?2, ?3, ?4)",
-        params![install_id, kind_name, payload.to_string(), db::now()],
-    )?;
-    let id = c.last_insert_rowid();
-    hub.push(install_id, Command { id, kind });
-    Ok(id)
+    let mut stmt = c.prepare("SELECT id FROM installs WHERE merged_into = ?1")?;
+    let merged: Vec<String> = stmt.query_map([install_id], |r| r.get(0))?.collect::<Result<_, _>>()?;
+    let mut first = None;
+    for target in std::iter::once(install_id).chain(merged.iter().map(String::as_str)) {
+        c.execute(
+            "INSERT INTO commands (install_id, kind, payload_json, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![target, kind_name, payload.to_string(), db::now()],
+        )?;
+        let id = c.last_insert_rowid();
+        first.get_or_insert(id);
+        hub.push(target, Command { id, kind: kind.clone() });
+    }
+    Ok(first.expect("the install itself is always queued"))
 }
 
 /// Not yet acknowledged commands, oldest first; marks them delivered.

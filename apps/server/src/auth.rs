@@ -12,10 +12,56 @@ use rusqlite::OptionalExtension;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use typeshelf_protocol::INSTALL_KEY_HEADER;
 
 pub const SESSION_COOKIE: &str = "ts_session";
 pub const SESSION_DAYS: i64 = 30;
+
+pub const LOGIN_MAX_FAILURES: u32 = 5;
+pub const LOGIN_WINDOW: Duration = Duration::from_secs(15 * 60);
+const LOGIN_MAX_TRACKED: usize = 10_000;
+
+/// Failed admin sign-ins per email (trimmed, lowercased): `(failures, first failure in the window)`.
+#[derive(Default)]
+pub struct LoginThrottle(Mutex<HashMap<String, (u32, Instant)>>);
+
+impl LoginThrottle {
+    fn key(email: &str) -> String {
+        email.trim().to_lowercase()
+    }
+
+    fn map(&self) -> std::sync::MutexGuard<'_, HashMap<String, (u32, Instant)>> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// How long this email stays locked, if it is.
+    pub fn locked_for(&self, email: &str, now: Instant) -> Option<Duration> {
+        let (n, start) = *self.map().get(&Self::key(email))?;
+        let left = (start + LOGIN_WINDOW).checked_duration_since(now).filter(|d| !d.is_zero())?;
+        (n >= LOGIN_MAX_FAILURES).then_some(left)
+    }
+
+    pub fn failed(&self, email: &str, now: Instant) {
+        let mut map = self.map();
+        let live = |start: &Instant| now.duration_since(*start) < LOGIN_WINDOW;
+        let key = Self::key(email);
+        if let Some((n, _)) = map.get_mut(&key).filter(|(_, start)| live(start)) {
+            *n += 1;
+            return;
+        }
+        map.retain(|_, (_, start)| live(start));
+        // ponytail: at the cap a flood of distinct emails stops new emails being tracked; add a per-IP limit if that matters.
+        if map.len() < LOGIN_MAX_TRACKED || map.contains_key(&key) {
+            map.insert(key, (1, now));
+        }
+    }
+
+    pub fn clear(&self, email: &str) {
+        self.map().remove(&Self::key(email));
+    }
+}
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().fold(String::new(), |mut s, b| {
@@ -134,5 +180,21 @@ mod tests {
         assert!(verify_password("correct horse", &h));
         assert!(!verify_password("wrong", &h));
         assert_eq!(token_hash("abc").len(), 64);
+    }
+
+    #[test]
+    fn login_lock_ends_with_the_window() {
+        let t = LoginThrottle::default();
+        let start = Instant::now();
+        for _ in 0..LOGIN_MAX_FAILURES {
+            assert_eq!(t.locked_for("a@x", start), None);
+            t.failed("A@x ", start);
+        }
+        assert!(t.locked_for("a@x", start + Duration::from_secs(60)).is_some());
+        assert_eq!(t.locked_for("a@x", start + LOGIN_WINDOW), None);
+        // A failure after the window starts a new count.
+        t.failed("a@x", start + LOGIN_WINDOW);
+        assert_eq!(t.locked_for("a@x", start + LOGIN_WINDOW), None);
+        assert_eq!(t.map().len(), 1);
     }
 }

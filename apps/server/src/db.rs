@@ -143,7 +143,8 @@ pub fn install_name(c: &Connection, id: &str) -> rusqlite::Result<Option<String>
     c.query_row("SELECT name FROM installs WHERE id = ?1", [id], |r| r.get(0)).optional()
 }
 
-/// Installs that receive broadcasts (block, policy, deliver to all): every install not merged away.
+/// Every install not merged away: the admin's list, and the targets of broadcasts (block, policy, deliver to
+/// all), which `hub::queue` fans out to the installs merged into each.
 pub fn active_install_ids(c: &Connection) -> rusqlite::Result<Vec<String>> {
     let mut stmt = c.prepare("SELECT id FROM installs WHERE merged_into IS NULL")?;
     let ids = stmt.query_map([], |r| r.get(0))?.collect();

@@ -47,8 +47,21 @@ async fn register(State(s): State<AppState>, _: InstallKey, Json(req): Json<Regi
     let now = db::now();
     let mut db = s.db();
     let tx = db.transaction()?;
-    if db::install_name(&tx, install_id)?.is_some() {
-        return Err(ApiError::new(StatusCode::CONFLICT, "already_registered", "this install is already registered"));
+    // `last_seen` moves on the first authenticated request (microsecond timestamps), so an equal pair means the
+    // desktop never used its token, most likely because it never got this response: hand out a new one.
+    let unused: Option<bool> =
+        tx.query_row("SELECT last_seen = first_seen FROM installs WHERE id = ?1", [install_id], |r| r.get(0)).optional()?;
+    match unused {
+        Some(true) => {
+            tx.execute("UPDATE installs SET token_hash = ?1 WHERE id = ?2", params![auth::token_hash(&token), install_id])?;
+            let settings = db::settings(&tx)?;
+            let name = db::install_name(&tx, install_id)?.unwrap_or_default();
+            let next_name_change = db::next_name_change(&tx, install_id, settings.name_change_days)?;
+            tx.commit()?;
+            return Ok(Json(RegisterResponse { token, name, next_name_change, policy: settings.policy() }));
+        }
+        Some(false) => return Err(ApiError::new(StatusCode::CONFLICT, "already_registered", "this install is already registered")),
+        None => {}
     }
     tx.execute(
         "INSERT INTO installs (id, token_hash, name, os, app_version, first_seen, last_seen) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",

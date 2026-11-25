@@ -16,7 +16,8 @@ pub fn next_allowed(
     if last_reset.is_some_and(|r| r > last) {
         return None;
     }
-    let next = last + Duration::days(days as i64);
+    // A limit too large for a date means "not in any foreseeable future", never a panic.
+    let next = Duration::try_days(days.into()).and_then(|d| last.checked_add_signed(d)).unwrap_or(DateTime::<Utc>::MAX_UTC);
     (now < next).then_some(next)
 }
 
@@ -57,6 +58,12 @@ mod tests {
     fn admin_reset_lifts_limit_only_if_newer() {
         assert_eq!(next_allowed(day(20), Some(day(12)), Some(day(15)), 30), None);
         assert!(next_allowed(day(20), Some(day(12)), Some(day(10)), 30).is_some());
+    }
+
+    #[test]
+    fn huge_limits_lock_instead_of_panicking() {
+        let next = next_allowed(day(20), Some(day(12)), None, u32::MAX).unwrap();
+        assert!(next > day(20) + Duration::days(365 * 1000));
     }
 
     #[test]
