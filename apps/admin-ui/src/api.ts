@@ -48,6 +48,7 @@ export type Me = { email: string; role: Role }
 export type Admin = { id: number; email: string; role: Role; last_login: string | null }
 export type AuditEntry = { id: number; at: string; admin: string; action: string; target: string; detail: string }
 export type AuditPage = Page<AuditEntry> & { admins: string[]; actions: string[] }
+export type UpdateRelease = { version: string; size: number }
 export type OrganizeReport = { install_id: string; name: string; duplicates: number; version_conflicts: number; name_clashes: number; last_organized: string | null }
 /** One page of a server-side list; `total` counts the whole filtered list. */
 export type Page<T> = { items: T[]; total: number }
@@ -146,6 +147,9 @@ export const api = {
   settings: () => request<Settings>('GET', '/settings'),
   saveSettings: (s: Partial<Omit<Settings, 'install_key'>>) => request<Settings>('PUT', '/settings', s),
   regenerateKey: () => request<{ install_key: string }>('POST', '/settings/install-key'),
+  updateRelease: () => request<UpdateRelease | null>('GET', '/update'),
+  /** Fields `file` (setup program), `manifest` and `signature` (from `typeshelf-server update-sign`). */
+  uploadUpdate: (form: FormData) => request<UpdateRelease>('POST', '/update', form),
   admins: () => request<Admin[]>('GET', '/admins'),
   addAdmin: (email: string, password: string) => request<void>('POST', '/admins', { email, password }),
   removeAdmin: (adminId: number) => request<void>('DELETE', `/admins/${adminId}`),

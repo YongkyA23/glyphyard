@@ -57,3 +57,17 @@ Upload the binary to `~/typeshelf/bin/` and `apps/server/static/*` to `~/typeshe
 ssh <server-host> '~/typeshelf/bin/typeshelf-server install-key --data ~/typeshelf/data'
 ./scripts/build-windows.ps1 -ServerUrl https://fonts.example.com -InstallKey <key>
 ```
+
+Optional, both off by default:
+- **Code signing**: add `-CertThumbprint <thumbprint>` (a certificate in your Windows store) or `-CertFile <file.pfx>`
+  with the password in `$env:TYPESHELF_CERT_PASSWORD`. `signtool` (Windows SDK) signs `typeshelf.exe` and the
+  setup program with an RFC 3161 timestamp (`-TimestampUrl`, default DigiCert). Without a certificate the script
+  prints one line saying the build is unsigned.
+- **App updates from this server**: once, on a computer you keep offline,
+  `typeshelf-server update-keygen --out update-key.txt` writes the private key and prints the public key. Build with
+  `-UpdateKey <public key>`; a build without it never checks for updates and hides Settings › "Update automatically".
+  For each release: `typeshelf-server update-sign dist/Typeshelf-Setup-<version>.exe --key update-key.txt` writes
+  `<setup>.manifest` and `<setup>.manifest.sig`; upload the three files in admin Settings › App updates. Apps
+  check a minute after start and daily, verify the signature and the file, ignore versions that are not newer,
+  and run the setup program with `--silent` when the user quits. Anyone with the private key can ship code to
+  every computer: keep it off the server. Losing it means rebuilding the app with a new key.

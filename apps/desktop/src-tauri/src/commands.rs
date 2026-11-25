@@ -441,13 +441,13 @@ pub async fn backup_restore(ctx: St<'_>, path: String) -> R<BackupInfo> {
 // ---- Settings ----
 
 #[tauri::command]
-pub async fn get_settings(ctx: St<'_>) -> R<AppSettings> {
-    ctx.run(|e| e.get_settings()).await
+pub async fn get_settings(app: AppHandle, ctx: St<'_>) -> R<crate::update::SettingsView> {
+    Ok(crate::update::view(&app, ctx.run(|e| e.get_settings()).await?))
 }
 
 /// Saves, then applies the OS side (shortcut, login item); a failed side effect rolls the field back.
 #[tauri::command]
-pub async fn update_settings(app: AppHandle, ctx: St<'_>, patch: Value) -> R<AppSettings> {
+pub async fn update_settings(app: AppHandle, ctx: St<'_>, patch: Value) -> R<crate::update::SettingsView> {
     let old = ctx.run(|e| e.get_settings()).await?;
     let new = ctx.run(move |e| e.update_settings(patch)).await?;
     let mut revert = serde_json::Map::new();
@@ -470,7 +470,7 @@ pub async fn update_settings(app: AppHandle, ctx: St<'_>, patch: Value) -> R<App
             ctx.run(move |en| en.update_settings(Value::Object(revert))).await?;
             Err(e)
         }
-        None => Ok(new),
+        None => Ok(crate::update::view(&app, new)),
     }
 }
 

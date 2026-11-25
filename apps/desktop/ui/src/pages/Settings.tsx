@@ -249,9 +249,12 @@ function AppSection() {
   return (
     <motion.section aria-labelledby="s-app" className="settings-card" style={{ gap: 4 }} {...inView}>
       <h2 id="s-app" className="h-section" style={{ marginBottom: 8 }}>App</h2>
-      {APP_TOGGLES.map(([k, label, hint]) => (
+      {APP_TOGGLES.filter(([k]) => k !== 'autoUpdate' || s?.canUpdate).map(([k, label, hint]) => (
         <div key={k} className="setting-row">
-          <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><span>{label}</span><span className="faint" style={{ fontSize: 12 }}>{hint}</span></span>
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span>{label}</span><span className="faint" style={{ fontSize: 12 }}>{hint}</span>
+            {k === 'autoUpdate' && s?.autoUpdate && s.updateReady && <span style={{ fontSize: 12, color: 'var(--accent-ink)' }}>Version {s.updateReady} will be installed when you quit Typeshelf.</span>}
+          </span>
           <Switch on={!!s?.[k]} label={label} onClick={() => flip(k)} disabled={!s} />
         </div>
       ))}

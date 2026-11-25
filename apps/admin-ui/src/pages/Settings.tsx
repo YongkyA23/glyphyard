@@ -136,6 +136,8 @@ function Form({ initial, onSaved, admins, owner }: { initial: Settings; onSaved:
 
       {admins}
 
+      <Updates />
+
       <motion.section aria-labelledby="dat" className="card pad-20 stack-10" variants={fadeRise}>
         <h2 id="dat" className="h2">History and data</h2>
         <label className="inline-field">
@@ -289,6 +291,59 @@ function OwnPassword() {
         {error && <span role="alert" className="form-error full">{error}</span>}
         <span className="meta full" role="status">{status === 'saved' ? 'Password changed. You were signed out everywhere else.' : 'Changing it signs you out on every other browser.'}</span>
       </form>
+    </motion.section>
+  )
+}
+
+const UPDATE_FIELDS: [string, string, string][] = [
+  ['file', 'Setup program', '.exe'],
+  ['manifest', 'Manifest', '.manifest'],
+  ['signature', 'Signature', '.sig'],
+]
+
+function Updates() {
+  const state = useLoad(() => api.updateRelease(), [])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [done, setDone] = useState('')
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    const formEl = e.currentTarget
+    const form = new FormData(formEl)
+    if (UPDATE_FIELDS.some(([name]) => !(form.get(name) instanceof File) || (form.get(name) as File).size === 0)) {
+      return setError('Choose the setup program, its manifest and its signature.')
+    }
+    setBusy(true)
+    setError('')
+    setDone('')
+    try {
+      const r = await api.uploadUpdate(form)
+      state.setData(() => r)
+      setDone(`Version ${r.version} is now offered to every computer.`)
+      formEl.reset()
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <motion.section aria-labelledby="upd" className="card pad-20 stack-10" variants={fadeRise}>
+      <h2 id="upd" className="h2">App updates</h2>
+      <Loaded state={state} skeleton={<Skel w="50%" />}>{(r) => (
+        <span className="small">{r ? `Current release: version ${r.version} (${(r.size / 1_048_576).toFixed(1)} MB)` : 'No release uploaded. Desktop apps keep the version they have.'}</span>
+      )}</Loaded>
+      <form className="stack-10" onSubmit={submit} noValidate>
+        {UPDATE_FIELDS.map(([name, label, accept]) => (
+          <label key={name} className="field"><span>{label} ({accept})</span>
+            <input type="file" name={name} accept={accept} className="input" onChange={() => { setError(''); setDone('') }} />
+          </label>
+        ))}
+        <span className="row-8"><button type="submit" className="btn btn-primary" disabled={busy}>{busy && <Spin />}{busy ? 'Uploading…' : 'Upload release'}</button></span>
+        {error && <span role="alert" className="form-error">{error}</span>}
+        <span className="small mute" role="status">{done}</span>
+      </form>
+      <span className="meta lh">Sign the setup program on the computer that keeps the private key, with <code>typeshelf-server update-sign</code>. Apps built with the matching public key check once a day, check the signature and the file, and install the new version when the user quits Typeshelf. The server refuses a setup program that doesn’t match its manifest.</span>
     </motion.section>
   )
 }

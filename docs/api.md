@@ -22,6 +22,8 @@ Everything except registration also carries `Authorization: Bearer <install toke
 | POST | `/me/commands/{id}/ack` | `{ ok, error? }` → 204. The first ack of a command stands; a repeat is accepted and ignored. A failed ack becomes a `failure` timeline event, except that a command queued to a merged group (one copy per computer) that fails with `file_missing: … is not in this library` is held back while another copy succeeded, or was delivered to its computer and is not acked yet; copies never delivered (computer offline, gone or split away) do not hold it back. So a computer that gets the command and succeeds after the failure was recorded leaves that failure on the timeline. The WebSocket `Ack` follows the same rules. |
 | GET | `/me/ws` | WebSocket. Server sends `ServerMessage`, client sends `ClientMessage`. Token may also be passed as `?token=` and key as `?key=`. While connected the install counts as online. |
 | GET | `/library/files/{hash}` | → font bytes, only if delivered to this install, to the install it was merged into, or to all, and not blocked; else 404. |
+| GET | `/update` | → `{ manifest, signature }`: the current app release's manifest and Ed25519 signature, as text exactly as uploaded; 404 `no_release` when there is none. The app verifies the signature with the public key built into it before trusting anything in the manifest. |
+| GET | `/update/file` | → the release's setup program; 404 `no_release` when there is none. The app checks it against the manifest's size and BLAKE3 hash. |
 
 ## Admin API — `/api/admin` (session cookie `ts_session`, HttpOnly, SameSite=Lax, plus Secure when the request arrived over https or the public URL is https)
 
@@ -89,6 +91,8 @@ Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–20
 | GET | `/settings` | → `Settings` |
 | PUT | `/settings` | `Partial<Settings>` without `install_key` → `Settings` (pushes `PolicyChanged`). 400 `invalid_setting` unless `name_change_days` is 1–3650 and `timeline_retention_days` is null or 1–3650 |
 | POST | `/settings/install-key` | → `{ install_key }` (regenerates). Owner only |
+| GET | `/update` | → `{ version, size } \| null`: the current app release |
+| POST | `/update` | multipart, fields `file` (setup program), `manifest` and `signature` (from `typeshelf-server update-sign`) → `{ version, size }`; replaces the current release. 400 `missing_field`, `bad_manifest`, `bad_signature` (not 128 hex characters) or `file_mismatch` (size or hash differs from the manifest). The server cannot check whose key signed it; the apps do. Any admin today; owner only once roles exist. |
 | GET | `/admins` | → `{ id, email, role: "owner" \| "admin", last_login }[]` |
 | POST | `/admins` | `{ email, password }` → 201 (role `admin`). Owner only |
 | DELETE | `/admins/{id}` | → 204; ends their sessions. Owner only; 409 `last_owner` for the only owner |

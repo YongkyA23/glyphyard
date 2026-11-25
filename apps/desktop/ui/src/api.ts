@@ -116,6 +116,8 @@ export type Settings = {
   quickShortcut: string; theme: 'system' | 'light' | 'dark'; sampleText: string
   /** Presets for the sample text picker. */ sampleTexts: string[]
   /** "Playful extras": easter eggs and hidden games. */ playful: boolean
+  /** Read-only. False when this build has no update key (the switch is hidden); updateReady: the version installed at quit. */
+  canUpdate?: boolean; updateReady?: string | null
 }
 export type AdobeApp = 'photoshop' | 'illustrator' | 'indesign'
 export type AdobeRow = { app: AdobeApp; label: string; versions: string[]; installed: boolean; paired: boolean }

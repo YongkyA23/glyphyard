@@ -4,6 +4,7 @@
 mod adobe;
 mod commands;
 mod sync;
+mod update;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -196,7 +197,9 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    app.manage(update::Pending::default());
     tauri::async_runtime::spawn(startup(handle.clone()));
+    tauri::async_runtime::spawn(update::run(handle.clone()));
     tauri::async_runtime::spawn(adobe::start(handle));
     Ok(())
 }
@@ -304,6 +307,7 @@ fn shutdown(app: &AppHandle) {
     if let Some(bridge) = ctx.bridge.lock().unwrap().take() {
         bridge.shutdown();
     }
+    update::on_quit(app);
     tracing::info!("stopped");
     drop(ctx.log_guard.lock().unwrap().take());
 }

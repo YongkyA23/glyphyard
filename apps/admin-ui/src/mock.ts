@@ -160,6 +160,8 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
     const all = audit.filter((e) => (!sp.get('admin') || e.admin === sp.get('admin')) && (!sp.get('action') || e.action === sp.get('action')))
     return { ...paged(all, sp), admins: [...new Set(audit.map((e) => e.admin))].sort(), actions: [...new Set(audit.map((e) => e.action))].sort() }
   }
+  if (p === '/update' && method === 'POST') return { version: '1.1.0', size: 14_680_064 }
+  if (p === '/update') return { version: '1.0.0', size: 14_155_776 }
   return undefined
 }
 
