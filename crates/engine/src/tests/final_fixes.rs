@@ -4,6 +4,7 @@ use super::stats::{earned, eleven_on, usage_rows};
 use super::*;
 use chrono::{Duration, Utc};
 use std::collections::BTreeMap;
+use std::io::Write;
 
 fn off_rows(fx: &Fixture) -> usize {
     usage_rows(fx).iter().filter(|(active, _)| !active).count()
@@ -154,4 +155,49 @@ fn a_partly_failed_scan_still_tells_the_ui() {
     fx.engine.on_ui_event(move |e| sink.lock().unwrap().push(e));
     assert!(fx.engine.scan_folders(&[id, 9999], "scan").is_err());
     assert!(events.lock().unwrap().iter().any(|e| matches!(e, UiEvent::LibraryChanged { .. })));
+}
+
+// E6: small ones.
+
+#[test]
+fn a_font_request_needs_a_server() {
+    let fx = fixture!();
+    assert_eq!(fx.engine.request_font("Inter", None).unwrap_err().code, "no_server");
+    assert!(fx.events.lock().unwrap().is_empty());
+}
+
+#[test]
+fn backup_keeps_axis_presets() {
+    let fx = fixture!();
+    let vals = BTreeMap::from([("wght".to_string(), 700.0)]);
+    fx.engine.save_axis_preset("fam", "Bold", &vals).unwrap();
+    let file = fx.data.join("presets.typeshelf");
+    fx.engine.backup_create(&file).unwrap();
+    fx.engine.delete_axis_preset("fam", "Bold").unwrap();
+    fx.engine.backup_restore(&file).unwrap();
+    assert_eq!(fx.engine.axis_presets("fam").unwrap()[0].name, "Bold");
+}
+
+/// A backup written before axis presets and `playful` existed.
+fn old_backup(fx: &Fixture) -> PathBuf {
+    let file = fx.data.join("old.typeshelf");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&file).unwrap());
+    zip.start_file("typeshelf.json", zip::write::SimpleFileOptions::default()).unwrap();
+    let json = r#"{"version":1,"collections":[],"tags":[],"licenses":[],"projectSets":[],"settings":{"sampleText":"Old"}}"#;
+    zip.write_all(json.as_bytes()).unwrap();
+    zip.finish().unwrap();
+    file
+}
+
+#[test]
+fn an_older_backup_keeps_newer_settings_and_presets() {
+    let fx = fixture!();
+    fx.engine.update_settings(serde_json::json!({ "playful": false })).unwrap();
+    fx.engine.save_axis_preset("fam", "Bold", &BTreeMap::from([("wght".to_string(), 700.0)])).unwrap();
+    let file = old_backup(&fx);
+    fx.engine.backup_restore(&file).unwrap();
+    let s = fx.engine.get_settings().unwrap();
+    assert_eq!(s.sample_text, "Old");
+    assert!(!s.playful, "not in the backup, so not reset to its default");
+    assert_eq!(fx.engine.axis_presets("fam").unwrap().len(), 1);
 }

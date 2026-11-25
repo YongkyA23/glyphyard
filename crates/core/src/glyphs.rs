@@ -138,7 +138,7 @@ pub fn glyph_svg(bytes: &[u8], index: u32, cp: u32) -> Option<String> {
     let mut path = SvgPath { d: String::new(), bounds: [0.0, m.descent, advance, m.ascent] };
     glyph.draw(DrawSettings::unhinted(Size::unscaled(), LocationRef::default()), &mut path).ok()?;
     let [x0, y0, x1, y1] = path.bounds;
-    Some(format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="{x0} {} {} {}"><path d="{}"/></svg>"#, -y1, x1 - x0, y1 - y0, path.d))
+    Some(format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="{x0} {} {} {}"><path d="{}"/></svg>"#, -y1, (x1 - x0).max(1.0), (y1 - y0).max(1.0), path.d))
 }
 
 // ponytail: the common blocks only (Unicode 15 Blocks.txt subset); the rest lands in "Other".
@@ -322,6 +322,19 @@ mod tests {
         assert!(svg.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\"") && svg.ends_with("</svg>"));
         assert!(glyph_svg(&bytes, 0, '中' as u32).is_none(), "not in the cmap");
         assert!(glyph_svg(&bytes, 1, 'A' as u32).is_none(), "no second face");
+    }
+
+    /// An empty glyph with advance 0 (a zero-width joiner, say) still gets a viewBox with a width.
+    #[test]
+    fn empty_zero_advance_svg_has_a_size() {
+        let Ok(bytes) = std::fs::read("C:\\Windows\\Fonts\\arial.ttf") else { return };
+        let font = face_at(&bytes, 0).unwrap();
+        let empty: Vec<String> = font.charmap().mappings().filter_map(|(cp, _)| glyph_svg(&bytes, 0, cp)).filter(|s| s.contains(" d=\"\"")).collect();
+        assert!(!empty.is_empty(), "Arial has empty glyphs (space, joiners)");
+        for svg in empty {
+            let vb: Vec<f32> = svg.split("viewBox=\"").nth(1).unwrap().split('"').next().unwrap().split(' ').map(|v| v.parse().unwrap()).collect();
+            assert!(vb[2] >= 1.0 && vb[3] >= 1.0, "{svg}");
+        }
     }
 
     /// A combining acute has advance 0 and is drawn left of its origin: the viewBox still holds the outline.

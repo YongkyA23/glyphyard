@@ -5,7 +5,7 @@
 use crate::{store, AppSettings, BackupInfo, CollectionsExport, CollectionsImport, Engine, EngineError, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::Path;
 
@@ -22,7 +22,11 @@ pub(crate) struct Export {
     pins: Vec<String>,
     licenses: Vec<ExportLicense>,
     project_sets: Vec<ExportSet>,
-    settings: Option<AppSettings>,
+    /// Raw JSON, merged over the current settings on restore: a field an older backup lacks keeps its value.
+    settings: Option<serde_json::Value>,
+    /// Family key → its axis presets (missing in backups made before them: the current ones are kept).
+    #[serde(default)]
+    axis_presets: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -84,7 +88,19 @@ fn export(conn: &Connection) -> rusqlite::Result<Export> {
     for s in &mut project_sets {
         s.family_keys = strings(conn, "SELECT family_key FROM project_set_items WHERE set_id = ?1 ORDER BY family_key", s.id)?;
     }
-    Ok(Export { version: 1, collections, tags, pins, licenses, project_sets, settings: store::get(conn, "app")? })
+    let mut stmt = conn.prepare("SELECT substr(key, 14), value FROM settings WHERE key LIKE 'axis\\_presets:%' ESCAPE '\\'")?;
+    let rows: Vec<(String, String)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+    let axis_presets = rows.into_iter().filter_map(|(k, v)| Some((k, serde_json::from_str(&v).ok()?))).collect();
+    Ok(Export {
+        version: 1,
+        collections,
+        tags,
+        pins,
+        licenses,
+        project_sets,
+        settings: store::get(conn, "app")?,
+        axis_presets: Some(axis_presets),
+    })
 }
 
 impl Engine {
@@ -167,8 +183,20 @@ impl Engine {
                 tx.execute("INSERT OR IGNORE INTO project_set_items (set_id, family_key) VALUES (?1, ?2)", params![s.id, k])?;
             }
         }
-        if let Some(s) = &e.settings {
-            store::set(&tx, "app", s)?;
+        if let Some(serde_json::Value::Object(s)) = &e.settings {
+            let mut merged = serde_json::to_value(store::get::<AppSettings>(&tx, "app")?.unwrap_or_default())?;
+            if let serde_json::Value::Object(m) = &mut merged {
+                m.extend(s.clone());
+            }
+            let merged: AppSettings =
+                serde_json::from_value(merged).map_err(|e| EngineError::new("invalid_backup", e.to_string()))?;
+            store::set(&tx, "app", &merged)?;
+        }
+        if let Some(presets) = &e.axis_presets {
+            tx.execute("DELETE FROM settings WHERE key LIKE 'axis\\_presets:%' ESCAPE '\\'", [])?;
+            for (family_key, list) in presets {
+                store::set(&tx, &format!("axis_presets:{family_key}"), list)?;
+            }
         }
         tx.commit()?;
         Ok(())

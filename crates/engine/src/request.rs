@@ -1,11 +1,15 @@
 //! "I need this font": a request to the admin, sent as an event through the sync outbox (so it waits while offline).
 
-use crate::{Engine, EngineError, Result};
+use crate::{store, Engine, EngineError, Result};
 use typeshelf_protocol::{Event, FONT_REQUEST_NAME_MAX, FONT_REQUEST_NOTE_MAX};
 
 impl Engine {
     /// Queues a request for `name` with an optional note. Both are trimmed; an empty note is no note.
     pub fn request_font(&self, name: &str, note: Option<&str>) -> Result<()> {
+        let server: String = store::get(&self.db(), "server_url")?.unwrap_or_default();
+        if server.trim().is_empty() {
+            return Err(EngineError::new("no_server", "No server is set up, so there is no admin to ask. Add one in Settings › Connection."));
+        }
         let name = name.trim();
         let note = note.map(str::trim).filter(|n| !n.is_empty());
         if name.is_empty() {

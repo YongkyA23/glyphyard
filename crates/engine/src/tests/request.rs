@@ -5,6 +5,7 @@ use super::*;
 #[test]
 fn a_font_request_is_trimmed_and_sent_as_an_event() {
     let fx = fixture!();
+    fx.engine.set_connection("https://fonts.example", "key").unwrap();
     fx.engine.request_font("  Söhne Buch ", Some("  for the Acme deck ")).unwrap();
     fx.engine.request_font("Inter", Some("   ")).unwrap();
     let events = fx.events.lock().unwrap().clone();
@@ -20,6 +21,7 @@ fn a_font_request_is_trimmed_and_sent_as_an_event() {
 #[test]
 fn a_font_request_needs_a_name_and_stays_short() {
     let fx = fixture!();
+    fx.engine.set_connection("https://fonts.example", "key").unwrap();
     for (name, note) in [("   ", None), (&*"x".repeat(201), None), ("Inter", Some(&*"n".repeat(1001)))] {
         let err = fx.engine.request_font(name, note).unwrap_err();
         assert_eq!(err.code, "invalid_request");
