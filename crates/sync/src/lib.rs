@@ -250,14 +250,27 @@ impl SyncClient {
             let n = lines.len().min(BATCH);
             if !self.post_events(&lines[..n]).await? {
                 if n > 1 {
+                    // ponytail: one request per event (200 for a rejected batch); bisect the batch if that is slow.
+                    let mut done = 0;
+                    let mut sent = Ok(());
                     for line in &lines[..n] {
-                        if !self.post_events(std::slice::from_ref(line)).await? {
-                            dropped += 1;
-                            self.dropped.send_modify(|t| *t += 1);
+                        match self.post_events(std::slice::from_ref(line)).await {
+                            Ok(true) => {}
+                            Ok(false) => {
+                                dropped += 1;
+                                self.dropped.send_modify(|t| *t += 1);
+                            }
+                            Err(e) => {
+                                sent = Err(e);
+                                break;
+                            }
                         }
-                        // Per event, so a failure on the next one leaves exactly the undelivered lines.
-                        self.remove_first(1).await?;
+                        done += 1;
                     }
+                    // One rewrite for the handled lines, also after an error; if it fails they are only resent.
+                    let removed = self.remove_first(done).await;
+                    sent?;
+                    removed?;
                     continue;
                 }
                 dropped += 1;
