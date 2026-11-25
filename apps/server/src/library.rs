@@ -213,6 +213,14 @@ async fn block(State(s): State<AppState>, _: Admin, Path(hash): Path<String>, Js
     let tx = db.transaction()?;
     let file = load(&tx, &hash)?;
     tx.execute("UPDATE library_files SET blocked = ?1 WHERE hash = ?2", params![body.blocked, hash])?;
+    // Desktops unblock by name, which also clears other files with that name: block those again after it.
+    let namesakes: Vec<String> = if body.blocked {
+        Vec::new()
+    } else {
+        let mut stmt = tx.prepare("SELECT hash FROM library_files WHERE blocked = 1 AND ps_name = ?1 COLLATE NOCASE ORDER BY hash")?;
+        let hashes = stmt.query_map([&file.ps_name], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        hashes
+    };
     for id in db::active_install_ids(&tx)? {
         let kind = if body.blocked {
             CommandKind::Block { ps_name: file.ps_name.clone(), hash: Some(hash.clone()) }
@@ -220,6 +228,9 @@ async fn block(State(s): State<AppState>, _: Admin, Path(hash): Path<String>, Js
             CommandKind::Unblock { ps_name: file.ps_name.clone() }
         };
         hub::queue(&tx, &s.hub, &id, kind)?;
+        for h in &namesakes {
+            hub::queue(&tx, &s.hub, &id, CommandKind::Block { ps_name: file.ps_name.clone(), hash: Some(h.clone()) })?;
+        }
     }
     let file = load(&tx, &hash)?;
     tx.commit()?;

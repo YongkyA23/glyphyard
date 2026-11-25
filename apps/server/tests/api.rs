@@ -468,6 +468,30 @@ async fn block_is_pushed_to_every_install() {
     assert_eq!(r.status, StatusCode::CONFLICT);
 }
 
+/// Desktops unblock by PostScript name, so unblocking one of two blocked files must re-block the other.
+#[tokio::test]
+async fn unblocking_one_file_keeps_its_namesake_blocked() {
+    let s = Server::new().await;
+    let a = s.register("a", "Ana").await;
+    for hash in ["h1", "h2"] {
+        s.state
+            .db()
+            .execute(
+                "INSERT INTO library_files (hash, filename, size, ps_name, family, style, version, uploaded_at)
+                 VALUES (?1, ?1 || '.ttf', 17, 'Fake-Regular', 'Fake', 'Regular', '1.0', ?2)",
+                [hash.to_string(), db::now()],
+            )
+            .unwrap();
+        assert_eq!(s.admin(Method::POST, &format!("/library/{hash}/block"), Some(json!({ "blocked": true }))).await.status, StatusCode::OK);
+    }
+    s.ack_all(&a).await;
+
+    assert_eq!(s.admin(Method::POST, "/library/h1/block", Some(json!({ "blocked": false }))).await.status, StatusCode::OK);
+    let cmds = s.commands(&a).await;
+    let kinds: Vec<(&str, &str)> = cmds.iter().map(|c| (c["kind"].as_str().unwrap(), c["hash"].as_str().unwrap_or(""))).collect();
+    assert_eq!(kinds, [("unblock", ""), ("block", "h2")]);
+}
+
 #[tokio::test]
 async fn library_download_needs_a_delivery() {
     let s = Server::new().await;
