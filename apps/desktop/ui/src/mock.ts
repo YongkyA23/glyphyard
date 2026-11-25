@@ -349,7 +349,7 @@ function listFamilies(a: ListFamiliesArgs): Family[] {
     if (a.category && f.category !== a.category) return false
     if (a.search?.trim() && !superMatch(f, a.search)) return false
     if (a.chars && !covers(f.key, a.chars)) return false
-    if (a.lang && !covers(f.key, LANGS.find(([id]) => id === a.lang)?.[2] ?? ' ')) return false
+    if (a.lang && !covers(f.key, LANGS.find(([id]) => id === a.lang)?.[2] ?? '\0')) return false
     switch (a.filter) {
       case 'active': if (f.activeState === 'none') return false; break
       case 'inactive': if (f.activeState !== 'none') return false; break
