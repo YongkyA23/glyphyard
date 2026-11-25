@@ -101,7 +101,8 @@ pub async fn run(app: AppHandle) {
     loop {
         tokio::time::sleep(wait).await;
         wait = Duration::from_secs(24 * 60 * 60);
-        if !ctx.run(|e| e.get_settings()).await.is_ok_and(|s| s.auto_update) {
+        let gate = ctx.run(|e| Ok(should_check(e.get_settings()?.auto_update, e.get_app_state()?.server_configured, e.token()?.is_some()))).await;
+        if !gate.unwrap_or(false) {
             continue;
         }
         let pending = app.state::<Pending>();
@@ -157,6 +158,12 @@ pub fn finish(part: &Path, manifest: Manifest, dir: &Path) -> Result<Ready, Upda
     let path = dir.join(format!("Typeshelf-Setup-{}.exe", manifest.version));
     std::fs::rename(part, &path).map_err(io)?;
     Ok(Ready { path, manifest })
+}
+
+/// Whether a scheduled check talks to the server. Standalone (no server) or not registered yet (no token):
+/// no request at all, the same condition the sync loop uses before it connects.
+pub fn should_check(auto_update: bool, server_configured: bool, registered: bool) -> bool {
+    auto_update && server_configured && registered
 }
 
 /// A verified release is downloaded only when it is newer than this app and not the one already waiting.
@@ -261,6 +268,15 @@ mod tests {
 
     fn manifest_for(bytes: &[u8]) -> Manifest {
         Manifest::for_bytes(Version::parse("9.0.0").unwrap(), bytes)
+    }
+
+    #[test]
+    fn standalone_or_unregistered_never_checks() {
+        assert!(!should_check(true, false, false), "no server configured");
+        assert!(!should_check(true, false, true), "no server configured, an old token");
+        assert!(!should_check(true, true, false), "not registered yet");
+        assert!(!should_check(false, true, true), "updates off");
+        assert!(should_check(true, true, true));
     }
 
     #[test]
