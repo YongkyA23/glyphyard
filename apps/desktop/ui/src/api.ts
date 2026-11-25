@@ -36,8 +36,12 @@ export type FamilyDetail = Family & {
   details: FontDetails
   /** Representative face's stored x-height / unitsPerEm; 0 when the font does not say. */
   xHeight: number
-  /** Stored metrics per face hash, lengths per em (0 when the font does not say). */
-  faceMetrics: Record<string, { x_height: number; cap_height: number }>
+  /** Stored metrics per face hash, lengths per em (0 when the font does not say; ascender/descender are missing in rows stored before they existed). */
+  faceMetrics: Record<string, FaceMetrics>
+}
+export type FaceMetrics = {
+  x_height: number; cap_height: number
+  /** Descender is negative (below the baseline). */ ascender?: number; descender?: number
 }
 /** Saved variable-axis values (axis tag → value) for one family. */
 export type AxisPreset = { name: string; values: Record<string, number> }

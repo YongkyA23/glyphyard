@@ -10,7 +10,7 @@ import { useBreathing } from '../useBreathing'
 import { usePreviewWheel } from '../usePreviewWheel'
 import { useSampleText } from '../useSampleText'
 import { GlyphAnatomy } from './family/GlyphTools'
-import { useAltHeld, useCopySvg } from './family/hooks'
+import { uPlus, useAltHeld, useCopySvg } from './family/hooks'
 import { Poster } from './family/Poster'
 import { Badge, basename, CATEGORY_LABEL, Chip, Dialog, dirname, errMsg, LicenseBadge, num, plural, Skel, Switch, useSeen, type Tone } from '../ui'
 
@@ -76,7 +76,6 @@ function Waterfall({ style, axes, variable }: { style: CSSProperties; axes: Axis
 
 /** Blocks show at most this many cells until "Show all". */
 const GLYPH_CAP = 512
-const uPlus = (cp: number) => `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`
 
 /** One Unicode block; its cells render only once it comes near the viewport. */
 function GlyphSection({ b, style, onPeek, onCopy, onMenu }: { b: GlyphBlock; style: CSSProperties; onPeek: (cp: number) => void; onCopy: (cp: number) => void; onMenu: (e: React.MouseEvent, cp: number) => void }) {
@@ -121,9 +120,11 @@ function GlyphsTab({ fam, extra }: { fam: FamilyDetail; extra: CSSProperties }) 
   const [data, setData] = useState<{ hash: string; total: number; blocks: GlyphBlock[] } | null>(null)
   const [block, setBlock] = useState('')
   const [peek, setPeek] = useState<number | null>(null)
-  const [last, setLast] = useState<number | null>(null)
+  /** The character last clicked, activated or right-clicked; hover and focus passing over cells don't change it. */
+  const [picked, setPicked] = useState<number | null>(null)
+  const [anatomy, setAnatomy] = useState(false)
   const copySvg = useCopySvg(face?.hash ?? '')
-  const alt = useAltHeld()
+  const alt = useAltHeld(peek !== null || picked !== null)
   const { show, menu } = useContextMenu('Character')
   useEffect(() => {
     if (!face) return
@@ -149,7 +150,7 @@ function GlyphsTab({ fam, extra }: { fam: FamilyDetail; extra: CSSProperties }) 
         {faces.length > 1 && (
           <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             Style
-            <select className="select" value={face.hash} onChange={(e) => (setHash(e.target.value), setPeek(null), setLast(null))}>
+            <select className="select" value={face.hash} onChange={(e) => (setHash(e.target.value), setPeek(null), setPicked(null))}>
               {faces.map((x) => <option key={x.hash} value={x.hash}>{x.style}</option>)}
             </select>
           </label>
@@ -162,12 +163,13 @@ function GlyphsTab({ fam, extra }: { fam: FamilyDetail; extra: CSSProperties }) 
           </select>
         </label>
         {ready && <span>{plural(ready.total, 'character')} mapped · {plural(fam.glyphCount, 'glyph')} in the font</span>}
-        <button type="button" className="btn small" disabled={last === null} onClick={() => last !== null && copySvg(last)}>
-          {last !== null ? `Copy ${String.fromCodePoint(last)} as SVG` : 'Copy as SVG'}
+        <button type="button" className="btn small" disabled={picked === null} onClick={() => picked !== null && copySvg(picked)}>
+          {picked !== null ? `Copy ${String.fromCodePoint(picked)} (${uPlus(picked)}) as SVG` : 'Click a character to copy it as SVG'}
         </button>
+        <button type="button" className="btn small" aria-pressed={anatomy} disabled={picked === null} onClick={() => setAnatomy(!anatomy)}>Show anatomy</button>
         <span className="glyph-info" aria-hidden="true">
           <b style={style}>{peek !== null ? String.fromCodePoint(peek) : ''}</b>
-          <span className="mono" style={{ fontSize: 12 }}>{peek !== null ? uPlus(peek) : 'Hover a character'}</span>
+          <span className="mono" style={{ fontSize: 12 }}>{peek !== null ? uPlus(peek) : 'Hover a character · hold Alt for anatomy'}</span>
         </span>
       </div>
       {!ready ? (
@@ -178,13 +180,14 @@ function GlyphsTab({ fam, extra }: { fam: FamilyDetail; extra: CSSProperties }) 
         <div onMouseLeave={() => setPeek(null)}>
           {ready.blocks.filter((b) => !cur || b.name === cur).map((b) => (
             <GlyphSection
-              key={`${face.hash}-${b.name}`} b={b} style={style} onPeek={(cp) => (setPeek(cp), setLast(cp))} onCopy={copy}
-              onMenu={(e, cp) => show(e, [{ label: 'Copy character', onSelect: () => copy(cp) }, { label: 'Copy as SVG', onSelect: () => copySvg(cp) }])}
+              key={`${face.hash}-${b.name}`} b={b} style={style} onPeek={setPeek} onCopy={(cp) => (setPicked(cp), copy(cp))}
+              onMenu={(e, cp) => (setPicked(cp), show(e, [{ label: 'Copy character', onSelect: () => copy(cp) }, { label: 'Copy as SVG', onSelect: () => copySvg(cp) }]))}
             />
           ))}
         </div>
       )}
-      {alt && peek !== null && <GlyphAnatomy cp={peek} style={style} metrics={fam.faceMetrics[face.hash]} />}
+      {alt && peek !== null ? <GlyphAnatomy key={`alt-${peek}`} cp={peek} style={style} metrics={fam.faceMetrics[face.hash]} />
+        : anatomy && picked !== null && <GlyphAnatomy key={`pick-${picked}`} cp={picked} style={style} metrics={fam.faceMetrics[face.hash]} announce />}
       {menu}
     </div>
   )

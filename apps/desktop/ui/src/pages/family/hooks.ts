@@ -21,17 +21,17 @@ export function useCopySvg(hash: string) {
   }, [hash, toast])
 }
 
-/** True while Alt is held down in this window. */
-export function useAltHeld() {
+/** True while Alt is held down in this window. `claim`: a glyph is hovered or picked, so Alt's default is suppressed. */
+export function useAltHeld(claim: boolean) {
   const [held, setHeld] = useState(false)
   useEffect(() => {
-    const down = (e: KeyboardEvent) => e.key === 'Alt' && (e.preventDefault(), setHeld(true))
-    const up = (e: KeyboardEvent) => e.key === 'Alt' && (e.preventDefault(), setHeld(false))
+    const down = (e: KeyboardEvent) => e.key === 'Alt' && (claim && e.preventDefault(), setHeld(true))
+    const up = (e: KeyboardEvent) => e.key === 'Alt' && (claim && e.preventDefault(), setHeld(false))
     const off = () => setHeld(false)
     addEventListener('keydown', down)
     addEventListener('keyup', up)
     addEventListener('blur', off)
     return () => (removeEventListener('keydown', down), removeEventListener('keyup', up), removeEventListener('blur', off))
-  }, [])
+  }, [claim])
   return held
 }

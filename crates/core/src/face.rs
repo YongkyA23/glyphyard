@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use skrifa::instance::{LocationRef, Size};
 use skrifa::raw::{FileRef, TableProvider};
 use skrifa::string::StringId;
 use skrifa::{FontRef, MetadataProvider};
@@ -81,6 +82,11 @@ pub struct Metrics {
     pub width_class: u16,
     pub panose: [u8; 10],
     pub fixed_pitch: bool,
+    /// Ascent and descent (negative below the baseline) as the font reports them; 0 in rows stored before these existed.
+    #[serde(default)]
+    pub ascender: f32,
+    #[serde(default)]
+    pub descender: f32,
 }
 
 #[derive(Debug, PartialEq)]
@@ -199,6 +205,8 @@ fn metrics(font: &FontRef, family: &str) -> Metrics {
         family_class = (os2.s_family_class() >> 8) as u8;
     }
     m.category = category(m.fixed_pitch, &m.panose, family_class, family);
+    let fm = font.metrics(Size::unscaled(), LocationRef::default());
+    (m.ascender, m.descender) = (fm.ascent / upm, fm.descent / upm);
     m
 }
 
@@ -339,6 +347,8 @@ mod tests {
         assert!(f.glyph_count > 100);
         assert!(f.weight >= 100.0);
         assert!(f.metrics.x_height > 0.3 && f.metrics.x_height < 0.7);
+        assert!(f.metrics.ascender > 0.6 && f.metrics.ascender < 1.3, "{:?}", f.metrics);
+        assert!(f.metrics.descender < -0.1 && f.metrics.descender > -0.6, "{:?}", f.metrics);
     }
 
     #[test]

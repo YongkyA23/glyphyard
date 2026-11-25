@@ -26,7 +26,8 @@ type FamilyDetail = Family & { axes: Axis[]; features: string[]; glyphCount: num
   details: FontDetails;
   /** Representative face's stored x-height / unitsPerEm; 0 when the font does not say. */ xHeight: number;
   // Stored metrics per face hash (face 0 of a collection), lengths per em; 0 when the font does not say.
-  faceMetrics: { [hash: string]: { x_height: number; cap_height: number; avg_width: number; width_class: number; category: FontCategory | null; panose: number[]; fixed_pitch: boolean } } };
+  // ascender / descender (negative below the baseline) are 0 for fonts last scanned before they were added.
+  faceMetrics: { [hash: string]: { x_height: number; cap_height: number; ascender: number; descender: number; avg_width: number; width_class: number; category: FontCategory | null; panose: number[]; fixed_pitch: boolean } } };
 // Read from the representative face's file (upright, weight nearest 400) when the detail is opened;
 // all null / "" when no copy is readable. Blank name-table strings are null.
 type FontDetails = { copyright: string | null; trademark: string | null; manufacturer: string | null; designer: string | null;
@@ -69,7 +70,7 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `get_faces` | `{ hashes }` → `Face[]` |
 | `language_counts` | → `{ id, name, families }[]`: every language the filter knows (English, Indonesian, Malay, Vietnamese, French, German, Spanish, Portuguese, Polish, Turkish, Russian, Greek, Arabic, Hebrew, Thai, Hindi, Japanese, Korean, Chinese) with how many library families fully cover it (representative face, hidden folders left out, like `list_families`). `id` is the lowercase English name, the value of `list_families` `lang` and of the `lang:<id>` token |
 | `face_glyphs` | `{ hash, index? }` (face in a TTC, default 0) → `{ total, blocks: GlyphBlock[] }`: the face's cmap read from the file (control characters left out), grouped by Unicode block in codepoint order; codepoints outside the built-in table of ~130 common blocks come last as `"Other"`. Rejects `{code:"not_found"}` when no copy is readable |
-| `glyph_svg` | `{ hash, index?, cp }` (face in a TTC, default 0; `cp` a Unicode codepoint) → `string`: a standalone SVG of that character (default instance, unhinted), one `<path>` in font units flipped to y-down, `viewBox="0 -ascent advance ascent-descent"` so the baseline is y = 0. Rejects `{code:"not_found"}` when no copy is readable or the face does not map `cp` |
+| `glyph_svg` | `{ hash, index?, cp }` (face in a TTC, default 0; `cp` a Unicode codepoint) → `string`: a standalone SVG of that character (default instance, unhinted), one `<path>` in font units flipped to y-down; the viewBox covers 0..advance and ascent..descent, widened to the outline (control points included) where it reaches past them, and the baseline is y = 0. Rejects `{code:"not_found"}` when no copy is readable or the face does not map `cp` |
 | `set_pinned` | `{ keys, pinned }` → void; emits `library-changed` |
 | `folder_tree` | → `FolderNode[]` = `{ path, name, fontCount, activeCount, autoActivate, hidden, children: FolderNode[] }`, one root per watched folder (app-managed ones included: Imported fonts, Google Fonts, Shared library) |
 | `set_folder_active` | `{ path, active }` → `ActivationResult[]` (every font in the folder and below) |

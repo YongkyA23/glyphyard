@@ -87,40 +87,58 @@ pub fn glyph_map(bytes: &[u8], index: u32) -> Option<GlyphMap> {
     Some(GlyphMap { total: cps.len() as u32, blocks })
 }
 
-/// SVG path data with y negated: fonts are y-up, SVG is y-down.
-struct SvgPath(String);
+/// SVG path data with y negated (fonts are y-up, SVG is y-down), plus the font-space box of every
+/// point drawn. Control points count too, so the box can be a little larger than the ink: fine for a viewBox.
+struct SvgPath {
+    d: String,
+    /// min x, min y, max x, max y in font units (y-up).
+    bounds: [f32; 4],
+}
+
+impl SvgPath {
+    fn add(&mut self, cmd: char, pts: &[(f32, f32)]) {
+        self.d.push(cmd);
+        for (i, &(x, y)) in pts.iter().enumerate() {
+            let b = &mut self.bounds;
+            (b[0], b[1], b[2], b[3]) = (b[0].min(x), b[1].min(y), b[2].max(x), b[3].max(y));
+            self.d += &format!("{}{x},{}", if i > 0 { " " } else { "" }, -y);
+        }
+    }
+}
 
 impl OutlinePen for SvgPath {
     fn move_to(&mut self, x: f32, y: f32) {
-        self.0 += &format!("M{x},{}", -y);
+        self.add('M', &[(x, y)]);
     }
     fn line_to(&mut self, x: f32, y: f32) {
-        self.0 += &format!("L{x},{}", -y);
+        self.add('L', &[(x, y)]);
     }
     fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
-        self.0 += &format!("Q{cx0},{} {x},{}", -cy0, -y);
+        self.add('Q', &[(cx0, cy0), (x, y)]);
     }
     fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
-        self.0 += &format!("C{cx0},{} {cx1},{} {x},{}", -cy0, -cy1, -y);
+        self.add('C', &[(cx0, cy0), (cx1, cy1), (x, y)]);
     }
     fn close(&mut self) {
-        self.0 += "Z";
+        self.d.push('Z');
     }
 }
 
 /// Codepoint `cp` of face `index` as a standalone SVG in font units (default instance, unhinted):
-/// the viewBox spans the advance width and ascent to descent, with the baseline at y = 0.
+/// the viewBox spans 0 to the advance width and ascent to descent, widened to the outline where it
+/// reaches past them (zero-advance combining marks, negative side bearings, italic overhang); the baseline is y = 0.
 /// `None` when the file does not parse or the face does not map `cp`.
 pub fn glyph_svg(bytes: &[u8], index: u32, cp: u32) -> Option<String> {
     let font = face_at(bytes, index)?;
     let gid = font.charmap().map(cp)?;
     let glyph = font.outline_glyphs().get(gid)?;
-    let mut path = SvgPath(String::new());
-    glyph.draw(DrawSettings::unhinted(Size::unscaled(), LocationRef::default()), &mut path).ok()?;
     let m = font.metrics(Size::unscaled(), LocationRef::default());
     let advance = font.glyph_metrics(Size::unscaled(), LocationRef::default()).advance_width(gid).unwrap_or(0.0);
-    let (top, height) = (-m.ascent, m.ascent - m.descent);
-    Some(format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 {top} {advance} {height}"><path d="{}"/></svg>"#, path.0))
+    // Start from the advance box; drawing widens it to every point of the outline.
+    let mut path = SvgPath { d: String::new(), bounds: [0.0, m.descent, advance, m.ascent] };
+    glyph.draw(DrawSettings::unhinted(Size::unscaled(), LocationRef::default()), &mut path).ok()?;
+    let [x0, y0, x1, y1] = path.bounds;
+    Some(format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="{x0} {} {} {}"><path d="{}"/></svg>"#, -y1, x1 - x0, y1 - y0, path.d))
 }
 
 // ponytail: the common blocks only (Unicode 15 Blocks.txt subset); the rest lands in "Other".
@@ -293,9 +311,10 @@ mod tests {
         let Ok(bytes) = std::fs::read("C:\\Windows\\Fonts\\arial.ttf") else { return };
         let svg = glyph_svg(&bytes, 0, 'A' as u32).unwrap();
         let attr = |name: &str| svg.split(&format!(" {name}=\"")).nth(1).unwrap().split('"').next().unwrap().to_string();
-        // x from 0 to the advance width, y from -ascent to -descent (font units, flipped to y-down).
+        // y from -ascent to -descent (font units, flipped to y-down); x covers the advance (1366) widened to
+        // the outline, which reaches 3 units left of the origin and 3 past the advance in Arial's "A".
         let vb: Vec<f32> = attr("viewBox").split(' ').map(|v| v.parse().unwrap()).collect();
-        assert_eq!(vb, [0.0, -1854.0, 1366.0, 2288.0]);
+        assert_eq!(vb, [-3.0, -1854.0, 1372.0, 2288.0]);
         let d = attr("d");
         assert!(d.starts_with('M') && d.ends_with('Z') && d.len() > 20, "{d}");
         // The apex of "A" sits at cap height (1466 units up), so above the baseline in SVG space.
@@ -303,5 +322,20 @@ mod tests {
         assert!(svg.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\"") && svg.ends_with("</svg>"));
         assert!(glyph_svg(&bytes, 0, '中' as u32).is_none(), "not in the cmap");
         assert!(glyph_svg(&bytes, 1, 'A' as u32).is_none(), "no second face");
+    }
+
+    /// A combining acute has advance 0 and is drawn left of its origin: the viewBox still holds the outline.
+    #[test]
+    fn combining_mark_svg_is_not_empty() {
+        let Ok(bytes) = std::fs::read("C:\\Windows\\Fonts\\arial.ttf") else { return };
+        let Some(svg) = glyph_svg(&bytes, 0, 0x301) else { return };
+        let vb: Vec<f32> = svg.split("viewBox=\"").nth(1).unwrap().split('"').next().unwrap().split(' ').map(|v| v.parse().unwrap()).collect();
+        assert!(vb[2] > 100.0 && vb[3] > 1000.0, "{vb:?}");
+        // Every point of the path lies inside the viewBox.
+        let d = svg.split(" d=\"").nth(1).unwrap().split('"').next().unwrap();
+        let nums: Vec<f32> = d.split(|c: char| c.is_ascii_alphabetic() || c == ' ').flat_map(|p| p.split(',')).filter(|s| !s.is_empty()).map(|s| s.parse().unwrap()).collect();
+        for xy in nums.chunks(2) {
+            assert!(xy[0] >= vb[0] && xy[0] <= vb[0] + vb[2] && xy[1] >= vb[1] && xy[1] <= vb[1] + vb[3], "{xy:?} outside {vb:?}");
+        }
     }
 }

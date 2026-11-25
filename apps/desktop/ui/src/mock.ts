@@ -122,7 +122,7 @@ const families: Fam[] = SEEDS.map((s) => {
       version: `Version ${s.dupe ? '2.000' : '1.000'}`, uniqueId: `${s.dupe ? '2.000' : '1.000'};${s.foundry.slice(0, 4).toUpperCase()};${base}-Regular`,
       format: s.variable ? 'Variable TrueType' : 'OpenType (CFF)', upm: 1000, glyphCount: glyphsOf(keyOf(s.family)).length + 24,
     },
-    faceMetrics: Object.fromEntries(faces.map((f) => [f.hash, s.category === 'display' ? { x_height: 0.7, cap_height: 0.7 } : { x_height: 0.5, cap_height: 0.7 }])),
+    faceMetrics: Object.fromEntries(faces.map((f) => [f.hash, { x_height: s.category === 'display' ? 0.7 : 0.5, cap_height: 0.7, ascender: 0.95, descender: -0.25 }])),
   }
 })
 // Fraunces ships 9 static styles grouped with the variable one; the mockup counts them as "9 styles".
