@@ -260,6 +260,24 @@ fn rescan_adopts_a_kept_managed_folder() {
 }
 
 #[test]
+fn a_removed_managed_folder_stays_removed_until_used_again() {
+    let fx = fixture!();
+    let bytes = keep_in_imported(&fx);
+    fx.engine.rescan().unwrap();
+    let id: i64 = fx.engine.db().query_row("SELECT id FROM folders WHERE managed = 'imported'", [], |r| r.get(0)).unwrap();
+    fx.engine.remove_folder(id).unwrap();
+    fx.engine.rescan().unwrap();
+    assert_eq!(managed_rows(&fx, "'imported'"), 0, "rescan does not undo Remove");
+    assert!(!fx.engine.list_families(&FamilyQuery::default()).unwrap().iter().any(|f| f.family == "Arial"));
+
+    let src = fx.put("src/arial.ttf", &bytes);
+    assert_eq!(fx.engine.import_paths(&[src.to_string_lossy().into_owned()]).unwrap().imported, 1);
+    assert_eq!(managed_rows(&fx, "'imported'"), 1, "an import brings the folder back");
+    fx.engine.rescan().unwrap();
+    assert_eq!(managed_rows(&fx, "'imported'"), 1);
+}
+
+#[test]
 fn importing_a_file_already_in_a_kept_folder_is_skipped() {
     let fx = fixture!();
     let bytes = keep_in_imported(&fx);

@@ -2,6 +2,7 @@
 
 use crate::activation::version_key;
 use crate::library::set_license_row;
+use crate::scan::SHARED;
 use crate::{EngineError, Engine, License, Result, UiEvent};
 use rusqlite::{params, Connection};
 use typeshelf_core::file_hash;
@@ -114,7 +115,7 @@ impl Engine {
         if file_hash(bytes) != file.hash {
             return Err(EngineError::new("hash_mismatch", format!("{} did not match its hash", file.filename)));
         }
-        let (id, dir) = self.managed_folder("shared", "Shared library")?;
+        let (id, dir) = self.managed_folder(SHARED.0, SHARED.1)?;
         let mut name = sanitize(&file.filename);
         if name.is_empty() || name.starts_with('.') {
             name = format!("{}.otf", &file.hash[..8]);

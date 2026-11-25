@@ -101,7 +101,7 @@ pub(crate) fn parse_catalog(text: &str) -> Result<Vec<Meta>> {
 
 impl Engine {
     fn google_dir(&self) -> PathBuf {
-        self.data_dir.join("Google Fonts")
+        self.data_dir.join(GOOGLE.1)
     }
 
     fn catalog_cache(&self) -> PathBuf {

@@ -20,6 +20,12 @@ pub(crate) const IMPORTED: (&str, &str) = ("imported", "Imported fonts");
 pub(crate) const GOOGLE: (&str, &str) = ("google", "Google Fonts");
 pub(crate) const SHARED: (&str, &str) = ("shared", "Shared library");
 
+/// Settings key recording that the user removed that kind's managed folder, so a rescan does not adopt it.
+// ponytail: a folder removed before this record existed comes back once, at the first rescan after updating.
+fn removed_key(kind: &str) -> String {
+    format!("managed_removed.{kind}")
+}
+
 /// Families are grouped by family name + foundry.
 pub(crate) fn family_key(family: &str, foundry: &str) -> String {
     format!("{}|{}", family.trim().to_lowercase(), foundry.trim().to_lowercase())
@@ -206,10 +212,15 @@ impl Engine {
 
     /// Gives a row (and a watch) to managed folders that are already in the data folder but not in the
     /// database, as after a reinstall that kept them. Absent ones stay lazy: `managed_folder` creates them.
+    /// One the user removed stays removed until `managed_folder` needs it again.
     fn adopt_managed_folders(&self) {
         for (kind, name) in [IMPORTED, GOOGLE, SHARED] {
             let path = self.data_dir.join(name);
-            let known: rusqlite::Result<bool> = self.db().query_row("SELECT EXISTS(SELECT 1 FROM folders WHERE managed = ?1)", [kind], |r| r.get(0));
+            let known: rusqlite::Result<bool> = self.db().query_row(
+                "SELECT EXISTS(SELECT 1 FROM folders WHERE managed = ?1) OR EXISTS(SELECT 1 FROM settings WHERE key = ?2)",
+                params![kind, removed_key(kind)],
+                |r| r.get(0),
+            );
             if path.is_dir() && known == Ok(false) && self.insert_folder(&path, Some(kind)).is_ok() {
                 self.watch_folder(&path, true);
             }
@@ -253,6 +264,10 @@ impl Engine {
                 .map(|a| a.hash)
                 .collect();
             self.deactivate_hashes(&db, &active, typeshelf_protocol::Source::User)?;
+            let managed: Option<String> = db.query_row("SELECT managed FROM folders WHERE id = ?1", [id], |r| r.get(0))?;
+            if let Some(kind) = managed {
+                store::set(&db, &removed_key(&kind), &true)?;
+            }
             db.execute("DELETE FROM folders WHERE id = ?1", [id])?;
             prune_faces(&db)?;
             folder.path
@@ -619,6 +634,7 @@ impl Engine {
         let path = self.data_dir.join(dir_name);
         std::fs::create_dir_all(&path)?;
         let id = self.insert_folder(&path, Some(kind))?;
+        store::remove(&self.db(), &removed_key(kind))?;
         self.watch_folder(&path, true);
         Ok((id, path))
     }
