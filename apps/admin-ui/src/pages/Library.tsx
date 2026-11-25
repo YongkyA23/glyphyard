@@ -57,7 +57,8 @@ export function Library() {
     setNotice('')
     try {
       const r = await api.bulk(action, selection.all ? { q: query } : { hashes: selection.hashes }, target, activate)
-      setNotice(`${DONE[action]} ${plural(r.changed, 'file')}.`
+      const done = action === 'deliver' && Array.isArray(target) && target.length === 0 ? 'Removed delivery of' : DONE[action]
+      setNotice(`${done} ${plural(r.changed, 'file')}.`
         + (r.skipped ? ` Skipped ${r.skipped} that ${r.skipped === 1 ? 'was' : 'were'} already done, blocked or gone.` : ''))
       if (r.failed) setError(`${plural(r.failed, 'file')} couldn’t be deleted. Check the server log, then try again.`)
     } catch (e) {
