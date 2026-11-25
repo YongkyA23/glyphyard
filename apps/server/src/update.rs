@@ -75,7 +75,7 @@ async fn current(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Value>> 
 }
 
 /// Multipart `file` (the setup program), `manifest` and `signature` (as written by `update-sign`).
-async fn upload(State(s): State<AppState>, _: Owner, mut form: Multipart) -> ApiResult<Json<Value>> {
+async fn upload(State(s): State<AppState>, Owner(admin): Owner, mut form: Multipart) -> ApiResult<Json<Value>> {
     // Keeps the status, so an upload over `MAX_UPLOAD` is a 413.
     let bad = |e: axum::extract::multipart::MultipartError| ApiError::new(e.status(), "bad_upload", e.body_text());
     let (mut file, mut manifest, mut signature) = (None, None, None);
@@ -111,5 +111,6 @@ async fn upload(State(s): State<AppState>, _: Owner, mut form: Multipart) -> Api
     for name in [FILE, SIGNATURE, MANIFEST] {
         tokio::fs::rename(dir.join(format!("{name}.new")), dir.join(name)).await?;
     }
-    tracing::info!(version = %m.version, size = m.size, "update release uploaded");    Ok(Json(json!({ "version": m.version.to_string(), "size": m.size })))
+    tracing::info!(version = %m.version, size = m.size, "update release uploaded");
+    crate::audit::record(&s.db(), &admin.email, "release_uploaded", &m.version.to_string(), "")?;    Ok(Json(json!({ "version": m.version.to_string(), "size": m.size })))
 }

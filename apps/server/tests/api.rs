@@ -1389,6 +1389,10 @@ async fn update_release_is_stored_as_uploaded_and_served_to_installs() {
     assert_eq!(r.status, StatusCode::OK, "{}", String::from_utf8_lossy(&r.body));
     assert_eq!(r.json(), json!({ "version": "0.2.0", "size": file.len() }));
     assert_eq!(s.admin(Method::GET, "/update", None).await.json(), json!({ "version": "0.2.0", "size": file.len() }));
+    let logged = s.audit("?action=release_uploaded").await;
+    assert_eq!(logged["total"], 1);
+    assert_eq!((logged["items"][0]["admin"].as_str(), logged["items"][0]["target"].as_str(), logged["items"][0]["detail"].as_str()), (Some("admin@example.com"), Some("0.2.0"), Some("")));
+
     // Installs get the manifest and signature byte for byte, and they verify with the key.
     let got = s.desktop(Method::GET, "/update", &token, None).await;
     assert_eq!(got.status, StatusCode::OK);
