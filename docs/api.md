@@ -20,7 +20,7 @@ Everything except registration also carries `Authorization: Bearer <install toke
 | GET | `/me/commands` | → `Command[]` not yet acked (used after reconnect) |
 | POST | `/me/commands/{id}/ack` | `{ ok, error? }` → 204 |
 | GET | `/me/ws` | WebSocket. Server sends `ServerMessage`, client sends `ClientMessage`. Token may also be passed as `?token=` and key as `?key=`. While connected the install counts as online. |
-| GET | `/library/files/{hash}` | → font bytes, only if delivered to this install (or to all) and not blocked; else 404. |
+| GET | `/library/files/{hash}` | → font bytes, only if delivered to this install, to the install it was merged into, or to all, and not blocked; else 404. |
 
 ## Admin API — `/api/admin` (session cookie `ts_session`, HttpOnly, SameSite=Lax, plus Secure when the request arrived over https or the public URL is https)
 

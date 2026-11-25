@@ -17,3 +17,6 @@ docs/research/
 
 # Real server addresses and host names, not part of the repo
 docs/deploy.local.md
+
+# Agent worktrees: hold unredacted copies of the deploy guide
+.claude/worktrees/

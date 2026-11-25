@@ -7,7 +7,8 @@ Design: `docs/ui-canvas/Setup*.dc.html`, `docs/ui-canvas/Uninstall*.dc.html`.
 - Installs per-user (no admin): default `%LOCALAPPDATA%\Programs\Typeshelf`.
 - Copies itself into the install dir as `uninstall.exe`; the uninstall registry entry runs `uninstall.exe --uninstall`.
 - Silent use for admins: `typeshelf-setup.exe --silent [--dir <path>] [--no-start-menu] [--desktop] [--no-start-at-login]`,
-  `uninstall.exe --uninstall --silent [--wipe-data]`. Exit code 0 on success.
+  `uninstall.exe --uninstall --silent [--wipe-data]`. Exit code 0 on success. Silent mode closes a running
+  Typeshelf first (asks it to close, forces it after 5 s) instead of stopping with `app_running`.
 
 ## UI ↔ backend contract (`window.__TAURI__.core.invoke`, `window.__TAURI__.event.listen`)
 
