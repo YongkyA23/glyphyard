@@ -1,7 +1,7 @@
 //! Exercises SyncClient against a small in-process mock of the Desktop API.
 
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -25,6 +25,8 @@ struct Mock {
     acks: Mutex<Vec<(i64, bool)>>,
     pending: Mutex<Vec<Command>>,
     ws_connects: AtomicUsize,
+    /// Once set, events with changes 500 are accepted.
+    server_healed: AtomicBool,
 }
 
 type S = State<Arc<Mock>>;
@@ -72,7 +74,7 @@ async fn events(State(m): S, h: HeaderMap, Json(batch): Json<EventBatch>) -> Sta
     for e in &batch.events {
         match e.event {
             Event::OrganizeApplied { changes: 400 } => return StatusCode::BAD_REQUEST,
-            Event::OrganizeApplied { changes: 500 } => return StatusCode::INTERNAL_SERVER_ERROR,
+            Event::OrganizeApplied { changes: 500 } if !m.server_healed.load(Ordering::SeqCst) => return StatusCode::INTERNAL_SERVER_ERROR,
             _ => {}
         }
     }
@@ -265,6 +267,49 @@ async fn server_error_keeps_the_batch_in_the_outbox() {
     assert!(matches!(client.flush().await, Err(SyncError::Server { status: 500, .. })));
     assert_eq!(std::fs::read_to_string(&outbox).unwrap().lines().count(), 1);
     assert!(mock.events.lock().unwrap().is_empty());
+}
+
+fn kinds(events: &[TimedEvent]) -> Vec<Event> {
+    events.iter().map(|e| e.event.clone()).collect()
+}
+
+fn changes(ns: &[u32]) -> Vec<Event> {
+    ns.iter().map(|&changes| Event::OrganizeApplied { changes }).collect()
+}
+
+#[tokio::test]
+async fn only_the_rejected_event_is_dropped_from_a_batch() {
+    let mock = Arc::new(Mock::default());
+    let url = serve(mock.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let outbox = dir.path().join("outbox.jsonl");
+    let client = SyncClient::new(config(&url, Some(TOKEN), &outbox));
+
+    client.queue_events(vec![event(1), event(2), event(400), event(3)]).await.unwrap();
+    assert_eq!(client.flush().await.unwrap(), 1);
+
+    assert_eq!(kinds(&mock.events.lock().unwrap()), changes(&[1, 2, 3]));
+    assert!(std::fs::read_to_string(&outbox).unwrap().trim().is_empty());
+}
+
+#[tokio::test]
+async fn failure_while_resending_keeps_undelivered_events_in_order() {
+    let mock = Arc::new(Mock::default());
+    let url = serve(mock.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let outbox = dir.path().join("outbox.jsonl");
+    let client = SyncClient::new(config(&url, Some(TOKEN), &outbox));
+
+    client.queue_events(vec![event(1), event(400), event(2), event(500), event(3)]).await.unwrap();
+    assert!(matches!(client.flush().await, Err(SyncError::Server { status: 500, .. })));
+    assert_eq!(kinds(&mock.events.lock().unwrap()), changes(&[1, 2]));
+    let left: Vec<TimedEvent> = std::fs::read_to_string(&outbox).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert_eq!(kinds(&left), changes(&[500, 3]));
+
+    mock.server_healed.store(true, Ordering::SeqCst);
+    assert_eq!(client.flush().await.unwrap(), 0);
+    assert_eq!(kinds(&mock.events.lock().unwrap()), changes(&[1, 2, 500, 3]));
+    assert!(std::fs::read_to_string(&outbox).unwrap().trim().is_empty());
 }
 
 #[tokio::test]

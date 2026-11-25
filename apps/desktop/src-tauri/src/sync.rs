@@ -89,6 +89,7 @@ async fn run(app: AppHandle, client: Arc<SyncClient>, cancel: CancellationToken)
         return;
     }
     tauri::async_runtime::spawn(watch_status(app.clone(), client.clone(), cancel.clone()));
+    tauri::async_runtime::spawn(watch_dropped_events(client.clone(), cancel.clone()));
     let handler = {
         let (app, client) = (app.clone(), client.clone());
         move |cmd: Command| {
@@ -136,6 +137,22 @@ async fn ensure_registered(app: &AppHandle, engine: &Arc<Engine>, client: &SyncC
             _ = cancel.cancelled() => return false,
             _ = tokio::time::sleep(Duration::from_secs(wait)) => {}
         }
+    }
+}
+
+/// The client flushes the outbox itself while connected; events the server rejects are dropped there and reported here.
+async fn watch_dropped_events(client: Arc<SyncClient>, cancel: CancellationToken) {
+    let mut rx = client.dropped_events();
+    let mut seen = *rx.borrow_and_update();
+    loop {
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return,
+            r = rx.changed() => if r.is_err() { return },
+        }
+        let total = *rx.borrow_and_update();
+        tracing::warn!(count = total - seen, "the server rejected these events, so they were dropped and will not be retried");
+        seen = total;
     }
 }
 

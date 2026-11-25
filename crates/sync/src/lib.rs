@@ -115,6 +115,7 @@ pub struct SyncClient {
     http: reqwest::Client,
     status: watch::Sender<Status>,
     flush_wanted: Notify,
+    dropped: watch::Sender<u64>,
 }
 
 impl SyncClient {
@@ -135,6 +136,7 @@ impl SyncClient {
             http,
             status: watch::Sender::new(Status::Offline),
             flush_wanted: Notify::new(),
+            dropped: watch::Sender::new(0),
         }
     }
 
@@ -230,41 +232,67 @@ impl SyncClient {
         Ok(())
     }
 
-    /// Sends queued events in batches, removing each batch once the server accepted it.
-    pub async fn flush(&self) -> Result<(), SyncError> {
+    /// Sends queued events in batches, removing each batch once the server accepted it. A batch the
+    /// server rejects for good is resent one event at a time, so only the rejected events are dropped.
+    /// Returns how many events were dropped; the same drops also count into `dropped_events`.
+    pub async fn flush(&self) -> Result<usize, SyncError> {
         let _flushing = FLUSHING.lock().await;
         let path = &self.config.outbox_path;
+        let mut dropped = 0;
         loop {
             let lines = {
                 let _file = OUTBOX_FILE.lock().await;
                 read_lines(path).await?
             };
             if lines.is_empty() {
-                return Ok(());
+                return Ok(dropped);
             }
             let n = lines.len().min(BATCH);
-            // A line that doesn't parse would block the outbox forever, so it is dropped with its batch.
-            let events = lines[..n].iter().filter_map(|l| serde_json::from_str(l).ok()).collect();
-            let batch = EventBatch { events };
-            match self.send(self.request(Method::POST, "/me/events").json(&batch)).await {
-                Ok(_) => {}
-                // A client error that retrying cannot fix (unknown event kind, payload too large) would
-                // block every later batch, so the batch is dropped. Auth, timeout and rate-limit statuses recover.
-                // ponytail: logged to stderr; the crate has no logging dependency.
-                Err(SyncError::Server { status, .. })
-                    if (400..500).contains(&status) && ![401, 403, 408, 429].contains(&status) =>
-                {
-                    eprintln!("typeshelf-sync: server rejected a batch of {} events with status {status}; dropping it", batch.events.len());
+            if !self.post_events(&lines[..n]).await? {
+                if n > 1 {
+                    for line in &lines[..n] {
+                        if !self.post_events(std::slice::from_ref(line)).await? {
+                            dropped += 1;
+                            self.dropped.send_modify(|t| *t += 1);
+                        }
+                        // Per event, so a failure on the next one leaves exactly the undelivered lines.
+                        self.remove_first(1).await?;
+                    }
+                    continue;
                 }
-                Err(e) => return Err(e),
+                dropped += 1;
+                self.dropped.send_modify(|t| *t += 1);
             }
-
-            // Only appends happened meanwhile (we hold FLUSHING), so the first n lines are still ours.
-            let _file = OUTBOX_FILE.lock().await;
-            let mut lines = read_lines(path).await?;
-            lines.drain(..n);
-            write_lines(path, &lines).await?;
+            self.remove_first(n).await?;
         }
+    }
+
+    /// Total events dropped by `flush` (including the ones `run` flushes) since this client was made.
+    pub fn dropped_events(&self) -> watch::Receiver<u64> {
+        self.dropped.subscribe()
+    }
+
+    /// Sends outbox lines as one batch: true if the server took it, false if it rejected it for good.
+    /// A client error that retrying cannot fix (unknown event kind, payload too large) would block every
+    /// later batch. Auth, timeout and rate-limit statuses recover, so they stay errors.
+    async fn post_events(&self, lines: &[String]) -> Result<bool, SyncError> {
+        // A line that doesn't parse would block the outbox forever, so it is dropped with its batch.
+        let events = lines.iter().filter_map(|l| serde_json::from_str(l).ok()).collect();
+        let batch = EventBatch { events };
+        match self.send(self.request(Method::POST, "/me/events").json(&batch)).await {
+            Ok(_) => Ok(true),
+            Err(SyncError::Server { status, .. }) if (400..500).contains(&status) && ![401, 403, 408, 429].contains(&status) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Only appends happen to the outbox while we hold FLUSHING, so its first `n` lines are still ours.
+    async fn remove_first(&self, n: usize) -> Result<(), SyncError> {
+        let _file = OUTBOX_FILE.lock().await;
+        let mut lines = read_lines(&self.config.outbox_path).await?;
+        lines.drain(..n);
+        write_lines(&self.config.outbox_path, &lines).await?;
+        Ok(())
     }
 
     /// Keeps the command WebSocket connected until `cancel` fires, reconnecting with backoff.
