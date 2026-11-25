@@ -12,10 +12,29 @@ use typeshelf_protocol::Event;
 /// What was actually done, in order, so it can be reversed.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
-enum Done {
+pub(crate) enum Done {
     /// An exact copy went to the Recycle Bin; `kept` has the same bytes, so undo copies it back.
     Trashed { path: PathBuf, kept: PathBuf },
     Moved { from: PathBuf, to: PathBuf, override_hash: Option<String> },
+}
+
+/// Starts an organize history entry with no steps yet, before the first file is touched.
+pub(crate) fn journal_open(conn: &Connection) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO history (kind, summary, payload_json, at) VALUES ('organize', 'Auto-organize: 0 changes', '[]', ?1)",
+        [store::now()],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Appends one completed step to the entry (one small write), so a crash after it leaves it undoable.
+pub(crate) fn journal_step(conn: &Connection, id: i64, done: &Done) -> Result<()> {
+    conn.execute(
+        "UPDATE history SET payload_json = json_insert(payload_json, '$[#]', json(?2)),
+           summary = 'Auto-organize: ' || (json_array_length(payload_json) + 1) || ' changes' WHERE id = ?1",
+        params![id, serde_json::to_string(done)?],
+    )?;
+    Ok(())
 }
 
 fn change_id(c: &typeshelf_core::organize::Change) -> i64 {
@@ -127,10 +146,11 @@ impl Engine {
             Some(c) => c,
             None => self.organize_plan(tidy)?.changes,
         };
-        let mut done = Vec::new();
+        let mut applied = 0u32;
         let mut failed = Vec::new();
-        {
+        let history_id = {
             let db = self.db();
+            let history_id = journal_open(&db)?;
             for c in changes.iter().filter(|c| !exclude_ids.contains(&c.id)) {
                 let step = match &c.change.action {
                     Action::Trash { path, kept } => self.trash_copy(&db, path, kept),
@@ -141,21 +161,19 @@ impl Engine {
                     Action::KeepAsAlternate { .. } | Action::Group { .. } | Action::Skip { .. } => continue,
                 };
                 match step {
-                    Ok(d) => done.push(d),
+                    Ok(d) => {
+                        journal_step(&db, history_id, &d)?;
+                        applied += 1;
+                    }
                     Err(e) if failed.len() < 20 => failed.push(format!("{}: {}", c.change.action.path().display(), e.message)),
                     Err(_) => {}
                 }
             }
+            if applied == 0 {
+                db.execute("DELETE FROM history WHERE id = ?1", [history_id])?;
+            }
             self.os.notify_font_change();
-        }
-        let applied = done.len() as u32;
-        let history_id = {
-            let db = self.db();
-            db.execute(
-                "INSERT INTO history (kind, summary, payload_json, at) VALUES ('organize', ?1, ?2, ?3)",
-                params![format!("Auto-organize: {applied} changes"), serde_json::to_string(&done)?, store::now()],
-            )?;
-            db.last_insert_rowid()
+            history_id
         };
         self.emit(Event::OrganizeApplied { changes: applied });
         self.rescan()?;

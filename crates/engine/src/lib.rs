@@ -12,6 +12,7 @@ mod library;
 mod organize;
 mod pairing;
 mod pdf;
+mod reconcile;
 mod request;
 mod scan;
 mod search;

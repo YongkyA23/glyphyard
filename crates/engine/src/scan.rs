@@ -517,14 +517,16 @@ impl Engine {
                 )?;
                 insert_faces(&tx, &s.hash, &s.faces, &s.coverage)?;
             }
-            if !removed.is_empty() {
-                prune_faces(&tx)?;
-            }
             tx.commit()?;
             let row = folder_row(&db, id)?;
             folder_dto(&db, &row, None)?
         };
         self.ui(UiEvent::FolderStatus(dto));
+        // Before pruning faces, so a font turned off here is still reported by name.
+        let changed = self.reconcile_ledger(id, root, &unread)? || changed;
+        if !removed.is_empty() {
+            prune_faces(&self.db())?;
+        }
         // Bytes this folder already had did not arrive: a re-read (touched, re-parsed after an upgrade),
         // a rename, or a move inside the folder.
         let known: HashSet<&str> = existing.values().map(|e| e.2.as_str()).collect();

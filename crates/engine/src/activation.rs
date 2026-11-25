@@ -595,7 +595,7 @@ impl Engine {
     /// Turning off with the OS call outside the database lock (see `repair_now`): reads the ledger rows,
     /// unregisters without the lock, then removes the rows. A row that changed meanwhile (another version
     /// was picked) is left alone; a queued registration that lands later sees its row gone and undoes itself.
-    fn deactivate_unlocked(&self, hashes: &[String], source: Source) -> Result<(Vec<ActivationResult>, bool)> {
+    pub(crate) fn deactivate_unlocked(&self, hashes: &[String], source: Source) -> Result<(Vec<ActivationResult>, bool)> {
         let mut results = Vec::new();
         let rows: Vec<LedgerRow> = {
             let db = self.db();
