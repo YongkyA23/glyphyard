@@ -208,3 +208,17 @@ fn active_fonts_come_back_when_their_folder_returns() {
     assert_eq!(fx.os.registered().len(), 1, "its active fonts are registered again");
     assert!(!fx.engine.reconnect_folders().unwrap(), "nothing to do the second time");
 }
+
+#[test]
+fn folder_paths_include_the_system_folders() {
+    let fx = fixture!();
+    let sys = fx.root.parent().unwrap().join("os-fonts");
+    std::fs::create_dir_all(&sys).unwrap();
+    *fx.os.0.font_dirs.lock().unwrap() = vec![sys.clone()];
+    fx.engine.add_folder(&fx.root).unwrap();
+    fx.engine.rescan().unwrap();
+
+    let paths = fx.engine.folder_paths().unwrap();
+    assert!(paths.contains(&fx.root) && paths.contains(&sys), "{paths:?}");
+    assert_eq!(paths.len(), 2);
+}

@@ -20,7 +20,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tokio::sync::oneshot;
 use tracing_appender::non_blocking::WorkerGuard;
 use typeshelf_adobe_bridge::BridgeHandle;
-use typeshelf_engine::{Engine, EngineError, SystemFonts};
+use typeshelf_engine::{Engine, EngineError, SystemFonts, UiEvent};
 use typeshelf_sync::{CancellationToken, SyncClient};
 
 /// Everything the commands and background tasks share (`app.state::<Ctx>()`).
@@ -97,6 +97,14 @@ pub fn set_autostart(app: &AppHandle, on: bool) -> Result<(), EngineError> {
     res.map_err(|e| EngineError::new("autostart", e.to_string()))
 }
 
+/// Lets the webview load the font files under `dir` (and its subfolders) through the asset protocol.
+// ponytail: grants are never taken back; a removed or moved-away folder stays readable until restart.
+fn allow_fonts(app: &AppHandle, dir: &Path) {
+    if let Err(e) = app.asset_protocol_scope().allow_directory(dir, true) {
+        tracing::warn!("previews of {}: {e}", dir.display());
+    }
+}
+
 fn init_logging(dir: &Path) -> Option<WorkerGuard> {
     use tracing_subscriber::fmt::writer::MakeWriterExt;
     std::fs::create_dir_all(dir).ok()?;
@@ -124,8 +132,16 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     if engine.get_connection()?.server_url.is_empty() {
         engine.set_connection(sync::DEFAULT_SERVER_URL, sync::DEFAULT_INSTALL_KEY)?;
     }
+    // Previews read font files through the asset protocol, which allows nothing by default: allow every
+    // folder the library knows, and each folder an event reports (added, located, moved, created, back online).
+    for dir in engine.folder_paths()? {
+        allow_fonts(&handle, &dir);
+    }
     let h = handle.clone();
     engine.on_ui_event(move |ev| {
+        if let UiEvent::FolderStatus(f) = &ev {
+            allow_fonts(&h, Path::new(&f.path));
+        }
         let _ = h.emit(ev.name(), ev.payload());
     });
     // The callback must not re-enter the engine, so events go through a channel to the outbox.
@@ -205,8 +221,21 @@ async fn startup(app: AppHandle) {
         Ok(Ok(())) => {}
     }
     let _ = app.emit("library-changed", serde_json::json!({ "reason": "scan" }));
+    tauri::async_runtime::spawn(reconnect_loop(engine.clone()));
     if let Err(e) = sync::restart(&app).await {
         tracing::error!("starting sync: {e}");
+    }
+}
+
+/// Every 30 s: brings back the fonts of a folder whose drive was plugged in while the app runs.
+async fn reconnect_loop(engine: Arc<Engine>) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        match blocking(&engine, |e| e.reconnect_folders()).await {
+            Ok(true) => tracing::info!("a folder came back online"),
+            Ok(false) => {}
+            Err(e) => tracing::warn!("checking for returning folders: {e}"),
+        }
     }
 }
 

@@ -186,6 +186,11 @@ impl Engine {
         Ok(rows.iter().filter(|f| !system.contains(&f.id)).map(|f| folder_dto(&db, f, None)).collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Every folder the library can list fonts from: the user's, the managed ones and the system ones.
+    pub fn folder_paths(&self) -> Result<Vec<PathBuf>> {
+        Ok(folder_rows(&self.db())?.into_iter().map(|f| f.path).collect())
+    }
+
     /// Adds the OS font folders the first time they are seen.
     fn ensure_system_folders(&self) {
         for dir in self.os.font_dirs() {
