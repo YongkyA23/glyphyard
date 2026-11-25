@@ -59,6 +59,9 @@ struct Request {
     done_at: Option<String>,
 }
 
+/// `p` = the person a request `r` belongs to now (the merge primary); removed people (`p.revoked_at`) are left out.
+const PERSON: &str = "JOIN installs i ON i.id = r.install_id JOIN installs p ON p.id = COALESCE(i.merged_into, i.id)";
+
 #[derive(Deserialize)]
 struct ListQuery {
     state: Option<String>,
@@ -71,12 +74,11 @@ async fn list(State(s): State<AppState>, _: Admin, Query(q): Query<ListQuery>, Q
         return Err(ApiError::bad_request("invalid_state", format!("unknown state `{state}`")));
     }
     let (offset, limit) = paging.window(Paging::DEFAULT, Paging::MAX);
-    let filter = "(?1 = 'all' OR (?1 = 'open') = (r.done_at IS NULL))";
+    let filter = "(?1 = 'all' OR (?1 = 'open') = (r.done_at IS NULL)) AND p.revoked_at IS NULL";
     let db = s.db();
-    let total: i64 = db.query_row(&format!("SELECT COUNT(*) FROM font_requests r WHERE {filter}"), [&state], |r| r.get(0))?;
+    let total: i64 = db.query_row(&format!("SELECT COUNT(*) FROM font_requests r {PERSON} WHERE {filter}"), [&state], |r| r.get(0))?;
     let mut stmt = db.prepare(&format!(
-        "SELECT r.id, p.id, p.name, r.font_name, r.note, r.at, r.done_at FROM font_requests r
-         JOIN installs i ON i.id = r.install_id JOIN installs p ON p.id = COALESCE(i.merged_into, i.id)
+        "SELECT r.id, p.id, p.name, r.font_name, r.note, r.at, r.done_at FROM font_requests r {PERSON}
          WHERE {filter} ORDER BY r.at DESC, r.id DESC LIMIT ?2 OFFSET ?3"
     ))?;
     let items = stmt
@@ -119,5 +121,5 @@ async fn reopen(State(s): State<AppState>, admin: Admin, Path(id): Path<i64>) ->
 
 /// For the overview's attention block.
 pub fn open_count(c: &Connection) -> rusqlite::Result<i64> {
-    c.query_row("SELECT COUNT(*) FROM font_requests WHERE done_at IS NULL", [], |r| r.get(0))
+    c.query_row(&format!("SELECT COUNT(*) FROM font_requests r {PERSON} WHERE r.done_at IS NULL AND p.revoked_at IS NULL"), [], |r| r.get(0))
 }

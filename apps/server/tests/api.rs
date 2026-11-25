@@ -888,6 +888,9 @@ async fn a_revoked_install_is_refused_hidden_and_kept_in_name_history() {
     assert_eq!(s.admin(Method::DELETE, "/installs/nobody", None).await.status, StatusCode::NOT_FOUND);
     let lib = s.admin(Method::GET, "/library", None).await.json();
     assert_eq!(lib["items"][0]["delivered_to"], json!(["b"]), "its deliveries are dropped");
+    let requests = s.admin(Method::GET, "/requests", None).await.json();
+    assert_eq!((requests["total"].as_i64(), requests["items"].as_array().unwrap().len()), (Some(0), 0), "its requests leave the list");
+    assert_eq!(s.admin(Method::GET, "/overview", None).await.json()["attention"]["requests"], 0);
     // Broadcasts skip it.
     s.admin(Method::PUT, "/settings", Some(json!({ "name_change_days": 7 }))).await;
     let pending: i64 = s.state.db().query_row("SELECT COUNT(*) FROM commands WHERE install_id = 'a' AND acked_at IS NULL", [], |r| r.get(0)).unwrap();
@@ -910,6 +913,7 @@ async fn a_revoked_install_is_refused_hidden_and_kept_in_name_history() {
     // Its font request moved with the old history, not to the new install.
     let owner: String = s.state.db().query_row("SELECT install_id FROM font_requests WHERE font_name = 'Söhne'", [], |r| r.get(0)).unwrap();
     assert!(owner.starts_with("a~revoked-"), "{owner}");
+    assert_eq!(s.admin(Method::GET, "/requests", None).await.json()["total"], 0, "nor does it come back under the old name");
 }
 
 #[tokio::test]
