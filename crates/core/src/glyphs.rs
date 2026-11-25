@@ -2,6 +2,8 @@
 //! Unicode block for the glyph grid.
 
 use serde::{Deserialize, Serialize};
+use skrifa::instance::{LocationRef, Size};
+use skrifa::outline::{DrawSettings, OutlinePen};
 use skrifa::raw::FileRef;
 use skrifa::{FontRef, MetadataProvider};
 
@@ -83,6 +85,42 @@ pub fn glyph_map(bytes: &[u8], index: u32) -> Option<GlyphMap> {
         blocks.push(GlyphBlock { name: "Other".into(), start, end, chars: other });
     }
     Some(GlyphMap { total: cps.len() as u32, blocks })
+}
+
+/// SVG path data with y negated: fonts are y-up, SVG is y-down.
+struct SvgPath(String);
+
+impl OutlinePen for SvgPath {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.0 += &format!("M{x},{}", -y);
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.0 += &format!("L{x},{}", -y);
+    }
+    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+        self.0 += &format!("Q{cx0},{} {x},{}", -cy0, -y);
+    }
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.0 += &format!("C{cx0},{} {cx1},{} {x},{}", -cy0, -cy1, -y);
+    }
+    fn close(&mut self) {
+        self.0 += "Z";
+    }
+}
+
+/// Codepoint `cp` of face `index` as a standalone SVG in font units (default instance, unhinted):
+/// the viewBox spans the advance width and ascent to descent, with the baseline at y = 0.
+/// `None` when the file does not parse or the face does not map `cp`.
+pub fn glyph_svg(bytes: &[u8], index: u32, cp: u32) -> Option<String> {
+    let font = face_at(bytes, index)?;
+    let gid = font.charmap().map(cp)?;
+    let glyph = font.outline_glyphs().get(gid)?;
+    let mut path = SvgPath(String::new());
+    glyph.draw(DrawSettings::unhinted(Size::unscaled(), LocationRef::default()), &mut path).ok()?;
+    let m = font.metrics(Size::unscaled(), LocationRef::default());
+    let advance = font.glyph_metrics(Size::unscaled(), LocationRef::default()).advance_width(gid).unwrap_or(0.0);
+    let (top, height) = (-m.ascent, m.ascent - m.descent);
+    Some(format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 {top} {advance} {height}"><path d="{}"/></svg>"#, path.0))
 }
 
 // ponytail: the common blocks only (Unicode 15 Blocks.txt subset); the rest lands in "Other".
@@ -248,5 +286,22 @@ mod tests {
         assert_eq!(map.total as usize, map.blocks.iter().map(|b| b.chars.len()).sum::<usize>());
         assert!(map.blocks.windows(2).all(|w| w[0].start < w[1].start || w[1].name == "Other"));
         assert!(glyph_map(&bytes, 1).is_none());
+    }
+
+    #[test]
+    fn arial_glyph_svg() {
+        let Ok(bytes) = std::fs::read("C:\\Windows\\Fonts\\arial.ttf") else { return };
+        let svg = glyph_svg(&bytes, 0, 'A' as u32).unwrap();
+        let attr = |name: &str| svg.split(&format!(" {name}=\"")).nth(1).unwrap().split('"').next().unwrap().to_string();
+        // x from 0 to the advance width, y from -ascent to -descent (font units, flipped to y-down).
+        let vb: Vec<f32> = attr("viewBox").split(' ').map(|v| v.parse().unwrap()).collect();
+        assert_eq!(vb, [0.0, -1854.0, 1366.0, 2288.0]);
+        let d = attr("d");
+        assert!(d.starts_with('M') && d.ends_with('Z') && d.len() > 20, "{d}");
+        // The apex of "A" sits at cap height (1466 units up), so above the baseline in SVG space.
+        assert!(d.contains(",-1466"), "{d}");
+        assert!(svg.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\"") && svg.ends_with("</svg>"));
+        assert!(glyph_svg(&bytes, 0, '中' as u32).is_none(), "not in the cmap");
+        assert!(glyph_svg(&bytes, 1, 'A' as u32).is_none(), "no second face");
     }
 }

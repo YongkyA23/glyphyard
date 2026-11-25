@@ -36,6 +36,8 @@ export type FamilyDetail = Family & {
   details: FontDetails
   /** Representative face's stored x-height / unitsPerEm; 0 when the font does not say. */
   xHeight: number
+  /** Stored metrics per face hash, lengths per em (0 when the font does not say). */
+  faceMetrics: Record<string, { x_height: number; cap_height: number }>
 }
 /** Saved variable-axis values (axis tag → value) for one family. */
 export type AxisPreset = { name: string; values: Record<string, number> }
@@ -247,6 +249,8 @@ export const api = {
 
   /** `index`: face inside a TTC (default 0). */
   faceGlyphs: (hash: string, index?: number) => call<{ total: number; blocks: GlyphBlock[] }>('face_glyphs', { hash, index }),
+  /** Codepoint `cp` of the face as standalone SVG text. */
+  glyphSvg: (hash: string, cp: number, index?: number) => call<string>('glyph_svg', { hash, index, cp }),
   setPinned: (keys: string[], pinned: boolean) => call<void>('set_pinned', { keys, pinned }),
   pickFiles: (filters: FileFilter[]) => call<string[] | null>('pick_files', { filters }),
   exportCollections: (dest: string) => call<{ collections: number }>('export_collections', { dest }),

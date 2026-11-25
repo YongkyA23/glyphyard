@@ -12,7 +12,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
-use typeshelf_core::glyphs::{covers, glyph_map, Coverage};
+use typeshelf_core::glyphs::{covers, glyph_map, glyph_svg, Coverage};
 use typeshelf_core::languages::{language, LANGUAGES};
 use typeshelf_core::{font_details, Metrics};
 use typeshelf_protocol::Source;
@@ -557,6 +557,11 @@ impl Engine {
         }
         let rows: Vec<&Row> = rows.iter().collect();
         let info = license_info(&db, key)?;
+        // Highest index first, so face 0 of a collection file is the one kept per hash.
+        let face_metrics = db
+            .prepare_cached("SELECT hash, metrics_json FROM faces WHERE family_key = ?1 ORDER BY idx DESC")?
+            .query_map([key], |r| Ok((r.get::<_, String>(0)?, serde_json::from_str(&r.get::<_, String>(1)?).unwrap_or_default())))?
+            .collect::<rusqlite::Result<_>>()?;
         let mut family = build_family(key, &rows, info.label);
         family.tags = tags_of(&db)?.remove(key).unwrap_or_default();
         family.pinned = pins(&db)?.contains(key);
@@ -595,6 +600,7 @@ impl Engine {
             license_info: info,
             details,
             x_height,
+            face_metrics,
             family,
         })
     }
@@ -602,6 +608,17 @@ impl Engine {
     /// The cmap of one face (`index` within a TTC), grouped by Unicode block. Read from the first
     /// readable copy of the file.
     pub fn face_glyphs(&self, hash: &str, index: u32) -> Result<GlyphMap> {
+        self.font_bytes(hash)?.and_then(|bytes| glyph_map(&bytes, index)).ok_or_else(|| not_found("font file"))
+    }
+
+    /// One character of one face as a standalone SVG (see `typeshelf_core::glyphs::glyph_svg`).
+    pub fn glyph_svg(&self, hash: &str, index: u32, cp: u32) -> Result<String> {
+        let bytes = self.font_bytes(hash)?.ok_or_else(|| not_found("font file"))?;
+        glyph_svg(&bytes, index, cp).ok_or_else(|| not_found("glyph"))
+    }
+
+    /// The first readable copy of the file with this hash. The database lock is released before reading.
+    fn font_bytes(&self, hash: &str) -> Result<Option<Vec<u8>>> {
         let paths: Vec<PathBuf> = {
             let db = self.db();
             let mut stmt = db.prepare(
@@ -610,11 +627,7 @@ impl Engine {
             let rows = stmt.query_map([hash], |r| Ok(Path::new(&r.get::<_, String>(0)?).join(r.get::<_, String>(1)?)))?;
             rows.collect::<rusqlite::Result<_>>()?
         };
-        paths
-            .iter()
-            .find_map(|p| std::fs::read(p).ok())
-            .and_then(|bytes| glyph_map(&bytes, index))
-            .ok_or_else(|| not_found("font file"))
+        Ok(paths.iter().find_map(|p| std::fs::read(p).ok()))
     }
 
     /// Pins or unpins families; pinned families sort first in every list.

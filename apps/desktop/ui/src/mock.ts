@@ -122,6 +122,7 @@ const families: Fam[] = SEEDS.map((s) => {
       version: `Version ${s.dupe ? '2.000' : '1.000'}`, uniqueId: `${s.dupe ? '2.000' : '1.000'};${s.foundry.slice(0, 4).toUpperCase()};${base}-Regular`,
       format: s.variable ? 'Variable TrueType' : 'OpenType (CFF)', upm: 1000, glyphCount: glyphsOf(keyOf(s.family)).length + 24,
     },
+    faceMetrics: Object.fromEntries(faces.map((f) => [f.hash, s.category === 'display' ? { x_height: 0.7, cap_height: 0.7 } : { x_height: 0.5, cap_height: 0.7 }])),
   }
 })
 // Fraunces ships 9 static styles grouped with the variable one; the mockup counts them as "9 styles".
@@ -138,7 +139,7 @@ const refreshState = (f: Fam) => {
   })
 }
 const toFamily = (f: Fam): Family => {
-  const { axes: _a, features: _f, glyphCount: _g, designer: _d, files: _fi, licenseInfo: _l, addedAt: _ad, original: _o, details: _de, xHeight: _x, ...rest } = f
+  const { axes: _a, features: _f, glyphCount: _g, designer: _d, files: _fi, licenseInfo: _l, addedAt: _ad, original: _o, details: _de, xHeight: _x, faceMetrics: _m, ...rest } = f
   return clone(rest)
 }
 
@@ -723,6 +724,13 @@ const handlers: Record<string, (a: Args) => unknown> = {
     const cps = glyphsOf(f.key)
     const blocks: GlyphBlock[] = UNI_BLOCKS.map(([name, start, end]) => ({ name, start, end, chars: cps.filter((c) => c >= start && c <= end) })).filter((b) => b.chars.length)
     return { total: cps.length, blocks }
+  },
+  glyph_svg: ({ hash, cp }) => {
+    const f = famOfHash(hash)
+    if (!f) throw err('not_found', 'This font is no longer in your library.')
+    if (!glyphsOf(f.key).includes(cp)) throw err('not_found', 'This character is not in the font.')
+    // The browser preview has no font files: a box the size of the em with the baseline at y = 0.
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -800 600 1000"><path d="M50,0L550,0L550,-700L50,-700Z"/></svg>'
   },
   set_pinned: ({ keys, pinned }) => {
     families.forEach((f) => keys.includes(f.key) && (f.pinned = pinned))

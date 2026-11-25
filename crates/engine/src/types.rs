@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 pub use typeshelf_core::organize::Change;
-pub use typeshelf_core::{Axis, Category, FontDetails, GlyphBlock, GlyphMap};
+pub use typeshelf_core::{Axis, Category, FontDetails, GlyphBlock, GlyphMap, Metrics};
 pub use typeshelf_protocol::Source;
 
 /// Rejection sent to the UI as `{ code, message, ...extra }`.
@@ -179,6 +179,8 @@ pub struct FamilyDetail {
     pub details: FontDetails,
     /// The representative face's stored x-height divided by its units per em; 0 when the font does not say.
     pub x_height: f32,
+    /// Stored metrics per face hash (first face of a collection file), for the glyph anatomy overlay.
+    pub face_metrics: std::collections::BTreeMap<String, Metrics>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]

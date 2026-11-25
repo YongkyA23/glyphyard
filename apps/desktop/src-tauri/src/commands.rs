@@ -23,7 +23,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         get_app_state, complete_onboarding, change_name,
         list_families, family_page, library_counts, language_counts, get_faces, get_family, set_active, similar_families,
         set_active_for,
-        set_family_name, delete_fonts, import_paths, face_glyphs, set_pinned,
+        set_family_name, delete_fonts, import_paths, face_glyphs, glyph_svg, set_pinned,
         pairing_suggestions, list_axis_presets, save_axis_preset, delete_axis_preset,
         folder_tree, set_folder_active, set_folder_auto, set_folder_hidden, delete_folder,
         list_folders, add_folder, remove_folder, locate_folder,
@@ -192,6 +192,11 @@ pub async fn import_paths(ctx: St<'_>, paths: Vec<String>) -> R<ImportResult> {
 #[tauri::command]
 pub async fn face_glyphs(ctx: St<'_>, hash: String, index: Option<u32>) -> R<GlyphMap> {
     ctx.run(move |e| e.face_glyphs(&hash, index.unwrap_or(0))).await
+}
+
+#[tauri::command]
+pub async fn glyph_svg(ctx: St<'_>, hash: String, index: Option<u32>, cp: u32) -> R<String> {
+    ctx.run(move |e| e.glyph_svg(&hash, index.unwrap_or(0), cp)).await
 }
 
 #[tauri::command]

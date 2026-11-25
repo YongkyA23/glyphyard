@@ -4,10 +4,14 @@ import { animate, AnimatePresence, motion, useReducedMotion } from 'motion/react
 import { api, tagsOf, type Axis, type Face, type Family, type FamilyDetail, type FileRow, type FontDetails, type GlyphBlock, type License, type ProjectSet } from '../api'
 import { AXIS_NAME, axisStep, faceStyle, familyStyle, pickFace } from '../fonts'
 import { cssStagger, dur, easeOut, pop, rise, spring } from '../motion'
+import { useContextMenu } from '../menu'
 import { useApp } from '../state'
 import { useBreathing } from '../useBreathing'
 import { usePreviewWheel } from '../usePreviewWheel'
 import { useSampleText } from '../useSampleText'
+import { GlyphAnatomy } from './family/GlyphTools'
+import { useAltHeld, useCopySvg } from './family/hooks'
+import { Poster } from './family/Poster'
 import { Badge, basename, CATEGORY_LABEL, Chip, Dialog, dirname, errMsg, LicenseBadge, num, plural, Skel, Switch, useSeen, type Tone } from '../ui'
 
 const FEATURE_NAME: Record<string, string> = {
@@ -75,7 +79,7 @@ const GLYPH_CAP = 512
 const uPlus = (cp: number) => `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`
 
 /** One Unicode block; its cells render only once it comes near the viewport. */
-function GlyphSection({ b, style, onPeek, onCopy }: { b: GlyphBlock; style: CSSProperties; onPeek: (cp: number) => void; onCopy: (cp: number) => void }) {
+function GlyphSection({ b, style, onPeek, onCopy, onMenu }: { b: GlyphBlock; style: CSSProperties; onPeek: (cp: number) => void; onCopy: (cp: number) => void; onMenu: (e: React.MouseEvent, cp: number) => void }) {
   const [ref, seen] = useSeen<HTMLElement>('400px')
   const [all, setAll] = useState(false)
   const cps = all ? b.chars : b.chars.slice(0, GLYPH_CAP)
@@ -90,8 +94,8 @@ function GlyphSection({ b, style, onPeek, onCopy }: { b: GlyphBlock; style: CSSP
             const ch = String.fromCodePoint(cp)
             return (
               <button
-                key={cp} type="button" className="glyph" style={{ ...style, ...cssStagger(i) }} aria-label={`${ch} ${uPlus(cp)}, copy`}
-                onClick={() => onCopy(cp)} onMouseEnter={() => onPeek(cp)} onFocus={() => onPeek(cp)}
+                key={cp} type="button" className="glyph" style={{ ...style, ...cssStagger(i) }} aria-label={`${ch} ${uPlus(cp)}, copy`} data-cp={cp}
+                onClick={() => onCopy(cp)} onMouseEnter={() => onPeek(cp)} onFocus={() => onPeek(cp)} onContextMenu={(e) => onMenu(e, cp)}
               >{ch}</button>
             )
           })}
@@ -117,6 +121,10 @@ function GlyphsTab({ fam, extra }: { fam: FamilyDetail; extra: CSSProperties }) 
   const [data, setData] = useState<{ hash: string; total: number; blocks: GlyphBlock[] } | null>(null)
   const [block, setBlock] = useState('')
   const [peek, setPeek] = useState<number | null>(null)
+  const [last, setLast] = useState<number | null>(null)
+  const copySvg = useCopySvg(face?.hash ?? '')
+  const alt = useAltHeld()
+  const { show, menu } = useContextMenu('Character')
   useEffect(() => {
     if (!face) return
     let live = true
@@ -141,7 +149,7 @@ function GlyphsTab({ fam, extra }: { fam: FamilyDetail; extra: CSSProperties }) 
         {faces.length > 1 && (
           <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             Style
-            <select className="select" value={face.hash} onChange={(e) => (setHash(e.target.value), setPeek(null))}>
+            <select className="select" value={face.hash} onChange={(e) => (setHash(e.target.value), setPeek(null), setLast(null))}>
               {faces.map((x) => <option key={x.hash} value={x.hash}>{x.style}</option>)}
             </select>
           </label>
@@ -154,6 +162,9 @@ function GlyphsTab({ fam, extra }: { fam: FamilyDetail; extra: CSSProperties }) 
           </select>
         </label>
         {ready && <span>{plural(ready.total, 'character')} mapped · {plural(fam.glyphCount, 'glyph')} in the font</span>}
+        <button type="button" className="btn small" disabled={last === null} onClick={() => last !== null && copySvg(last)}>
+          {last !== null ? `Copy ${String.fromCodePoint(last)} as SVG` : 'Copy as SVG'}
+        </button>
         <span className="glyph-info" aria-hidden="true">
           <b style={style}>{peek !== null ? String.fromCodePoint(peek) : ''}</b>
           <span className="mono" style={{ fontSize: 12 }}>{peek !== null ? uPlus(peek) : 'Hover a character'}</span>
@@ -166,10 +177,15 @@ function GlyphsTab({ fam, extra }: { fam: FamilyDetail; extra: CSSProperties }) 
       ) : (
         <div onMouseLeave={() => setPeek(null)}>
           {ready.blocks.filter((b) => !cur || b.name === cur).map((b) => (
-            <GlyphSection key={`${face.hash}-${b.name}`} b={b} style={style} onPeek={setPeek} onCopy={copy} />
+            <GlyphSection
+              key={`${face.hash}-${b.name}`} b={b} style={style} onPeek={(cp) => (setPeek(cp), setLast(cp))} onCopy={copy}
+              onMenu={(e, cp) => show(e, [{ label: 'Copy character', onSelect: () => copy(cp) }, { label: 'Copy as SVG', onSelect: () => copySvg(cp) }])}
+            />
           ))}
         </div>
       )}
+      {alt && peek !== null && <GlyphAnatomy cp={peek} style={style} metrics={fam.faceMetrics[face.hash]} />}
+      {menu}
     </div>
   )
 }
@@ -380,6 +396,7 @@ export function FamilyPage() {
   return (
     <div className="page" style={{ gap: 20, padding: '20px 32px 32px' }}>
       <Link to="/" className="back">← Library</Link>
+      <Poster family={fam.family} sample={sample} style={previewStyle} />
       <div className="row-between" style={{ alignItems: 'flex-end', gap: 20 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
           <h1 className="family-title" style={familyStyle(fam)}>{fam.family}</h1>
