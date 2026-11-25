@@ -504,7 +504,7 @@ export function Library() {
             </button>
           ))}
         </div>
-        <RequestFontButton />
+        {app.serverConfigured && <RequestFontButton />}
         <button
           type="button" className="btn small" aria-haspopup="menu"
           onClick={(e) => addMenu.show(e, [

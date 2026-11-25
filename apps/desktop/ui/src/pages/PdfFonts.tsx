@@ -15,7 +15,7 @@ const STATUS: Record<PdfFont['status'], [string, Tone]> = {
 }
 
 export function PdfFonts() {
-  const { activate, toast } = useApp()
+  const { app, activate, toast } = useApp()
   const [path, setPath] = useState<string | null>(null)
   const [rows, setRows] = useState<PdfFont[] | null>(null)
   const [partial, setPartial] = useState<string | null>(null)
@@ -126,7 +126,7 @@ export function PdfFonts() {
                       Search Google Fonts
                     </Link>
                   )}
-                  {r.status === 'missing' && <RequestFontButton name={r.display} />}
+                  {r.status === 'missing' && app.serverConfigured && <RequestFontButton name={r.display} />}
                 </span>
               </div>
             ))}
