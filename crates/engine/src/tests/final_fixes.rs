@@ -2,6 +2,8 @@
 
 use super::stats::{earned, eleven_on, usage_rows};
 use super::*;
+use chrono::{Duration, Utc};
+use std::collections::BTreeMap;
 
 fn off_rows(fx: &Fixture) -> usize {
     usage_rows(fx).iter().filter(|(active, _)| !active).count()
@@ -82,4 +84,40 @@ fn migration_7_forces_a_reread() {
     let db = crate::store::open(&path).unwrap();
     let mtime: i64 = db.query_row("SELECT mtime FROM files", [], |r| r.get(0)).unwrap();
     assert_eq!(mtime, -1);
+}
+
+// E3: temporary records.
+
+fn temporary_records(fx: &Fixture) -> BTreeMap<String, String> {
+    crate::store::get(&fx.engine.db(), "temporary").unwrap().unwrap_or_default()
+}
+
+#[test]
+fn a_system_font_turned_on_for_a_while_gets_no_record() {
+    let fx = fixture!();
+    let sys = fx.root.parent().unwrap().join("os-fonts");
+    std::fs::create_dir_all(&sys).unwrap();
+    std::fs::write(sys.join("arial.ttf"), system_font("arial.ttf").unwrap()).unwrap();
+    *fx.os.0.font_dirs.lock().unwrap() = vec![sys];
+    fx.engine.rescan().unwrap();
+    let q = FamilyQuery { filter: FamilyFilter::System, ..Default::default() };
+    let hashes: Vec<String> = fx.engine.list_families(&q).unwrap().into_iter().flat_map(|f| f.faces).map(|f| f.hash).collect();
+    assert!(fx.engine.set_active_for(&hashes, Until::Minutes(60)).unwrap().iter().all(|r| r.ok));
+    assert!(temporary_records(&fx).is_empty(), "always on, never temporary");
+}
+
+#[test]
+fn an_expiry_the_os_refuses_keeps_its_record() {
+    let fx = fixture!();
+    let path = fx.put("arial.ttf", &system_font("arial.ttf").unwrap());
+    fx.engine.add_folder(&fx.root).unwrap();
+    let hashes = fx.hashes("Arial");
+    fx.engine.set_active_for(&hashes, Until::Minutes(5)).unwrap();
+    fx.os.0.fail_off.lock().unwrap().insert(std::path::absolute(&path).unwrap());
+    assert_eq!(fx.engine.expire_temporary(Utc::now() + Duration::minutes(6), false).unwrap(), 0);
+    assert!(temporary_records(&fx).contains_key(&hashes[0]), "kept, so the next sweep tries again");
+
+    fx.os.0.fail_off.lock().unwrap().clear();
+    assert_eq!(fx.engine.expire_temporary(Utc::now() + Duration::minutes(6), false).unwrap(), 1);
+    assert!(fx.os.registered().is_empty());
 }

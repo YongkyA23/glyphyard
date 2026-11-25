@@ -71,7 +71,9 @@ impl Engine {
         {
             let db = self.db();
             let mut records: Records = store::get(&db, KEY)?.unwrap_or_default();
-            for r in results.iter().filter(|r| r.ok && !permanent.contains(&r.hash)) {
+            // On in the ledger now: not a system font (always on) or a background registration that already failed.
+            let on: HashSet<String> = self.ledger(&db)?.into_iter().map(|r| r.hash).collect();
+            for r in results.iter().filter(|r| r.ok && !permanent.contains(&r.hash) && on.contains(&r.hash)) {
                 records.insert(r.hash.clone(), value.clone());
             }
             save(&db, &records)?;
@@ -85,11 +87,11 @@ impl Engine {
     /// set) only loses its record. The due records are taken in one database step, so two sweeps running at
     /// once never pick the same font.
     pub fn expire_temporary(&self, now: DateTime<Utc>, startup: bool) -> Result<usize> {
-        let due: Vec<String> = {
+        let due: Records = {
             let db = self.db();
             let Some(mut records) = store::get::<Records>(&db, KEY)? else { return Ok(0) };
             let sources: HashMap<String, Source> = self.ledger(&db)?.into_iter().map(|r| (r.hash, r.source)).collect();
-            let mut due = Vec::new();
+            let mut due = Records::new();
             for (hash, until) in std::mem::take(&mut records) {
                 let expired = if until == RESTART {
                     startup
@@ -99,7 +101,7 @@ impl Engine {
                 if !expired {
                     records.insert(hash, until);
                 } else if sources.get(&hash) == Some(&Source::User) && !needed_by_a_set(&db, &hash)? {
-                    due.push(hash);
+                    due.insert(hash, until);
                 }
             }
             save(&db, &records)?;
@@ -110,6 +112,20 @@ impl Engine {
         }
         // ponytail: the normal user turn-off; a font the user turns on again in the instant between the step
         // above and this call still goes off. Recheck under the lock if that ever matters.
-        Ok(self.set_active_now_as(&due, false, false)?.iter().filter(|r| r.ok).count())
+        let hashes: Vec<String> = due.keys().cloned().collect();
+        let results = self.set_active_now_as(&hashes, false, false)?;
+        // The OS refused: keep the record, so the next sweep tries again instead of leaving the font on for good.
+        let failed: Vec<&String> = results.iter().filter(|r| !r.ok).map(|r| &r.hash).collect();
+        if !failed.is_empty() {
+            let db = self.db();
+            let mut records: Records = store::get(&db, KEY)?.unwrap_or_default();
+            for h in failed {
+                if let Some(until) = due.get(h) {
+                    records.insert(h.clone(), until.clone());
+                }
+            }
+            save(&db, &records)?;
+        }
+        Ok(results.iter().filter(|r| r.ok).count())
     }
 }
