@@ -130,6 +130,8 @@ CREATE INDEX usage_log_at ON usage_log(at);
 CREATE TABLE badges (id TEXT PRIMARY KEY, earned_at TEXT NOT NULL);
 INSERT OR IGNORE INTO settings (key, value) VALUES ('usage_since', '"' || strftime('%Y-%m-%dT%H:%M:%SZ', 'now') || '"');
 "#,
+    // 7: ascender/descender joined the stored metrics; re-read every file so old rows get them.
+    "UPDATE files SET mtime = -1;",
 ];
 
 pub(crate) fn open(path: &Path) -> rusqlite::Result<Connection> {

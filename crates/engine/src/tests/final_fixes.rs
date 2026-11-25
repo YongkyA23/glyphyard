@@ -62,3 +62,24 @@ fn auto_activation_is_not_use() {
     assert!(fx.os.registered().contains(&path), "the new file was turned on");
     assert_eq!(usage_rows(&fx).len(), before, "a file landing in an auto folder is not a day of use");
 }
+
+// E2: fonts scanned before ascender/descender existed are read again.
+
+#[test]
+fn migration_7_forces_a_reread() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("t.db");
+    {
+        let db = crate::store::open(&path).unwrap();
+        db.execute("INSERT INTO folders (path, added_at) VALUES ('C:/f', 'x')", []).unwrap();
+        db.execute(
+            "INSERT INTO files (folder_id, rel_path, hash, size, mtime, format, added_at) VALUES (1, 'a.ttf', 'h', 1, 123, 'ttf', 'x')",
+            [],
+        )
+        .unwrap();
+        db.execute_batch("PRAGMA user_version = 6").unwrap();
+    }
+    let db = crate::store::open(&path).unwrap();
+    let mtime: i64 = db.query_row("SELECT mtime FROM files", [], |r| r.get(0)).unwrap();
+    assert_eq!(mtime, -1);
+}
