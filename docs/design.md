@@ -119,7 +119,7 @@ Optional tidy: move into `Foundry/Family/Family-Style vX.YYY.ext`; license files
 - `name_limit_resets(install_id, at, admin_id)`
 - `font_states(install_id, hash, ps_name, family, active, source, updated_at)`
 - `events(id, install_id, kind, payload_json, at)` — the per-user timeline (name, fonts, overrides, failures, organize).
-- `commands(id, install_id, kind[activate|deactivate|organize_request|deliver], payload_json, created_at, delivered_at, acked_at)`
+- `commands(id, install_id, kind[activate|deactivate|organize_request|deliver], payload_json, created_at, delivered_at, acked_at, ok, error, fanout)`
 - `library_files(hash, filename, size, ps_name, family, license, uploaded_at, blocked)` + `deliveries(hash, target[all|install_id], activate)`
 - `admins(id, email, password_hash, role)`, `sessions(token_hash, admin_id, expires_at)`
 - `settings(key, value)` — name_change_days, install_key, allow_user_connection_edit, delivery defaults.
