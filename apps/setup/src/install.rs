@@ -102,8 +102,13 @@ pub fn validate_dir(dir: &Path) -> Result<(), Error> {
     if is_protected(dir) {
         return invalid("Typeshelf can't be installed directly in a system or user folder. Choose a folder of its own.");
     }
-    if let Ok(mut entries) = fs::read_dir(dir) {
-        if entries.next().is_some() && !looks_installed(dir) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        // A killed install leaves STAGING/BACKUP, and mid-swap plugins/ next to them: ours to replace.
+        let names: Vec<_> = entries.map(|e| e.map(|e| e.file_name()).unwrap_or_default()).collect();
+        let ours = |n: &std::ffi::OsStr| n == STAGING || n == BACKUP;
+        let marked = names.iter().any(|n| ours(n));
+        let foreign = names.iter().any(|n| !ours(n) && !(marked && n.eq_ignore_ascii_case("plugins")));
+        if foreign && !looks_installed(dir) {
             return invalid("That folder isn't empty. Choose an empty folder or a new one.");
         }
     }
@@ -245,6 +250,27 @@ mod tests {
         assert_eq!(validate_dir(&dir).unwrap_err().code, "invalid_dir");
         fs::write(dir.join(APP_EXE), "x").unwrap();
         assert!(validate_dir(&dir).is_ok());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn accepts_a_folder_holding_only_setups_leftovers() {
+        let dir = env_dir("TEMP").join(format!("ts-validate-leftover-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        // Killed during extraction.
+        fs::create_dir_all(dir.join(STAGING)).unwrap();
+        assert!(validate_dir(&dir).is_ok());
+        // Killed mid-swap on a fresh install: plugins/ already moved in, no typeshelf.exe yet.
+        fs::create_dir_all(dir.join(BACKUP)).unwrap();
+        fs::create_dir_all(dir.join("plugins")).unwrap();
+        assert!(validate_dir(&dir).is_ok());
+        // Anything else is still someone's.
+        fs::write(dir.join("notes.txt"), "x").unwrap();
+        assert_eq!(validate_dir(&dir).unwrap_err().code, "invalid_dir");
+        fs::remove_dir_all(&dir).unwrap();
+        // plugins/ alone is not marked as ours.
+        fs::create_dir_all(dir.join("plugins")).unwrap();
+        assert_eq!(validate_dir(&dir).unwrap_err().code, "invalid_dir");
         fs::remove_dir_all(&dir).unwrap();
     }
 

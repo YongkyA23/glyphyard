@@ -94,7 +94,7 @@ fn wipe_data_dir(dir: &Path) -> io::Result<bool> {
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
-        if FONT_DIRS.iter().any(|n| entry.file_name() == *n) && has_file(&path) {
+        if FONT_DIRS.iter().any(|n| entry.file_name().eq_ignore_ascii_case(n)) && has_file(&path) {
             kept = true;
         } else if entry.file_type()?.is_dir() {
             fs::remove_dir_all(&path)?;
@@ -108,9 +108,10 @@ fn wipe_data_dir(dir: &Path) -> io::Result<bool> {
     Ok(kept)
 }
 
-/// True when `dir` is a folder with a file anywhere inside it.
+/// True when `dir` has a file anywhere inside it, or can't be fully read (keep when unsure).
 fn has_file(dir: &Path) -> bool {
-    fs::read_dir(dir).into_iter().flatten().flatten().any(|e| e.file_type().is_ok_and(|t| !t.is_dir() || has_file(&e.path())))
+    let Ok(entries) = fs::read_dir(dir) else { return true };
+    entries.into_iter().any(|e| e.and_then(|e| Ok(!e.file_type()?.is_dir() || has_file(&e.path()))).unwrap_or(true))
 }
 
 /// The uninstall.exe that relaunched us from %TEMP% may still be exiting (or, with --silent, waits for us),
@@ -167,5 +168,47 @@ mod tests {
         assert!(!wipe_data_dir(&dir).unwrap());
         assert!(!dir.exists());
         assert!(!wipe_data_dir(&dir).unwrap(), "a missing folder is fine");
+    }
+
+    #[test]
+    fn wipe_matches_font_folder_names_in_any_case() {
+        let dir = env_dir("TEMP").join(format!("ts-wipe-case-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("google fonts")).unwrap();
+        fs::write(dir.join(r"google fonts\a.ttf"), "x").unwrap();
+        assert!(wipe_data_dir(&dir).unwrap());
+        assert!(dir.join(r"google fonts\a.ttf").is_file());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Denies listing a temp folder to Everyone until dropped.
+    struct Unlistable(PathBuf);
+    impl Unlistable {
+        fn new(dir: PathBuf) -> Self {
+            let ok = process::hidden("icacls").arg(&dir).args(["/deny", "*S-1-1-0:(RD)"]).output().unwrap().status.success();
+            assert!(ok, "icacls /deny failed");
+            Unlistable(dir)
+        }
+    }
+    impl Drop for Unlistable {
+        fn drop(&mut self) {
+            let _ = process::hidden("icacls").arg(&self.0).args(["/remove:d", "*S-1-1-0"]).output();
+        }
+    }
+
+    #[test]
+    fn wipe_keeps_a_font_folder_it_cannot_read() {
+        let dir = env_dir("TEMP").join(format!("ts-wipe-unreadable-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join(r"Imported fonts\locked")).unwrap();
+        fs::write(dir.join(r"Imported fonts\locked\a.otf"), "x").unwrap();
+        let kept = {
+            let _lock = Unlistable::new(dir.join(r"Imported fonts\locked"));
+            wipe_data_dir(&dir)
+        };
+        let survived = dir.join(r"Imported fonts\locked\a.otf").is_file();
+        let _ = fs::remove_dir_all(&dir);
+        assert!(kept.unwrap());
+        assert!(survived);
     }
 }
