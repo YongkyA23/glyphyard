@@ -30,6 +30,7 @@ pub fn routes() -> Router<AppState> {
         .merge(installs::routes())
         .merge(library::admin_routes())
         .merge(crate::requests::routes())
+        .merge(crate::update::admin_routes())
 }
 
 #[derive(Deserialize)]

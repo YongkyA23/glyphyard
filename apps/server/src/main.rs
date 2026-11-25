@@ -2,6 +2,7 @@ use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use typeshelf_core::update;
 use typeshelf_server::{admin, app, audit, auth, db, AppState};
 
 #[derive(Parser)]
@@ -40,6 +41,23 @@ enum Cmd {
         #[arg(long, default_value = "./data")]
         data: PathBuf,
     },
+    /// Create the key pair that signs app updates. Keep the private key file offline; bake the printed
+    /// public key into the app with `scripts/build-windows.ps1 -UpdateKey`.
+    UpdateKeygen {
+        /// Where to write the private key (must not exist yet).
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Write `<setup>.manifest` (version, size, BLAKE3 hash) and `<setup>.manifest.sig` for a setup program.
+    UpdateSign {
+        setup: PathBuf,
+        /// The private key file from `update-keygen`.
+        #[arg(long)]
+        key: PathBuf,
+        /// The setup program's version; read from a `Typeshelf-Setup-<version>.exe` file name when left out.
+        #[arg(long)]
+        version: Option<String>,
+    },
 }
 
 fn open_db(data: &Path) -> anyhow::Result<rusqlite::Connection> {
@@ -71,6 +89,28 @@ async fn main() -> anyhow::Result<()> {
             axum::serve(listener, app(state, &static_dir)).await?;
         }
         Cmd::InstallKey { data } => println!("{}", db::settings(&open_db(&data)?)?.install_key),
+        Cmd::UpdateKeygen { out } => {
+            let (private, public) = update::generate_key()?;
+            let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&out).with_context(|| format!("creating {}", out.display()))?;
+            std::io::Write::write_all(&mut f, format!("{private}\n").as_bytes())?;
+            println!("Private key written to {}. Keep it offline; anyone who has it can ship updates.", out.display());
+            println!("Public key (pass to scripts/build-windows.ps1 -UpdateKey):\n{public}");
+        }
+        Cmd::UpdateSign { setup, key, version } => {
+            let name = setup.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+            let from_name = name.strip_prefix("Typeshelf-Setup-").and_then(|v| v.strip_suffix(".exe"));
+            let Some(version) = version.as_deref().or(from_name).and_then(update::Version::parse) else {
+                bail!("give the version as major.minor.patch with --version (or name the file Typeshelf-Setup-<version>.exe)");
+            };
+            let private = std::fs::read_to_string(&key).with_context(|| format!("reading {}", key.display()))?;
+            let bytes = std::fs::read(&setup).with_context(|| format!("reading {}", setup.display()))?;
+            let manifest = update::Manifest::for_bytes(version, &bytes).to_text();
+            let (signature, public) = update::sign(&private, manifest.as_bytes())?;
+            let (m_path, s_path) = (PathBuf::from(format!("{}.manifest", setup.display())), PathBuf::from(format!("{}.manifest.sig", setup.display())));
+            std::fs::write(&m_path, &manifest)?;
+            std::fs::write(&s_path, format!("{signature}\n"))?;
+            println!("Signed version {version} ({} bytes).\n{}\n{}\nThe app must be built with update key {public}.", bytes.len(), m_path.display(), s_path.display());
+        }
         Cmd::CreateAdmin { email, data } => {
             if !email.contains('@') {
                 bail!("`{email}` is not an email address");

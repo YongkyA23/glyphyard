@@ -6,6 +6,7 @@ pub mod glyphs;
 pub mod languages;
 pub mod name_rule;
 pub mod organize;
+pub mod update;
 
 pub use face::{font_details, parse_faces, Axis, Category, FaceInfo, FontDetails, Metrics, ParseError};
 pub use glyphs::{GlyphBlock, GlyphMap};

@@ -27,6 +27,7 @@ pub fn routes() -> Router<AppState> {
         .route("/me/ws", get(ws))
         .route("/me/library", get(library::my_library))
         .route("/library/files/{hash}", get(library::download))
+        .merge(crate::update::desktop_routes())
 }
 
 async fn health(_: InstallKey) -> StatusCode {

@@ -349,3 +349,40 @@ async fn commands_are_handled_acked_and_survive_reconnect() {
     tokio::time::timeout(Duration::from_secs(5), task).await.expect("run stops on cancel").unwrap();
     assert_eq!(*status.borrow(), Status::Offline);
 }
+
+#[tokio::test]
+async fn update_release_and_download() {
+    const FILE: &[u8] = b"MZ pretend setup program";
+    let has_release = Arc::new(AtomicBool::new(false));
+    let release = {
+        let has = has_release.clone();
+        move |h: HeaderMap| async move {
+            auth(&h, true)?;
+            if !has.load(Ordering::SeqCst) {
+                return Err(StatusCode::NOT_FOUND);
+            }
+            Ok(Json(json!({ "manifest": "the manifest\n", "signature": "abcd\n" })))
+        }
+    };
+    let file = |h: HeaderMap| async move { auth(&h, true).map(|()| FILE.to_vec()) };
+    let app = Router::new().route("/api/v1/update", get(release)).route("/api/v1/update/file", get(file));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let dir = tempfile::tempdir().unwrap();
+    let client = SyncClient::new(config(&url, Some(TOKEN), &dir.path().join("outbox.jsonl")));
+    assert_eq!(client.update_release().await.unwrap(), None);
+    has_release.store(true, Ordering::SeqCst);
+    assert_eq!(client.update_release().await.unwrap(), Some(("the manifest\n".to_string(), "abcd\n".to_string())));
+
+    let to = dir.path().join("setup.part");
+    client.download_update(&to, FILE.len() as u64).await.unwrap();
+    assert_eq!(std::fs::read(&to).unwrap(), FILE);
+    // More bytes than the manifest allows: stopped, and nothing is left behind.
+    assert!(client.download_update(&to, FILE.len() as u64 - 1).await.is_err());
+    assert!(!to.exists());
+
+    let anonymous = SyncClient::new(config(&url, None, dir.path()));
+    assert!(matches!(anonymous.update_release().await, Err(SyncError::Server { status: 401, .. })));
+}

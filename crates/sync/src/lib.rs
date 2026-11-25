@@ -220,6 +220,47 @@ impl SyncClient {
         Ok(res.bytes().await.map_err(http_err)?.to_vec())
     }
 
+    /// `GET /update`: the current release's `(manifest, signature)` exactly as the server sent them, or `None`
+    /// when it has none. The caller verifies them; nothing here is trusted.
+    pub async fn update_release(&self) -> Result<Option<(String, String)>, SyncError> {
+        #[derive(Deserialize)]
+        struct Release {
+            manifest: String,
+            signature: String,
+        }
+        let res = self.request(Method::GET, "/update").send().await.map_err(http_err)?;
+        if res.status() == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        let r: Release = check(res).await?.json().await.map_err(http_err)?;
+        Ok(Some((r.manifest, r.signature)))
+    }
+
+    /// Streams `GET /update/file` into `to`, giving up once more than `max` bytes arrive. On any error the
+    /// partial file is removed.
+    pub async fn download_update(&self, to: &Path, max: u64) -> Result<(), SyncError> {
+        let res = self.download_to(to, max).await;
+        if res.is_err() {
+            let _ = tokio::fs::remove_file(to).await;
+        }
+        res
+    }
+
+    async fn download_to(&self, to: &Path, max: u64) -> Result<(), SyncError> {
+        let mut res = self.send(self.request(Method::GET, "/update/file")).await?;
+        let mut f = tokio::fs::File::create(to).await?;
+        let mut size = 0u64;
+        while let Some(chunk) = res.chunk().await.map_err(http_err)? {
+            size += chunk.len() as u64;
+            if size > max {
+                return Err(io::Error::other("the download is larger than its manifest says").into());
+            }
+            f.write_all(&chunk).await?;
+        }
+        f.sync_all().await?;
+        Ok(())
+    }
+
     /// Durably appends events to the outbox; they are sent by `flush` (run calls it while connected).
     pub async fn queue_events(&self, events: Vec<TimedEvent>) -> Result<(), SyncError> {
         {

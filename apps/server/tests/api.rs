@@ -1339,3 +1339,98 @@ async fn failed_sign_ins_are_audited_once_throttling_starts() {
     }
     assert_eq!(s.audit("?action=sign_in_failed").await["total"], 1);
 }
+
+impl Server {
+    /// `POST /api/admin/update` with the given multipart fields `(name, bytes)`.
+    async fn upload_update(&self, fields: &[(&str, &[u8])], cookie: &str) -> Reply {
+        let boundary = "XUPDATEBOUNDARYX";
+        let mut body = Vec::new();
+        for (name, bytes) in fields {
+            body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"{name}\"\r\nContent-Type: application/octet-stream\r\n\r\n").as_bytes());
+            body.extend_from_slice(bytes);
+            body.extend_from_slice(b"\r\n");
+        }
+        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+        let req = Request::post("/api/admin/update")
+            .header("Cookie", cookie)
+            .header(header::CONTENT_TYPE, format!("multipart/form-data; boundary={boundary}"))
+            .body(Body::from(body))
+            .unwrap();
+        self.raw(req).await
+    }
+}
+
+/// A setup program, its manifest and signature, signed with a key made here; returns the public key too.
+fn signed_release(version: &str, file: &[u8]) -> (String, String, [u8; 32]) {
+    use typeshelf_core::update::{self, Manifest, Version};
+    let (private, public) = update::generate_key().unwrap();
+    let manifest = Manifest::for_bytes(Version::parse(version).unwrap(), file).to_text();
+    let (signature, _) = update::sign(&private, manifest.as_bytes()).unwrap();
+    (manifest, signature, update::public_key(Some(&public)).unwrap())
+}
+
+#[tokio::test]
+async fn update_release_is_stored_as_uploaded_and_served_to_installs() {
+    let s = Server::new().await;
+    let token = s.register("a", "Ana").await;
+    assert_eq!(s.admin(Method::GET, "/update", None).await.json(), Value::Null);
+    assert_eq!(s.desktop(Method::GET, "/update", &token, None).await.status, StatusCode::NOT_FOUND);
+
+    let file = b"MZ pretend setup program".repeat(1000);
+    let (manifest, signature, key) = signed_release("0.2.0", &file);
+    let fields: [(&str, &[u8]); 3] = [("file", &file), ("manifest", manifest.as_bytes()), ("signature", signature.as_bytes())];
+    assert_eq!(s.upload_update(&fields, "").await.status, StatusCode::UNAUTHORIZED);
+    let r = s.upload_update(&fields, &s.cookie).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", String::from_utf8_lossy(&r.body));
+    assert_eq!(r.json(), json!({ "version": "0.2.0", "size": file.len() }));
+    assert_eq!(s.admin(Method::GET, "/update", None).await.json(), json!({ "version": "0.2.0", "size": file.len() }));
+
+    // Installs get the manifest and signature byte for byte, and they verify with the key.
+    let got = s.desktop(Method::GET, "/update", &token, None).await;
+    assert_eq!(got.status, StatusCode::OK);
+    let body = got.json();
+    assert_eq!(body["manifest"], manifest.as_str());
+    assert_eq!(body["signature"], signature.as_str());
+    let m = typeshelf_core::update::verify_manifest(&key, body["manifest"].as_str().unwrap().as_bytes(), body["signature"].as_str().unwrap()).unwrap();
+    let bin = s.desktop(Method::GET, "/update/file", &token, None).await;
+    assert_eq!(bin.status, StatusCode::OK);
+    assert_eq!(bin.body, file);
+    assert_eq!(typeshelf_core::update::check_file(&m, &bin.body[..]), Ok(()));
+
+    // Only authenticated installs.
+    assert_eq!(s.send(Method::GET, "/api/v1/update", &[("X-Install-Key", &s.key)], None).await.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(s.send(Method::GET, "/api/v1/update/file", &[("X-Install-Key", &s.key)], None).await.status, StatusCode::UNAUTHORIZED);
+
+    // A newer upload replaces the current release.
+    let newer = b"MZ newer".to_vec();
+    let (manifest, signature, _) = signed_release("0.3.0", &newer);
+    let r = s.upload_update(&[("file", &newer), ("manifest", manifest.as_bytes()), ("signature", signature.as_bytes())], &s.cookie).await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(s.desktop(Method::GET, "/update/file", &token, None).await.body, newer);
+    assert_eq!(s.desktop(Method::GET, "/update", &token, None).await.json()["manifest"], manifest.as_str());
+}
+
+#[tokio::test]
+async fn update_upload_refuses_a_file_that_does_not_match_its_manifest() {
+    let s = Server::new().await;
+    let token = s.register("a", "Ana").await;
+    let file = b"MZ pretend setup program".to_vec();
+    let (manifest, signature, _) = signed_release("0.2.0", &file);
+    let mut other = file.clone();
+    other[3] ^= 1;
+    let longer = [&file[..], b"!"].concat();
+    let bad_manifest = manifest.replace("version 0.2.0", "version 0.2");
+    for (fields, code) in [
+        (vec![("file", &other[..]), ("manifest", manifest.as_bytes()), ("signature", signature.as_bytes())], "file_mismatch"),
+        (vec![("file", &longer[..]), ("manifest", manifest.as_bytes()), ("signature", signature.as_bytes())], "file_mismatch"),
+        (vec![("file", &file[..]), ("manifest", bad_manifest.as_bytes()), ("signature", signature.as_bytes())], "bad_manifest"),
+        (vec![("file", &file[..]), ("manifest", manifest.as_bytes()), ("signature", b"not hex".as_slice())], "bad_signature"),
+        (vec![("file", &file[..]), ("manifest", manifest.as_bytes())], "missing_field"),
+    ] {
+        let r = s.upload_update(&fields, &s.cookie).await;
+        assert_eq!((r.status, r.json()["error"].as_str()), (StatusCode::BAD_REQUEST, Some(code)), "{}", String::from_utf8_lossy(&r.body));
+    }
+    assert_eq!(s.admin(Method::GET, "/update", None).await.json(), Value::Null);
+    assert_eq!(s.desktop(Method::GET, "/update", &token, None).await.status, StatusCode::NOT_FOUND);
+    assert_eq!(s.desktop(Method::GET, "/update/file", &token, None).await.status, StatusCode::NOT_FOUND);
+}

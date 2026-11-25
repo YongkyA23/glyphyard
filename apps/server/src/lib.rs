@@ -9,6 +9,7 @@ pub mod hub;
 pub mod installs;
 pub mod library;
 pub mod requests;
+pub mod update;
 
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
