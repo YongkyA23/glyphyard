@@ -17,11 +17,12 @@ fonts and listen for document events; everything else lives in `shared/typeshelf
 ## Talking to the app
 
 The app runs `crates/adobe-bridge`: HTTP on `127.0.0.1` only, port 27716 (or the next free one up to 27720;
-the chosen port is also written to `adobe-bridge.json` in the app data dir). Plug-ins probe 27716–27720.
+the chosen port is also written to `adobe-bridge.json` in the app data dir, together with the fonts the
+bridge turned on and the apps whose documents used them). Plug-ins probe 27716–27720.
 
 | Request | Body | Answer |
 |---|---|---|
-| `GET /v1/ping` (token optional) | | `{app: "typeshelf", version, paired}` |
+| `GET /v1/ping` (token optional) | | `{app: "typeshelf", version, paired}`; with a valid token also `documents`, how many of this app's documents the bridge has open |
 | `POST /v1/pair` | `{app, appVersion, clientId}` | `{token}` once the user allows it in Typeshelf (waits ≤ 60 s); 403 if declined or no answer; 409 while another prompt is open |
 | `POST /v1/document` (token required) | `{app, document, action: "open" \| "close", fonts: [{postscriptName, family, style, missing}]}` | open → `{activated, missing, alreadyActive}`; close → `{released}`; 401 without a valid token |
 
@@ -42,7 +43,15 @@ preflight too.
 
 Events only trigger a re-sync: the panel diffs the open documents against what it already told Typeshelf,
 sends `open` for new ones and `close` for vanished ones. "Check this document" re-sends the active document.
-While Typeshelf isn't running the panel retries every 15 s.
+While Typeshelf isn't running the panel retries every 15 s; while connected it sends an authenticated ping
+every 15 s as a heartbeat, and re-sends all its open documents when the ping reports fewer documents than it
+sent (Typeshelf restarted, or closed them).
+
+The bridge treats an app's documents as closed, and turns off the fonts it turned on for them, only when it
+has heard nothing from that app for 60 s **and** the app's process is gone (`tasklist` / `pgrep`; if the
+check fails the app counts as running). Silence alone is not enough: older plug-ins only ping while
+disconnected, and panels can be closed or throttled. After a Typeshelf restart, fonts the last run turned on
+that no re-sent document claims within 60 s are turned off once none of the apps that used them is running.
 
 ## Build and check
 

@@ -162,7 +162,7 @@ function typeshelfPanel(client, host) {
   const reported = new Set();
   /** Set when Typeshelf may have forgotten our documents; the next sync re-sends every open document. */
   let reReport = false;
-  /** The bridge closes an app's documents when it hasn't heard from it for 60 s. */
+  /** The bridge closes an app's documents when it hasn't heard from it for 60 s and the app has quit. */
   const HEARTBEAT_MS = 15000;
   /** @type {Promise<unknown>} */
   let queue = Promise.resolve();
@@ -179,8 +179,8 @@ function typeshelfPanel(client, host) {
 
   async function refresh() {
     state = await client.status();
-    // A restarted Typeshelf has forgotten our documents, and one that didn't hear from us for 60 s (sleep, a
-    // throttled panel) closed them: resend them all. Seen as losing the connection, or as a connected bridge
+    // A restarted Typeshelf has forgotten our documents, and one that didn't hear from us for 60 s while it saw
+    // no process of our app closed them: resend them all. Seen as losing the connection, or as a connected bridge
     // with fewer documents than we sent (it keys them by name, so count distinct names). A document event in
     // between re-adds only one, hence "fewer", not "none". `tracked` is kept so closed documents get their "close".
     const onBridge = client.documentsOnBridge();

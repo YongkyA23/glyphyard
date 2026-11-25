@@ -13,6 +13,8 @@ struct Fake {
     allow: bool,
     active: Mutex<HashSet<String>>,
     released: Mutex<Vec<String>>,
+    /// Apps whose process the fake reports as not running; every other app is running.
+    gone: Mutex<HashSet<App>>,
 }
 
 #[async_trait]
@@ -45,10 +47,14 @@ impl BridgeHandler for Fake {
         }
         self.released.lock().unwrap().extend(names);
     }
+
+    async fn app_running(&self, app: App) -> bool {
+        !self.gone.lock().unwrap().contains(&app)
+    }
 }
 
 fn fake(allow: bool) -> Arc<Fake> {
-    Arc::new(Fake { allow, active: Mutex::default(), released: Mutex::default() })
+    Arc::new(Fake { allow, active: Mutex::default(), released: Mutex::default(), gone: Mutex::default() })
 }
 
 async fn bridge(dir: &Path, handler: Arc<Fake>) -> (BridgeHandle, String) {
@@ -264,7 +270,8 @@ async fn silent_app_has_its_documents_closed_after_the_expiry() {
     doc(&base, &indesign, "b.indd", "open", &["Lib-A"]).await;
     let heartbeat = keep_pinging(&base, &indesign);
 
-    // Photoshop goes quiet (quit or crashed); InDesign keeps pinging and still needs Lib-A.
+    // Photoshop quits or crashes; InDesign keeps pinging and still needs Lib-A.
+    handler.gone.lock().unwrap().insert(App::Photoshop);
     wait_until(|| !handler.released.lock().unwrap().is_empty()).await;
     tokio::time::sleep(SHORT_EXPIRY * 2).await;
     heartbeat.abort();
@@ -282,6 +289,20 @@ async fn pinging_app_keeps_its_fonts() {
     let heartbeat = keep_pinging(&base, &token);
     tokio::time::sleep(SHORT_EXPIRY * 3).await;
     heartbeat.abort();
+    assert!(handler.released.lock().unwrap().is_empty());
+    assert_eq!(doc(&base, &token, "a.psd", "close", &[]).await.1, json!({ "released": ["Lib-A"] }));
+}
+
+/// An old plug-in never pings while connected, a closed or throttled panel goes quiet, a machine sleeps:
+/// silence alone is not a quit.
+#[tokio::test]
+async fn silent_app_that_is_still_running_keeps_its_fonts() {
+    let dir = tempfile::tempdir().unwrap();
+    let handler = fake(true);
+    let (_handle, base) = bridge_with_expiry(dir.path(), handler.clone(), SHORT_EXPIRY).await;
+    let token = paired_token(&base).await;
+    doc(&base, &token, "a.psd", "open", &["Lib-A"]).await;
+    tokio::time::sleep(SHORT_EXPIRY * 4).await;
     assert!(handler.released.lock().unwrap().is_empty());
     assert_eq!(doc(&base, &token, "a.psd", "close", &[]).await.1, json!({ "released": ["Lib-A"] }));
 }
@@ -304,11 +325,38 @@ async fn fonts_owned_before_a_restart_are_released_unless_reclaimed() {
     assert_eq!(a["alreadyActive"], json!(["Lib-A"]));
     let heartbeat = keep_pinging(&base, &token);
 
+    // Photoshop still runs, so b.psd may only be unreported (an old plug-in): Lib-B stays past the window.
+    tokio::time::sleep(SHORT_EXPIRY * 6).await;
+    assert!(handler.released.lock().unwrap().is_empty(), "kept while Photoshop runs");
+
+    // Once Photoshop is reported gone the unclaimed font goes; Lib-A stays with the (pinging) document.
+    handler.gone.lock().unwrap().insert(App::Photoshop);
     wait_until(|| !handler.released.lock().unwrap().is_empty()).await;
     tokio::time::sleep(SHORT_EXPIRY * 2).await;
     heartbeat.abort();
     assert_eq!(*handler.released.lock().unwrap(), vec!["Lib-B".to_string()]);
     assert_eq!(doc(&base, &token, "a.psd", "close", &[]).await.1, json!({ "released": ["Lib-A"] }), "still owned");
+}
+
+/// A state file from before the apps were recorded: its fonts count as held for every Adobe app, so they
+/// stay on while any of them runs.
+#[tokio::test]
+async fn old_state_file_keeps_its_fonts_until_no_adobe_app_runs() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(DISCOVERY_FILE), r#"{"port": 27716, "owned": ["Lib-A"]}"#).unwrap();
+    let handler = fake(true);
+    handler.active.lock().unwrap().insert("Lib-A".to_string());
+    handler.gone.lock().unwrap().extend([App::Photoshop, App::Illustrator]);
+    let (_handle, _base) = bridge_with_expiry(dir.path(), handler.clone(), SHORT_EXPIRY).await;
+
+    tokio::time::sleep(SHORT_EXPIRY * 4).await;
+    assert!(handler.released.lock().unwrap().is_empty(), "kept while InDesign runs");
+
+    handler.gone.lock().unwrap().insert(App::Indesign);
+    wait_until(|| !handler.released.lock().unwrap().is_empty()).await;
+    assert_eq!(*handler.released.lock().unwrap(), vec!["Lib-A".to_string()]);
+    let saved: Value = serde_json::from_slice(&std::fs::read(dir.path().join(DISCOVERY_FILE)).unwrap()).unwrap();
+    assert_eq!(saved["owned"], json!({}));
 }
 
 /// Lets a plug-in that never saw Typeshelf go away notice it forgot its documents (restart, expiry after sleep).
@@ -325,7 +373,9 @@ async fn authenticated_ping_reports_the_apps_open_documents() {
     assert_eq!(ping(&base, Some(&indesign)).await["documents"], 0, "per app");
     assert!(ping(&base, None).await.get("documents").is_none(), "nothing for an unpaired caller");
 
-    // Photoshop goes quiet (asleep) until its documents expire; its next ping says the bridge has none.
+    // Photoshop goes quiet and is reported gone (a crash) until its documents expire; its next ping (a new
+    // Photoshop, say) hears the bridge has none.
+    handler.gone.lock().unwrap().insert(App::Photoshop);
     wait_until(|| !handler.released.lock().unwrap().is_empty()).await;
     assert_eq!(ping(&base, Some(&photoshop)).await["documents"], 0);
 

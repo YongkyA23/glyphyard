@@ -7,7 +7,7 @@
 
 pub mod install;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -31,15 +31,17 @@ use tokio::task::JoinHandle;
 pub const DEFAULT_PORT: u16 = 27716;
 /// Plug-ins probe `DEFAULT_PORT..=DEFAULT_PORT + PORT_FALLBACKS`.
 pub const PORT_FALLBACKS: u16 = 4;
-/// `{"port": n}`, written to the data dir once the bridge listens.
+/// `{"port": n, "owned": {...}}`, written to the data dir once the bridge listens and whenever the fonts it
+/// turned on change; `owned` lets the next run release them once their Adobe apps are gone.
 pub const DISCOVERY_FILE: &str = "adobe-bridge.json";
 const TOKENS_FILE: &str = "adobe-tokens.json";
 const CLIENT_HEADER: &str = "x-typeshelf-client";
 const PAIR_TIMEOUT: Duration = Duration::from_secs(60);
-/// An app not heard from for this long (plug-ins ping every 15 s) has its documents treated as closed.
+/// An app not heard from for this long (plug-ins ping every 15 s) whose process is gone has its documents
+/// treated as closed.
 pub const EXPIRY: Duration = Duration::from_secs(60);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum App {
     Photoshop,
@@ -54,7 +56,7 @@ pub struct Config {
     pub port: u16,
     /// Typeshelf version reported by `/v1/ping`.
     pub version: String,
-    /// `EXPIRY`; tests shorten it. Also the window after start for re-claiming fonts owned by the last run.
+    /// `EXPIRY`; tests shorten it. Also the window after start before fonts owned by the last run may go.
     pub expiry: Duration,
 }
 
@@ -107,6 +109,11 @@ pub trait BridgeHandler: Send + Sync + 'static {
     async fn activate(&self, req: DocRequest) -> DocResult;
     /// Turn off fonts that an earlier `activate` turned on and no open document needs any more.
     async fn release(&self, postscript_names: Vec<String>);
+    /// Whether the Adobe app has a process. Asked only about apps silent past the expiry (or holding fonts from
+    /// the last run), never under the bridge's locks. Answer `true` when unsure: `false` releases its fonts.
+    async fn app_running(&self, _app: App) -> bool {
+        true
+    }
 }
 
 pub struct BridgeHandle {
@@ -142,8 +149,8 @@ pub async fn start(config: Config, handler: Arc<dyn BridgeHandler>) -> io::Resul
     std::fs::create_dir_all(&config.data_dir)?;
     let listener = bind(config.port).await?;
     let addr = listener.local_addr()?;
-    // Fonts the last run turned on; released by `expire` unless a document re-claims them in time.
-    let owned = load_state(&config.data_dir).owned;
+    // Fonts the last run turned on; released by `expire` once their apps are gone unless a document re-claims them.
+    let owned = load_owned(&config.data_dir);
     save_state(&config.data_dir, addr.port(), &owned)?;
     let shared = Arc::new(Shared {
         tokens: Mutex::new(load_tokens(&config.data_dir)),
@@ -180,22 +187,35 @@ async fn expire_loop(s: Arc<Shared>) {
     }
 }
 
-/// Closes the documents of apps not heard from within `expiry`, and after the start-up window releases
-/// fonts owned by the last run that no open document re-claimed.
+/// Closes the documents of apps not heard from within `expiry` whose process is gone, and after the start-up
+/// window releases fonts owned by the last run that no open document re-claimed and whose apps are all gone.
+/// Silence alone proves nothing: old plug-ins only ping while disconnected, panels get closed or throttled.
 async fn expire(s: &Shared) {
-    let expiry = s.config.expiry;
-    let mut docs = s.docs.lock().await;
-    let silent: Vec<(App, String)> = {
-        let heard = s.heard.lock().unwrap();
-        docs.open
-            .keys()
-            .filter(|(app, _)| heard.get(app).is_none_or(|t| t.elapsed() > expiry))
-            .cloned()
-            .collect()
+    let past_start = s.started.elapsed() > s.config.expiry;
+    // Only these apps are asked about, off the locks: listing processes can be slow.
+    let suspects: BTreeSet<App> = {
+        let docs = s.docs.lock().await;
+        let mut apps: BTreeSet<App> = s.silent(&docs).into_iter().map(|(app, _)| app).collect();
+        if past_start {
+            apps.extend(docs.unclaimed().flat_map(|(_, apps)| apps.iter().copied()));
+        }
+        apps
     };
+    let mut gone = HashSet::new();
+    for app in suspects {
+        if !s.handler.app_running(app).await {
+            gone.insert(app);
+        }
+    }
+    if gone.is_empty() {
+        return;
+    }
+    // Re-read under the lock: an app heard from meanwhile keeps its documents; one not asked about is running.
+    let mut docs = s.docs.lock().await;
+    let silent: Vec<(App, String)> = s.silent(&docs).into_iter().filter(|(app, _)| gone.contains(app)).collect();
     let mut released: Vec<String> = silent.iter().flat_map(|key| docs.close(key)).collect();
-    if s.started.elapsed() > expiry {
-        released.extend(docs.orphans());
+    if past_start {
+        released.extend(docs.orphans(&gone));
     }
     released.sort();
     s.release(&docs, &released).await;
@@ -234,6 +254,16 @@ impl Shared {
         let app = self.tokens.lock().unwrap().iter().find(|t| t.hash == hash).map(|t| t.app)?;
         self.heard.lock().unwrap().insert(app, Instant::now());
         Some(app)
+    }
+
+    /// Open documents of apps not heard from within `expiry`.
+    fn silent(&self, docs: &Docs) -> Vec<(App, String)> {
+        let heard = self.heard.lock().unwrap();
+        docs.open
+            .keys()
+            .filter(|(app, _)| heard.get(app).is_none_or(|t| t.elapsed() > self.config.expiry))
+            .cloned()
+            .collect()
     }
 
     fn save(&self, docs: &Docs) {
@@ -344,8 +374,7 @@ async fn document(State(s): State<Arc<Shared>>, headers: HeaderMap, Json(body): 
             let names: Vec<String> = body.fonts.iter().map(|f| f.postscript_name.clone()).collect();
             let req = DocRequest { app, document: body.document, fonts: body.fonts };
             let result = s.handler.activate(req).await;
-            docs.open(key, names, &result.activated);
-            if !result.activated.is_empty() {
+            if docs.open(key, names, &result.activated) {
                 s.save(&docs);
             }
             Json(result).into_response()
@@ -362,14 +391,26 @@ async fn document(State(s): State<Arc<Shared>>, headers: HeaderMap, Json(body): 
 #[derive(Default)]
 struct Docs {
     open: HashMap<(App, String), HashSet<String>>,
-    owned: HashSet<String>,
+    /// Each owned font with the apps whose documents used it, so after a restart it is kept while one runs.
+    // ponytail: the apps only grow until the font is released; at worst a font stays on until all of them quit.
+    owned: BTreeMap<String, BTreeSet<App>>,
 }
 
 impl Docs {
-    fn open(&mut self, key: (App, String), fonts: Vec<String>, activated: &[String]) {
+    /// Returns whether `owned` changed (and so needs saving).
+    fn open(&mut self, key: (App, String), fonts: Vec<String>, activated: &[String]) -> bool {
+        let mut changed = false;
+        for f in activated {
+            changed |= self.owned.entry(f.clone()).or_default().insert(key.0);
+        }
+        for f in &fonts {
+            if let Some(apps) = self.owned.get_mut(f) {
+                changed |= apps.insert(key.0);
+            }
+        }
         // Re-checking an open document only adds fonts, so a font is never dropped while still shown.
         self.open.entry(key).or_default().extend(fonts);
-        self.owned.extend(activated.iter().cloned());
+        changed
     }
 
     /// Fonts to release: owned, used by this document, needed by no other open document.
@@ -379,7 +420,7 @@ impl Docs {
         };
         let mut release: Vec<String> = fonts
             .into_iter()
-            .filter(|f| self.owned.contains(f) && !self.open.values().any(|other| other.contains(f)))
+            .filter(|f| self.owned.contains_key(f) && !self.open.values().any(|other| other.contains(f)))
             .collect();
         release.sort();
         for f in &release {
@@ -388,13 +429,20 @@ impl Docs {
         release
     }
 
-    /// Owned fonts no open document uses. Only fonts loaded from the last run can be in this state, since
-    /// `close` drops a font from `owned` together with its last document.
-    fn orphans(&mut self) -> Vec<String> {
-        let open = &self.open;
-        let (orphans, kept) = self.owned.drain().partition(|f| !open.values().any(|fonts| fonts.contains(f)));
-        self.owned = kept;
-        orphans.into_iter().collect()
+    /// Owned fonts no open document uses, with their apps. Only fonts loaded from the last run can be in this
+    /// state, since `close` drops a font from `owned` together with its last document.
+    fn unclaimed(&self) -> impl Iterator<Item = (&String, &BTreeSet<App>)> {
+        self.owned.iter().filter(|(f, _)| !self.open.values().any(|fonts| fonts.contains(*f)))
+    }
+
+    /// Drops and returns the unclaimed fonts whose apps are all `gone`.
+    fn orphans(&mut self, gone: &HashSet<App>) -> Vec<String> {
+        let orphans: Vec<String> =
+            self.unclaimed().filter(|(_, apps)| apps.iter().all(|a| gone.contains(a))).map(|(f, _)| f.clone()).collect();
+        for f in &orphans {
+            self.owned.remove(f);
+        }
+        orphans
     }
 }
 
@@ -402,20 +450,32 @@ impl Docs {
 #[derive(Default, Deserialize)]
 struct Saved {
     #[serde(default)]
-    owned: HashSet<String>,
+    owned: Option<Owned>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Owned {
+    ByFont(BTreeMap<String, BTreeSet<App>>),
+    /// Written before the apps were recorded. Counted as held for every app: kept while any Adobe app runs.
+    Names(Vec<String>),
 }
 
 /// A missing or unreadable file means the bridge owns nothing.
-fn load_state(dir: &Path) -> Saved {
-    std::fs::read(dir.join(DISCOVERY_FILE))
+fn load_owned(dir: &Path) -> BTreeMap<String, BTreeSet<App>> {
+    let saved: Saved = std::fs::read(dir.join(DISCOVERY_FILE))
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    match saved.owned {
+        Some(Owned::ByFont(owned)) => owned,
+        Some(Owned::Names(names)) => names.into_iter().map(|f| (f, App::ALL.into_iter().collect())).collect(),
+        None => BTreeMap::new(),
+    }
 }
 
-fn save_state(dir: &Path, port: u16, owned: &HashSet<String>) -> io::Result<()> {
-    let mut owned: Vec<&String> = owned.iter().collect();
-    owned.sort();
+/// `{"port": n, "owned": {"<PostScript name>": ["photoshop", ...]}}`.
+fn save_state(dir: &Path, port: u16, owned: &BTreeMap<String, BTreeSet<App>>) -> io::Result<()> {
     let path = dir.join(DISCOVERY_FILE);
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, json!({ "port": port, "owned": owned }).to_string())?;
@@ -472,6 +532,16 @@ mod tests {
         assert_eq!(docs.close(&a), s(&["Y"]));
         assert_eq!(docs.close(&a), Vec::<String>::new(), "closing twice is a no-op");
         assert_eq!(docs.close(&b), s(&["X"]));
+    }
+
+    #[test]
+    fn unclaimed_font_waits_for_every_app_that_used_it() {
+        let mut docs = Docs::default();
+        assert!(docs.open((App::Photoshop, "a.psd".into()), s(&["X"]), &s(&["X"])));
+        assert!(docs.open((App::Indesign, "b.indd".into()), s(&["X"]), &[]), "InDesign now holds X too");
+        docs.open.clear(); // a restart: no document re-claimed X
+        assert!(docs.orphans(&HashSet::from([App::Photoshop])).is_empty());
+        assert_eq!(docs.orphans(&HashSet::from([App::Photoshop, App::Indesign])), s(&["X"]));
     }
 
     #[test]

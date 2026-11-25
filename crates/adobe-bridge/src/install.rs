@@ -123,13 +123,20 @@ pub fn remove(app: App) -> io::Result<()> {
 /// InDesign is open. Unlike Photoshop and Illustrator it only sees fonts turned on or off while it runs
 /// after a restart (checked against InDesign 2024 on Windows, also with fonts installed by Windows itself).
 pub fn indesign_running() -> bool {
+    running(App::Indesign).unwrap_or(false)
+}
+
+/// Whether `app` has a process (`Photoshop.exe` etc. on Windows, a command line with "Adobe Photoshop" etc. on
+/// macOS). An error means the process list could not be read. Blocks while the command runs.
+pub fn running(app: App) -> io::Result<bool> {
+    let exe = format!("{}.exe", app.label());
     let mut cmd = if cfg!(windows) {
         let mut c = Command::new("tasklist");
-        c.args(["/FI", "IMAGENAME eq InDesign.exe", "/FO", "CSV", "/NH"]);
+        c.args(["/FI", &format!("IMAGENAME eq {exe}"), "/FO", "CSV", "/NH"]);
         c
     } else {
         let mut c = Command::new("pgrep");
-        c.args(["-f", "Adobe InDesign"]);
+        c.args(["-f", &format!("Adobe {}", app.label())]);
         c
     };
     #[cfg(windows)]
@@ -137,7 +144,14 @@ pub fn indesign_running() -> bool {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    cmd.output().is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).to_lowercase().contains("indesign"))
+    let out = cmd.output()?;
+    match out.status.code() {
+        // tasklist answers a non-match with an "INFO:" line; pgrep prints PIDs and exits 1 on no match.
+        Some(0) if cfg!(windows) => Ok(String::from_utf8_lossy(&out.stdout).to_lowercase().contains(&exe.to_lowercase())),
+        Some(0) => Ok(true),
+        Some(1) if !cfg!(windows) => Ok(false),
+        _ => Err(io::Error::other(format!("process list failed: {}", out.status))),
+    }
 }
 
 /// Release years found in folders like `Adobe Photoshop 2026`.
@@ -266,6 +280,13 @@ fn unsupported() -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The command runs and its answer parses (no Adobe app here, so it can't check a positive answer).
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn process_check_answers() {
+        assert!(running(App::Photoshop).is_ok());
+    }
 
     #[test]
     fn copy_dir_copies_nested_files() {

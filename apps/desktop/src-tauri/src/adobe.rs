@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::oneshot;
-use typeshelf_adobe_bridge::{BridgeHandler, DocRequest, DocResult, PairRequest};
+use typeshelf_adobe_bridge::{install, App, BridgeHandler, DocRequest, DocResult, PairRequest};
 use typeshelf_engine::{Engine, Face, FamilyQuery, Result, Source};
 
 use crate::{show_main, Ctx};
@@ -137,6 +137,18 @@ impl BridgeHandler for Bridge {
             .await;
         if let Err(e) = res {
             tracing::error!("adobe release: {e}");
+        }
+    }
+
+    async fn app_running(&self, app: App) -> bool {
+        match tauri::async_runtime::spawn_blocking(move || install::running(app)).await {
+            Ok(Ok(running)) => running,
+            // Never release fonts on doubt.
+            Ok(Err(e)) => {
+                tracing::warn!(?app, "adobe process check: {e}");
+                true
+            }
+            Err(_) => true,
         }
     }
 }
