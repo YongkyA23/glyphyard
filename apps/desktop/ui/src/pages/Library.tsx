@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import {
@@ -13,6 +13,9 @@ import { PreselectBar } from '../PreselectBar'
 import { collapse, dur, easeOut, rise, spring, STAGGER_CAP, staggerDelay } from '../motion'
 import { useApp } from '../state'
 import { RequestFontButton } from '../RequestFont'
+import { useBreathing } from '../useBreathing'
+import { usePreviewWheel } from '../usePreviewWheel'
+import { useSampleText } from '../useSampleText'
 import {
   ago, andList, Badge, CATEGORY_LABEL, Chip, errMsg, fmtWhen, keysBusy, LICENSE_LABEL, LicenseBadge, num, Pager, plural, Skel, Switch, useSeen,
 } from '../ui'
@@ -79,7 +82,7 @@ type ItemHandlers = {
   menu: (f: Family, e: ReactMouseEvent) => void
   drag: (f: Family, e: ReactPointerEvent) => void
 }
-type RowProps = { f: Family; i: number; first: boolean; sample: string; size: number; error?: string; selected: boolean; h: ItemHandlers }
+type RowProps = { f: Family; i: number; first: boolean; sample: string; size: number; error?: string; selected: boolean; h: ItemHandlers; onSize: (delta: number) => void }
 
 const itemMotion = (i: number, first: boolean) => ({
   initial: first && i < STAGGER_CAP ? rise.initial : false, animate: rise.animate,
@@ -103,8 +106,9 @@ const ItemCheck = ({ f, i, selected, h }: { f: Family; i: number; selected: bool
 const familyLink = (f: Family) => `/family/${encodeURIComponent(f.key)}`
 
 /** One family. The font file is only requested once the row is near the viewport. */
-const FamilyRow = memo(function FamilyRow({ f, i, first, sample, size, error, selected, h }: RowProps) {
+const FamilyRow = memo(function FamilyRow({ f, i, first, sample, size, error, selected, h, onSize }: RowProps) {
   const [ref, seen] = useSeen<HTMLDivElement>()
+  const [pvRef, pvStyle] = usePreviewWheel({ famKey: f.key, variable: f.isVariable, onSize })
   const on = f.activeState !== 'none'
   return (
     <motion.div ref={ref} className="font-row" data-selected={selected || undefined} {...itemMotion(i, first)} {...itemEvents(f, i, h)}>
@@ -126,15 +130,16 @@ const FamilyRow = memo(function FamilyRow({ f, i, first, sample, size, error, se
           {f.hasDuplicates && <Link to="/organize" className="badge warn" style={{ textDecoration: 'none' }} draggable={false}>Duplicates</Link>}
         </span>
       </div>
-      <div className="sample" style={{ ...(seen ? familyStyle(f) : {}), fontSize: size, color: on ? 'var(--ink)' : 'var(--disabled)' }}>{sample}</div>
+      <div ref={pvRef} className="sample" style={{ ...(seen ? familyStyle(f) : {}), ...pvStyle, fontSize: size, color: on ? 'var(--ink)' : 'var(--disabled)' }}>{sample}</div>
       {error && <p role="alert" className="row-error">{error}</p>}
     </motion.div>
   )
 })
 
 /** Grid view: a big preview on a card. */
-const FamilyCard = memo(function FamilyCard({ f, i, first, sample, size, error, selected, h }: RowProps) {
+const FamilyCard = memo(function FamilyCard({ f, i, first, sample, size, error, selected, h, onSize }: RowProps) {
   const [ref, seen] = useSeen<HTMLDivElement>()
+  const [pvRef, pvStyle] = usePreviewWheel({ famKey: f.key, variable: f.isVariable, onSize })
   const on = f.activeState !== 'none'
   return (
     <motion.div ref={ref} className="font-card" data-selected={selected || undefined} {...itemMotion(i, first)} {...itemEvents(f, i, h)}>
@@ -142,7 +147,7 @@ const FamilyCard = memo(function FamilyCard({ f, i, first, sample, size, error, 
         <ItemCheck f={f} i={i} selected={selected} h={h} />
         <ItemSwitch f={f} h={h} />
       </div>
-      <div className="card-sample" style={{ ...(seen ? familyStyle(f) : {}), fontSize: size, color: on ? 'var(--ink)' : 'var(--disabled)' }}>{sample}</div>
+      <div ref={pvRef} className="card-sample" style={{ ...(seen ? familyStyle(f) : {}), ...pvStyle, fontSize: size, color: on ? 'var(--ink)' : 'var(--disabled)' }}>{sample}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           <Link to={familyLink(f)} className="plain-link ellipsis" style={{ fontWeight: 500 }} draggable={false}>{f.family}</Link>
@@ -219,7 +224,10 @@ export function Library() {
   const anchor = useRef<number | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const [sample, setSample] = useState(DEFAULT_SAMPLE)
+  const shown = useSampleText(sample)
   const [size, setSize] = useState(32)
+  const nudgeSize = useCallback((d: number) => setSize((s) => Math.min(72, Math.max(16, s + d))), [])
+  useBreathing()
   const [page, setPage] = useState(1)
   const [data, setData] = useState<FamilyPage | null>(null)
   const [counts, setCounts] = useState<LibraryCounts | null>(null)
@@ -570,7 +578,7 @@ export function Library() {
             {rows === null && [0, 1, 2, 3, 4, 5].map((i) => (view === 'grid' ? <CardSkeleton key={i} size={size} /> : <RowSkeleton key={i} size={size} />))}
             {rows?.map((f, i) => {
               const Item = view === 'grid' ? FamilyCard : FamilyRow
-              return <Item key={f.key} f={f} i={i} first={first} sample={sample} size={size} error={errors[f.key]} selected={sel.has(f.key)} h={h} />
+              return <Item key={f.key} f={f} i={i} first={first} sample={shown} size={size} error={errors[f.key]} selected={sel.has(f.key)} h={h} onSize={nudgeSize} />
             })}
           </motion.div>
         </AnimatePresence>

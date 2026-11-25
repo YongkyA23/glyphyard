@@ -1,10 +1,13 @@
-import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { animate, AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { api, tagsOf, type Face, type Family, type FamilyDetail, type FileRow, type FontDetails, type GlyphBlock, type License, type ProjectSet } from '../api'
+import { api, tagsOf, type Axis, type Face, type Family, type FamilyDetail, type FileRow, type FontDetails, type GlyphBlock, type License, type ProjectSet } from '../api'
 import { AXIS_NAME, axisStep, faceStyle, familyStyle, pickFace } from '../fonts'
 import { cssStagger, dur, easeOut, pop, rise, spring } from '../motion'
 import { useApp } from '../state'
+import { useBreathing } from '../useBreathing'
+import { usePreviewWheel } from '../usePreviewWheel'
+import { useSampleText } from '../useSampleText'
 import { Badge, basename, CATEGORY_LABEL, Chip, Dialog, dirname, errMsg, LicenseBadge, num, plural, Skel, Switch, useSeen, type Tone } from '../ui'
 
 const FEATURE_NAME: Record<string, string> = {
@@ -32,8 +35,9 @@ type Tab = (typeof TABS)[number][0]
 const byWeight = (faces: Face[]) => [...faces].sort((a, b) => a.weight - b.weight || Number(a.italic) - Number(b.italic) || a.style.localeCompare(b.style))
 
 /** One face with its own preview line and on/off switch. The font file loads once the row is near the viewport. */
-function FaceRow({ face, i, sample, onToggle }: { face: Face; i: number; sample: string; onToggle: () => void }) {
+function FaceRow({ face, i, sample, size, axes, onSize, onToggle }: { face: Face; i: number; sample: string; size: number; axes: Axis[]; onSize: (delta: number) => void; onToggle: () => void }) {
   const [ref, seen] = useSeen<HTMLDivElement>()
+  const [pvRef, pvStyle] = usePreviewWheel({ axes, variable: face.isVariable, onSize })
   const on = face.active || face.system
   return (
     <div ref={ref} className="face-row enter" style={cssStagger(i)}>
@@ -44,7 +48,7 @@ function FaceRow({ face, i, sample, onToggle }: { face: Face; i: number; sample:
           {face.weight}{face.italic && ' · italic'}{face.isVariable && ' · variable'} · v{face.version}
         </span>
       </div>
-      <div className="sample" style={{ ...(seen ? faceStyle(face) : {}), fontSize: 30, color: on ? 'var(--ink)' : 'var(--ink-2)' }}>{sample}</div>
+      <div ref={pvRef} className="sample" style={{ ...(seen ? faceStyle(face) : {}), ...pvStyle, fontSize: size, color: on ? 'var(--ink)' : 'var(--ink-2)' }}>{sample}</div>
     </div>
   )
 }
@@ -264,6 +268,10 @@ export function FamilyPage() {
   const [playing, setPlaying] = useState(false)
   const [similar, setSimilar] = useState<Family[] | null>(null)
   const stopPlay = useRef<(() => void) | null>(null)
+  const [previewSize, setPreviewSize] = useState(30)
+  const nudgeSize = useCallback((d: number) => setPreviewSize((s) => Math.min(72, Math.max(16, s + d))), [])
+  const shownSample = useSampleText(sample)
+  useBreathing()
   const reduce = useReducedMotion()
   useEffect(() => () => stopPlay.current?.(), [key, tab])
   useEffect(() => void api.getSettings().then((s) => s.sampleText && setSample(s.sampleText), () => {}), [])
@@ -395,7 +403,7 @@ export function FamilyPage() {
       >
         {tab === 'styles' && (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {byWeight(fam.faces).map((x, i) => <FaceRow key={x.hash} face={x} i={i} sample={sample} onToggle={() => toggleFace(x)} />)}
+            {byWeight(fam.faces).map((x, i) => <FaceRow key={x.hash} face={x} i={i} sample={shownSample} size={previewSize} axes={fam.axes} onSize={nudgeSize} onToggle={() => toggleFace(x)} />)}
             {!fam.faces.length && <p className="faint" style={{ margin: 0 }}>This family has no fonts left.</p>}
           </div>
         )}
