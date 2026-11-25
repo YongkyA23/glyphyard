@@ -52,7 +52,8 @@ impl Engine {
                 let (results, labels) = {
                     let db = self.db();
                     let Some(hash) = resolve(&db, font)? else {
-                        self.emit(typeshelf_protocol::Event::ActivationFailed { font: font.clone(), reason: "file_missing".into() });
+                        // No event: in a merged group another computer may have it; the server decides from the
+                        // ack (`hub::ack` matches this exact code and message, so keep them in step).
                         return Err(EngineError::new("file_missing", format!("{} is not in this library", font.ps_name)));
                     };
                     let results = self.activate_hashes(&db, std::slice::from_ref(&hash), Source::Admin)?;
