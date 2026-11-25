@@ -560,6 +560,8 @@ pub enum Platform {
 #[serde(rename_all = "camelCase")]
 pub struct AppState {
     pub onboarded: bool,
+    /// False in standalone mode (no server address): features that need the server are hidden.
+    pub server_configured: bool,
     pub name: String,
     pub next_name_change: Option<String>,
     pub name_change_days: u32,

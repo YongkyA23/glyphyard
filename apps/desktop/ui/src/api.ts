@@ -55,6 +55,8 @@ export type Connection = {
 }
 export type AppState = {
   onboarded: boolean; name: string; nextNameChange: string | null; nameChangeDays: number
+  /** False in standalone mode (no server address): hide what needs the server (admin requests, name rule). */
+  serverConfigured: boolean
   connection: Connection; platform: 'windows' | 'macos'; appVersion: string
 }
 export type ActivationResult = {
@@ -136,7 +138,8 @@ export const isApiError = (e: unknown, code?: string): e is ApiError =>
 // ---- Commands ----
 export const api = {
   getAppState: () => call<AppState>('get_app_state'),
-  completeOnboarding: (name: string) => call<AppState>('complete_onboarding', { name }),
+  /** `offline`: keep the name here and register once the server answers ("Continue offline"). */
+  completeOnboarding: (name: string, offline = false) => call<AppState>('complete_onboarding', { name, offline }),
   changeName: (name: string) => call<{ name: string; nextNameChange: string | null }>('change_name', { name }),
 
   listFamilies: (query: ListFamiliesArgs = {}) => call<Family[]>('list_families', { query }),

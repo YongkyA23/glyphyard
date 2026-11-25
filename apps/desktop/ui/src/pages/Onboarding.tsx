@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type MouseEvent } from 'react'
 import { useNavigate } from 'react-router'
 import { motion } from 'motion/react'
 import { api } from '../api'
@@ -16,13 +16,16 @@ export function Onboarding() {
   const [busy, setBusy] = useState(false)
   const navigate = useNavigate()
   const conn = app.connection
+  const local = !app.serverConfigured
+  // A server is set up but not answering (or refused us): the name can be kept here and sent later.
+  const canGoOffline = !local && conn.status !== 'connected'
 
-  async function submit(e: FormEvent) {
+  async function submit(e: FormEvent | MouseEvent, offline = false) {
     e.preventDefault()
     if (!name.trim()) return setError('Enter your name to continue.')
     setBusy(true)
     try {
-      const next = await api.completeOnboarding(name.trim())
+      const next = await api.completeOnboarding(name.trim(), offline)
       setApp(() => next)
       navigate('/', { replace: true })
     } catch (err) {
@@ -49,7 +52,7 @@ export function Onboarding() {
         <div className="enter" style={{ display: 'flex', flexDirection: 'column', gap: 10, ...cssStagger(3) }}>
           <h1>Welcome. What should we call you?</h1>
           <p className="muted" style={{ margin: 0, lineHeight: 1.55 }}>
-            Your name is shown to your admin next to the fonts you use. That’s the only thing we need to get started.
+            {local ? 'Your name stays on this computer.' : 'Your name is shown to your admin next to the fonts you use.'} That’s the only thing we need to get started.
           </p>
         </div>
         <div className="enter" style={{ display: 'flex', flexDirection: 'column', gap: 8, ...cssStagger(4) }}>
@@ -65,13 +68,24 @@ export function Onboarding() {
             </motion.span>
           )}
           <span className="faint" style={{ fontSize: 13, lineHeight: 1.5 }}>
-            You can change it later in Settings, once every {app.nameChangeDays} days.
+            {local ? 'You can change it later in Settings.' : `You can change it later in Settings, once every ${app.nameChangeDays} days.`}
           </span>
         </div>
-        <button type="submit" className="btn primary big enter" style={cssStagger(5)} disabled={busy}>{busy ? 'Connecting…' : 'Continue'}</button>
+        <button type="submit" className="btn primary big enter" style={cssStagger(5)} disabled={busy}>{busy ? (local ? 'Saving…' : 'Connecting…') : 'Continue'}</button>
+        {canGoOffline && (
+          <button type="button" className="btn big enter" style={cssStagger(5)} disabled={busy} onClick={(e) => submit(e, true)}>Continue offline</button>
+        )}
         <div className="faint enter" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, ...cssStagger(6) }}>
-          <span aria-hidden="true" className="dot" style={{ width: 8, height: 8, background: conn.status === 'connected' ? 'var(--ok-dot)' : 'var(--amber)' }} />
-          <span>{conn.status === 'connected' ? `Connected to ${conn.serverUrl}` : `Not connected to ${conn.serverUrl}. You need a connection to finish setting up.`}</span>
+          <span aria-hidden="true" className="dot" style={{ width: 8, height: 8, background: local || conn.status === 'connected' ? 'var(--ok-dot)' : 'var(--amber)' }} />
+          <span aria-live="polite">
+            {local
+              ? 'Local library: no server is set up. You can add one later in Settings › Connection.'
+              : conn.status === 'connected'
+                ? `Connected to ${conn.serverUrl}`
+                : conn.status === 'error' && conn.error
+                  ? conn.error
+                  : `Can’t reach ${conn.serverUrl}. Continue offline and Typeshelf connects by itself when the server answers.`}
+          </span>
         </div>
       </form>
     </div>

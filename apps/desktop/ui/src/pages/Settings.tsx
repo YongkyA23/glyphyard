@@ -36,7 +36,9 @@ function NameSection() {
   useEffect(() => setName(app.name), [app.name])
 
   const next = app.nextNameChange
-  const locked = !!next && new Date(next).getTime() > Date.now()
+  // Without a server the name is only kept here, so the server's once-every-N-days rule doesn't apply.
+  const local = !app.serverConfigured
+  const locked = !local && !!next && new Date(next).getTime() > Date.now()
   const changedOn = next ? new Date(new Date(next).getTime() - app.nameChangeDays * 86_400_000).toISOString() : null
 
   async function save(e: FormEvent) {
@@ -62,13 +64,15 @@ function NameSection() {
     <Section id="s-profile" title="Your name">
       <form onSubmit={save} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
         <label className="field-label" style={{ flex: '1 1 260px', fontSize: 13 }}>
-          Name shown to your admin
+          {local ? 'Name' : 'Name shown to your admin'}
           <input type="text" className="input" value={name} disabled={locked} onChange={(e) => (setName(e.target.value), setError(null), setSaved(false))} aria-invalid={!!error} />
         </label>
         <button type="submit" className="btn primary" disabled={locked || !name.trim() || name.trim() === app.name} style={{ height: 42 }}>Save name</button>
       </form>
       {error && <p role="alert" style={{ margin: 0, color: 'var(--bad)', fontSize: 13 }}>{error}</p>}
-      {locked ? (
+      {local ? (
+        <span className="faint" style={{ fontSize: 12 }}>Your name stays on this computer. If you connect to a server later, Typeshelf joins it with this name.</span>
+      ) : locked ? (
         <div className="note neutral">
           <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2, color: 'var(--mute)' }}>
             <rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" />
@@ -81,7 +85,7 @@ function NameSection() {
       ) : (
         <div className="note warn">After you save, you won’t be able to change your name again for {app.nameChangeDays} days.</div>
       )}
-      <span className="faint" style={{ fontSize: 12 }}>Your admin can see every name you’ve used.</span>
+      {!local && <span className="faint" style={{ fontSize: 12 }}>Your admin can see every name you’ve used.</span>}
     </Section>
   )
 }
@@ -399,9 +403,12 @@ function ConnectionSection() {
   const [busy, setBusy] = useState(false)
   const dirty = server !== c.serverUrl || key !== c.installKey
   const locked = !c.editable
+  const local = !app.serverConfigured
 
   const status = result ?? (
-    c.status === 'connected'
+    local
+      ? { color: 'var(--mute)', label: 'Local library', detail: 'no server is set up. Add your team’s server address and install key to connect.' }
+      : c.status === 'connected'
       ? { color: 'var(--ok)', label: 'Connected', detail: `last sync ${ago(c.lastSync)}` }
       : c.status === 'offline'
         ? { color: 'var(--warn)', label: 'Offline', detail: 'changes will sync when the connection is back' }
@@ -418,7 +425,7 @@ function ConnectionSection() {
     }
   }
   const apply = (next: typeof c) => {
-    setApp((a) => ({ ...a, connection: next }))
+    setApp((a) => ({ ...a, connection: next, serverConfigured: !!next.serverUrl.trim() }))
     setServer(next.serverUrl)
     setKey(next.installKey)
   }
@@ -449,7 +456,7 @@ function ConnectionSection() {
       {locked && <div className="note neutral">Your admin has locked these settings. Ask them if you need to connect to a different server.</div>}
       <label className="field-label" style={{ fontSize: 13 }}>
         Server address
-        <input type="url" className="input mono" value={server} disabled={locked} onChange={(e) => (setServer(e.target.value), setResult(null))} />
+        <input type="url" className="input mono" value={server} disabled={locked} placeholder="https://fonts.example.com" onChange={(e) => (setServer(e.target.value), setResult(null))} />
       </label>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
         <label className="field-label" style={{ flex: '1 1 260px', fontSize: 13 }}>
@@ -459,7 +466,7 @@ function ConnectionSection() {
         <button type="button" className="btn" style={{ height: 42 }} aria-pressed={showKey} onClick={() => setShowKey(!showKey)}>{showKey ? 'Hide' : 'Show'}</button>
       </div>
       <AnimatePresence initial={false}>
-        {dirty && (
+        {dirty && !local && (
           <motion.div key="dirty" {...collapse} style={{ overflow: 'hidden' }}>
             <div className="note warn">
               If you connect to a different server, you start there as a new install. Your fonts, collections and tags stay on this computer, but your name history stays on the old server.
@@ -469,11 +476,11 @@ function ConnectionSection() {
       </AnimatePresence>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         <button type="button" className="btn" onClick={test} disabled={locked || busy}>Test connection</button>
-        <button type="button" className="btn primary" onClick={save} disabled={locked || busy || !dirty}>Save and reconnect</button>
+        <button type="button" className="btn primary" onClick={save} disabled={locked || busy || !dirty}>{local ? 'Connect' : 'Save and reconnect'}</button>
         <button type="button" className="btn link" onClick={reset} disabled={locked || busy}>Use installer defaults</button>
       </div>
       <span className="faint" style={{ fontSize: 12 }}>
-        Install ID <span className="mono">{c.installId}</span> · Typeshelf {app.appVersion} · {app.platform === 'macos' ? 'macOS' : 'Windows'}. Your admin can lock these two fields.
+        Install ID <span className="mono">{c.installId}</span> · Typeshelf {app.appVersion} · {app.platform === 'macos' ? 'macOS' : 'Windows'}.{local ? '' : ' Your admin can lock these two fields.'}
       </span>
     </Section>
   )

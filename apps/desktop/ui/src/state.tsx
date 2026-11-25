@@ -102,8 +102,9 @@ export function AppProvider({ main, children }: { main: boolean; children: React
 
   useEffect(() => {
     const offs = [
-      on('connection-changed', (connection) => setApp((a) => ({ ...a, connection }))),
-      on('name-changed', ({ name, nextNameChange }) => setApp((a) => ({ ...a, name, nextNameChange }))),
+      on('connection-changed', (connection) => setApp((a) => ({ ...a, connection, serverConfigured: !!connection.serverUrl.trim() }))),
+      // An empty name means the server refused the one chosen offline: back to onboarding to pick another.
+      on('name-changed', ({ name, nextNameChange }) => setApp((a) => ({ ...a, name, nextNameChange, onboarded: !!name }))),
       on('library-changed', bump),
     ]
     if (main)

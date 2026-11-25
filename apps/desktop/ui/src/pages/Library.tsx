@@ -515,7 +515,7 @@ export function Library() {
       </div>
 
       <div className="chips" style={{ padding: '12px 24px' }}>
-        {!system && FILTERS.map(([k, label]) => (
+        {!system && FILTERS.filter(([k]) => k !== 'admin' || app.serverConfigured).map(([k, label]) => (
           <Chip key={k} pressed={filter === k} onClick={() => setFilter(k)}>{label}</Chip>
         ))}
         <span className="chip-divider" aria-hidden="true" />

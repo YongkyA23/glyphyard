@@ -50,12 +50,19 @@ pub async fn get_app_state(ctx: St<'_>) -> R<AppState> {
     ctx.run(|e| e.get_app_state()).await
 }
 
+/// `offline`: the person chose "Continue offline". Without a server, or offline, the name is kept here and
+/// the sync loop registers with it once the server answers.
 #[tauri::command]
-pub async fn complete_onboarding(app: AppHandle, ctx: St<'_>, name: String) -> R<AppState> {
+pub async fn complete_onboarding(app: AppHandle, ctx: St<'_>, name: String, offline: Option<bool>) -> R<AppState> {
     let name = typeshelf_core::name_rule::validate_name(&name).map_err(|m| EngineError::new("invalid_name", m))?;
-    let conn = ctx.run(|e| e.get_connection()).await?;
-    let client = sync::new_client(&ctx.data_dir, conn.server_url, conn.install_key, None);
-    sync::register(&ctx.engine, &client, &name).await?;
+    let state = ctx.run(|e| e.get_app_state()).await?;
+    if state.server_configured && !offline.unwrap_or(false) {
+        let conn = state.connection;
+        let client = sync::new_client(&ctx.data_dir, conn.server_url, conn.install_key, None);
+        sync::register(&ctx.engine, &client, &name).await?;
+    } else {
+        ctx.run(move |e| e.set_identity(&name, None)).await?;
+    }
     sync::restart(&app).await?;
     ctx.run(|e| e.get_app_state()).await
 }
@@ -68,8 +75,16 @@ pub struct NameResult {
 }
 
 #[tauri::command]
-pub async fn change_name(ctx: St<'_>, name: String) -> R<NameResult> {
+pub async fn change_name(app: AppHandle, ctx: St<'_>, name: String) -> R<NameResult> {
     let name = typeshelf_core::name_rule::validate_name(&name).map_err(|m| EngineError::new("invalid_name", m))?;
+    // Not registered (no server, or not reachable since onboarding): the name is only kept here, so it
+    // changes freely; restarting sync registers with the new name right away when there is a server.
+    if ctx.run(|e| e.token()).await?.is_none() {
+        let n = name.clone();
+        ctx.run(move |e| e.set_identity(&n, None)).await?;
+        sync::restart(&app).await?;
+        return Ok(NameResult { name, next_name_change: None });
+    }
     let res = ctx.client().change_name(&name).await.map_err(sync_err)?;
     let out = NameResult { name: res.name.clone(), next_name_change: res.next_name_change.map(|d| d.to_rfc3339()) };
     ctx.run(move |e| e.set_identity(&res.name, res.next_name_change)).await?;
@@ -331,8 +346,11 @@ pub async fn health(ctx: St<'_>) -> R<Health> {
 #[tauri::command]
 pub async fn repair_now(ctx: St<'_>) -> R<Health> {
     let health = ctx.run(|e| e.repair_now()).await?;
-    let (engine, client) = (ctx.engine.clone(), ctx.client());
-    tauri::async_runtime::spawn(async move { sync::push_snapshot(&engine, &client).await });
+    // Only a registered install has a server to tell (no token in standalone mode).
+    if ctx.run(|e| e.token()).await?.is_some() {
+        let (engine, client) = (ctx.engine.clone(), ctx.client());
+        tauri::async_runtime::spawn(async move { sync::push_snapshot(&engine, &client).await });
+    }
     Ok(health)
 }
 

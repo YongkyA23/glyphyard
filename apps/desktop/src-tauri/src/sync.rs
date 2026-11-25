@@ -14,10 +14,11 @@ use typeshelf_sync::{CancellationToken, Config, Status, SyncClient, SyncError};
 
 use crate::{blocking, Ctx};
 
-/// Installer defaults (Settings › Connection › Reset), baked in at compile time.
+/// Installer defaults (Settings › Connection › Reset), baked in at compile time. A build without a server
+/// baked in is the standalone build: no server until one is added in Settings › Connection.
 pub const DEFAULT_SERVER_URL: &str = match option_env!("TYPESHELF_SERVER_URL") {
     Some(v) => v,
-    None => "http://localhost:8080",
+    None => "",
 };
 pub const DEFAULT_INSTALL_KEY: &str = match option_env!("TYPESHELF_INSTALL_KEY") {
     Some(v) => v,
@@ -100,39 +101,76 @@ async fn run(app: AppHandle, client: Arc<SyncClient>, cancel: CancellationToken)
     client.run(cancel, handler).await;
 }
 
-/// True once there is a token. An install that has a name but no token (the connection was changed)
-/// registers again with that name; one without a name waits for onboarding.
+/// What the sync loop does next, from the stored connection and identity.
+#[derive(Debug, PartialEq)]
+enum Step {
+    /// No server address: nothing to connect to until one is added in Settings (which restarts sync).
+    Standalone,
+    /// Not onboarded yet: only report whether the server answers.
+    Probe,
+    /// A name but no token (onboarded offline, or the connection was changed): register with that name.
+    Register(String),
+    Connect,
+}
+
+fn next_step(server_configured: bool, token: bool, name: &str) -> Step {
+    match (server_configured, token, name.is_empty()) {
+        (false, _, _) => Step::Standalone,
+        (true, true, _) => Step::Connect,
+        (true, false, true) => Step::Probe,
+        (true, false, false) => Step::Register(name.into()),
+    }
+}
+
+/// True once there is a token; false when there is no server or the loop was cancelled.
 async fn ensure_registered(app: &AppHandle, engine: &Arc<Engine>, client: &SyncClient, cancel: &CancellationToken) -> bool {
     loop {
-        let Ok((token, name)) = blocking(engine, |e| Ok((e.token()?, e.get_app_state()?.name))).await else {
+        let Ok((configured, token, name)) = blocking(engine, |e| {
+            let s = e.get_app_state()?;
+            Ok((s.server_configured, e.token()?.is_some(), s.name))
+        })
+        .await
+        else {
             return false;
         };
-        if token.is_some() {
-            return true;
-        }
-        if name.is_empty() {
-            // Not onboarded yet (onboarding restarts sync): report whether the server is reachable,
-            // so the onboarding screen shows the real status instead of "Not connected".
-            let (status, error) = match client.health().await {
-                Ok(()) => (ConnectionStatus::Connected, None),
-                Err(SyncError::Offline) => (ConnectionStatus::Offline, None),
-                Err(e) => (ConnectionStatus::Error, Some(e.to_string())),
-            };
-            engine.set_connection_status(status, error);
-            emit_connection(app).await;
-        } else {
-            match register(engine, client, &name).await {
+        let wait = match next_step(configured, token, &name) {
+            Step::Standalone => return false,
+            Step::Connect => return true,
+            Step::Probe => {
+                // Onboarding restarts sync: report whether the server is reachable, so the onboarding
+                // screen shows the real status (and offers "Continue offline" when it isn't).
+                let (status, error) = match client.health().await {
+                    Ok(()) => (ConnectionStatus::Connected, None),
+                    Err(SyncError::Offline) => (ConnectionStatus::Offline, None),
+                    Err(e) => (ConnectionStatus::Error, Some(e.to_string())),
+                };
+                engine.set_connection_status(status, error);
+                emit_connection(app).await;
+                15
+            }
+            Step::Register(name) => match register(engine, client, &name).await {
                 Ok(()) => return true,
+                Err(e) if e.code == "invalid_name" => {
+                    // The server refused a name chosen offline: retrying can't help. Forget it so the app goes
+                    // back to onboarding, which shows why and asks for another one.
+                    tracing::warn!("the server refused the name: {e}");
+                    let _ = blocking(engine, |e| e.set_identity("", None)).await;
+                    let why = format!("Your server didn’t accept the name “{name}”: {} Choose another name.", e.message);
+                    engine.set_connection_status(ConnectionStatus::Error, Some(why));
+                    emit_connection(app).await;
+                    let _ = app.emit("name-changed", json!({ "name": "", "nextNameChange": null }));
+                    return false;
+                }
                 Err(e) => {
-                    tracing::warn!("registering again: {e}");
+                    tracing::warn!("registering: {e}");
                     let status = if e.code == "offline" { ConnectionStatus::Offline } else { ConnectionStatus::Error };
                     engine.set_connection_status(status, (status == ConnectionStatus::Error).then(|| e.message.clone()));
                     emit_connection(app).await;
+                    30
                 }
-            }
-        }
+            },
+        };
         // ponytail: fixed retry; the WebSocket loop has the real backoff once registered.
-        let wait = if name.is_empty() { 15 } else { 30 };
         tokio::select! {
             _ = cancel.cancelled() => return false,
             _ = tokio::time::sleep(Duration::from_secs(wait)) => {}
@@ -249,16 +287,42 @@ async fn handle(app: &AppHandle, client: &SyncClient, kind: CommandKind) -> Resu
     })
 }
 
-/// Moves engine events into the persistent outbox of whichever client is current.
+/// Moves engine events into the persistent outbox of whichever client is current. Without a server they
+/// are dropped: nobody will ever read them, so they must not pile up.
 pub async fn drain_events(app: AppHandle, mut rx: UnboundedReceiver<TimedEvent>) {
     while let Some(first) = rx.recv().await {
         let mut batch = vec![first];
         while let Ok(ev) = rx.try_recv() {
             batch.push(ev);
         }
+        let engine = app.state::<Ctx>().engine.clone();
+        if !blocking(&engine, |e| e.get_app_state()).await.is_ok_and(|s| s.server_configured) {
+            continue;
+        }
         let client = app.state::<Ctx>().client();
         if let Err(e) = client.queue_events(batch).await {
             tracing::warn!("queueing events: {e}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_server_configured_means_no_sync_attempts() {
+        // Whatever the identity, no server address means the loop stops before any request.
+        assert_eq!(next_step(false, false, ""), Step::Standalone);
+        assert_eq!(next_step(false, false, "Ana"), Step::Standalone);
+        assert_eq!(next_step(false, true, "Ana"), Step::Standalone);
+    }
+
+    #[test]
+    fn registers_later_with_the_saved_name() {
+        // Onboarded offline: a name, no token yet. The loop registers with that name.
+        assert_eq!(next_step(true, false, "Ana"), Step::Register("Ana".into()));
+        assert_eq!(next_step(true, false, ""), Step::Probe, "not onboarded: only report whether the server answers");
+        assert_eq!(next_step(true, true, "Ana"), Step::Connect);
     }
 }

@@ -111,10 +111,12 @@ impl Engine {
         let db = self.db();
         let name: String = store::get(&db, "name")?.unwrap_or_default();
         let next: Option<DateTime<Utc>> = store::get(&db, "next_name_change")?.flatten();
-        let token: Option<String> = store::get(&db, "token")?;
         let policy = store::get::<Policy>(&db, "policy")?.unwrap_or_else(default_policy);
         Ok(AppState {
-            onboarded: !name.is_empty() && token.is_some(),
+            // A name is enough: without a server (or before it is reachable) the name is kept here and the
+            // sync loop registers with it later.
+            onboarded: !name.is_empty(),
+            server_configured: !connection.server_url.trim().is_empty(),
             name,
             next_name_change: next.map(|d| d.to_rfc3339()),
             name_change_days: policy.name_change_days,

@@ -130,7 +130,9 @@ function Sidebar() {
   const sel = (k: string, v: string | number) => params.get(k) === String(v)
   const c = app.connection
   const sync =
-    c.status === 'connected'
+    !app.serverConfigured
+      ? { color: 'var(--mute)', text: 'Local library' }
+      : c.status === 'connected'
       ? { color: 'var(--ok)', text: `Synced · ${ago(c.lastSync)}` }
       : c.status === 'offline'
         ? { color: 'var(--warn)', text: 'Offline · will sync later' }

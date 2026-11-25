@@ -168,15 +168,17 @@ let sets: ProjectSet[] = [
   { id: 3, name: 'Wedding invitations', note: 'Personal', familyKeys: ['instrument-serif', 'bebas-neue'], on: false, lastUsed: iso(-21 * day) },
 ]
 
-const DEFAULT_CONN = { serverUrl: 'https://fonts.northwind-studio.com', installKey: 'tsk_live_4f8a2c91e7d3' }
+// `?server=none` starts like the standalone build (no server set up); `?server=offline` with a server that doesn't answer.
+const serverMode = new URLSearchParams(location.search).get('server')
+const DEFAULT_CONN = serverMode === 'none' ? { serverUrl: '', installKey: '' } : { serverUrl: 'https://fonts.northwind-studio.com', installKey: 'tsk_live_4f8a2c91e7d3' }
 let connection: Connection = {
-  status: 'connected', ...DEFAULT_CONN, editable: true, lastSync: iso(-60_000), installId: '7F3A-2C9E-91C2', error: null,
+  status: serverMode ? 'offline' : 'connected', ...DEFAULT_CONN, editable: true, lastSync: serverMode ? null : iso(-60_000), installId: '7F3A-2C9E-91C2', error: null,
 }
 // The onboarding name survives reloads within the tab so `bun run dev` doesn't ask every time;
 // `?mockName=Ayu` skips onboarding (used for README screenshots with a headless browser).
 const savedName = new URLSearchParams(location.search).get('mockName') ?? sessionStorage.getItem('typeshelf-mock-name') ?? ''
 let app: AppState = {
-  onboarded: !!savedName, name: savedName, nextNameChange: null, nameChangeDays: 30, connection, platform: 'windows', appVersion: '1.0.0',
+  onboarded: !!savedName, serverConfigured: !!connection.serverUrl, name: savedName, nextNameChange: null, nameChangeDays: 30, connection, platform: 'windows', appVersion: '1.0.0',
 }
 let settings: Settings = {
   startAtLogin: true, startHidden: true, autoUpdate: true, deactivateOnQuit: false,
@@ -249,7 +251,7 @@ function emit(event: string, payload: unknown) {
 }
 function setConnection(c: Partial<Connection>) {
   connection = { ...connection, ...c }
-  app = { ...app, connection }
+  app = { ...app, connection, serverConfigured: !!connection.serverUrl.trim() }
   emit('connection-changed', connection)
 }
 Object.assign(window, {
@@ -394,15 +396,20 @@ type Args = Record<string, any> // eslint-disable-line @typescript-eslint/no-exp
 
 const handlers: Record<string, (a: Args) => unknown> = {
   get_app_state: () => app,
-  complete_onboarding: ({ name }) => {
+  complete_onboarding: ({ name, offline }) => {
     if (!name?.trim()) throw err('invalid_name', 'Enter your name to continue.')
-    if (connection.status !== 'connected') throw err('offline', 'Typeshelf can’t reach your server. Check your connection and try again.')
+    const online = app.serverConfigured && !offline
+    if (online && connection.status !== 'connected') throw err('offline', 'Typeshelf can’t reach your server. Check your connection and try again.')
     app = { ...app, onboarded: true, name: name.trim(), nextNameChange: null }
     sessionStorage.setItem('typeshelf-mock-name', app.name)
-    setTimeout(() => emit('admin-change', { action: 'activated', fonts: [{ family: 'Fraunces', style: 'Regular' }, { family: 'Space Grotesk', style: 'Medium' }, { family: 'Syne', style: 'SemiBold' }] }), 1500)
+    if (online) setTimeout(() => emit('admin-change', { action: 'activated', fonts: [{ family: 'Fraunces', style: 'Regular' }, { family: 'Space Grotesk', style: 'Medium' }, { family: 'Syne', style: 'SemiBold' }] }), 1500)
     return app
   },
   change_name: ({ name }) => {
+    if (!app.serverConfigured) {
+      app = { ...app, name: name.trim(), nextNameChange: null }
+      return { name: app.name, nextNameChange: null }
+    }
     if (connection.status !== 'connected') throw err('offline', 'You need a connection to your server to change your name.')
     if (app.nextNameChange && new Date(app.nextNameChange).getTime() > Date.now())
       throw err('name_locked', 'You can’t change your name yet.', { nextNameChange: app.nextNameChange })
@@ -664,10 +671,11 @@ const handlers: Record<string, (a: Args) => unknown> = {
   save_connection: ({ serverUrl, installKey }) => {
     if (!connection.editable) throw err('locked', 'Your admin has locked the connection settings.')
     const ok = /^https:\/\/\S+$/.test(serverUrl) && installKey.trim()
-    setConnection({ serverUrl, installKey, status: ok ? 'connected' : 'error', lastSync: ok ? iso() : connection.lastSync, error: ok ? null : 'Can’t reach the server.' })
+    if (!serverUrl.trim()) setConnection({ serverUrl: '', installKey, status: 'offline', error: null })
+    else setConnection({ serverUrl, installKey, status: ok ? 'connected' : 'error', lastSync: ok ? iso() : connection.lastSync, error: ok ? null : 'Can’t reach the server.' })
     return connection
   },
-  reset_connection: () => (setConnection({ ...DEFAULT_CONN, status: 'connected', lastSync: iso(), error: null }), connection),
+  reset_connection: () => (setConnection({ ...DEFAULT_CONN, status: DEFAULT_CONN.serverUrl ? 'connected' : 'offline', lastSync: iso(), error: null }), connection),
   quick_search: ({ query }) => {
     const q = query.trim().toLowerCase()
     return families.flatMap((f) => f.faces).filter((x) => !q || x.fullName.toLowerCase().includes(q)).slice(0, 20)
