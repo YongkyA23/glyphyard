@@ -22,7 +22,7 @@ bridge turned on and the apps whose documents used them). Plug-ins probe 27716�
 
 | Request | Body | Answer |
 |---|---|---|
-| `GET /v1/ping` (token optional) | | `{app: "typeshelf", version, paired}`; with a valid token also `documents`, how many of this app's documents the bridge has open |
+| `GET /v1/ping` (token optional) | | `{app: "typeshelf", version, paired}`; with a valid token also `documents`, how many documents the bridge has open for this plug-in (the client the token was issued to; two instances of one app count separately) |
 | `POST /v1/pair` | `{app, appVersion, clientId}` | `{token}` once the user allows it in Typeshelf (waits ≤ 60 s); 403 if declined or no answer; 409 while another prompt is open |
 | `POST /v1/document` (token required) | `{app, document, action: "open" \| "close", fonts: [{postscriptName, family, style, missing}]}` | open → `{activated, missing, alreadyActive}`; close → `{released}`; 401 without a valid token |
 
@@ -47,9 +47,12 @@ While Typeshelf isn't running the panel retries every 15 s; while connected it s
 every 15 s as a heartbeat, and re-sends all its open documents when the ping reports fewer documents than it
 sent (Typeshelf restarted, or closed them).
 
-The bridge treats an app's documents as closed, and turns off the fonts it turned on for them, only when it
-has heard nothing from that app for 60 s **and** the app's process is gone (`tasklist` / `pgrep`; if the
-check fails the app counts as running). Silence alone is not enough: older plug-ins only ping while
+The bridge keeps each plug-in's documents apart (by the client id it paired with), so two instances of one
+app, such as two Photoshop versions, can have same-named documents open without one's close releasing the
+other's fonts. It treats a plug-in's documents as closed, and turns off the fonts it turned on for them, only
+when it has heard nothing from that plug-in for 60 s **and** its app's process is gone (`tasklist` / `pgrep`;
+if the check fails the app counts as running). The process check is per app, so while any instance of an app
+runs, no instance of it has its documents closed. Silence alone is not enough: older plug-ins only ping while
 disconnected, and panels can be closed or throttled. After a Typeshelf restart, fonts the last run turned on
 that no re-sent document claims within 60 s are turned off once none of the apps that used them is running.
 

@@ -37,7 +37,7 @@ pub const DISCOVERY_FILE: &str = "adobe-bridge.json";
 const TOKENS_FILE: &str = "adobe-tokens.json";
 const CLIENT_HEADER: &str = "x-typeshelf-client";
 const PAIR_TIMEOUT: Duration = Duration::from_secs(60);
-/// An app not heard from for this long (plug-ins ping every 15 s) whose process is gone has its documents
+/// A plug-in not heard from for this long (plug-ins ping every 15 s) whose app's process is gone has its documents
 /// treated as closed.
 pub const EXPIRY: Duration = Duration::from_secs(60);
 
@@ -187,15 +187,18 @@ async fn expire_loop(s: Arc<Shared>) {
     }
 }
 
-/// Closes the documents of apps not heard from within `expiry` whose process is gone, and after the start-up
-/// window releases fonts owned by the last run that no open document re-claimed and whose apps are all gone.
-/// Silence alone proves nothing: old plug-ins only ping while disconnected, panels get closed or throttled.
+/// Closes the documents of clients not heard from within `expiry` whose app's process is gone, and after the
+/// start-up window releases fonts owned by the last run that no open document re-claimed and whose apps are all
+/// gone. Silence alone proves nothing: old plug-ins only ping while disconnected, panels get closed or throttled.
+// ponytail: the process check is per app, so while one instance of an app runs (two Photoshop versions share
+// an image name) a silent other instance's documents stay open too. Errs towards keeping fonts on; a per-instance
+// check would need the plug-in to report its process id.
 async fn expire(s: &Shared) {
     let past_start = s.started.elapsed() > s.config.expiry;
     // Only these apps are asked about, off the locks: listing processes can be slow.
     let suspects: BTreeSet<App> = {
         let docs = s.docs.lock().await;
-        let mut apps: BTreeSet<App> = s.silent(&docs).into_iter().map(|(app, _)| app).collect();
+        let mut apps: BTreeSet<App> = s.silent(&docs).into_iter().map(|((app, _), _)| app).collect();
         if past_start {
             apps.extend(docs.unclaimed().flat_map(|(_, apps)| apps.iter().copied()));
         }
@@ -210,9 +213,9 @@ async fn expire(s: &Shared) {
     if gone.is_empty() {
         return;
     }
-    // Re-read under the lock: an app heard from meanwhile keeps its documents; one not asked about is running.
+    // Re-read under the lock: a client heard from meanwhile keeps its documents; an app not asked about is running.
     let mut docs = s.docs.lock().await;
-    let silent: Vec<(App, String)> = s.silent(&docs).into_iter().filter(|(app, _)| gone.contains(app)).collect();
+    let silent: Vec<DocKey> = s.silent(&docs).into_iter().filter(|((app, _), _)| gone.contains(app)).collect();
     let mut released: Vec<String> = silent.iter().flat_map(|key| docs.close(key)).collect();
     if past_start {
         released.extend(docs.orphans(&gone));
@@ -242,26 +245,31 @@ struct Shared {
     pairing: AtomicBool,
     /// Bound port, rewritten into the discovery file with `owned`.
     port: u16,
-    /// When each paired app last made an authenticated request.
-    heard: Mutex<HashMap<App, Instant>>,
+    /// When each paired client last made an authenticated request.
+    heard: Mutex<HashMap<Client, Instant>>,
     started: Instant,
 }
 
+/// A paired plug-in instance: its app and client id. Two instances of one app (two Photoshop versions) are two.
+type Client = (App, String);
+/// An open document: the client that reported it and its name.
+type DocKey = (Client, String);
+
 impl Shared {
-    /// The app the token belongs to; also records that this app was just heard from.
-    fn token_app(&self, token: &str) -> Option<App> {
+    /// The client the token belongs to; also records that this client was just heard from.
+    fn token_client(&self, token: &str) -> Option<Client> {
         let hash = sha256_hex(token);
-        let app = self.tokens.lock().unwrap().iter().find(|t| t.hash == hash).map(|t| t.app)?;
-        self.heard.lock().unwrap().insert(app, Instant::now());
-        Some(app)
+        let client = self.tokens.lock().unwrap().iter().find(|t| t.hash == hash).map(|t| (t.app, t.client_id.clone()))?;
+        self.heard.lock().unwrap().insert(client.clone(), Instant::now());
+        Some(client)
     }
 
-    /// Open documents of apps not heard from within `expiry`.
-    fn silent(&self, docs: &Docs) -> Vec<(App, String)> {
+    /// Open documents of clients not heard from within `expiry`.
+    fn silent(&self, docs: &Docs) -> Vec<DocKey> {
         let heard = self.heard.lock().unwrap();
         docs.open
             .keys()
-            .filter(|(app, _)| heard.get(app).is_none_or(|t| t.elapsed() > self.config.expiry))
+            .filter(|(client, _)| heard.get(client).is_none_or(|t| t.elapsed() > self.config.expiry))
             .cloned()
             .collect()
     }
@@ -302,14 +310,14 @@ fn bearer(headers: &HeaderMap) -> Option<&str> {
 }
 
 async fn ping(State(s): State<Arc<Shared>>, headers: HeaderMap) -> Json<serde_json::Value> {
-    let app = bearer(&headers).and_then(|t| s.token_app(t));
-    let mut body = json!({ "app": "typeshelf", "version": s.config.version, "paired": app.is_some() });
-    // How many of the caller's documents the bridge has open; 0 tells a plug-in that still tracks some that
-    // they were forgotten (restart, expiry) and must be re-sent.
+    let client = bearer(&headers).and_then(|t| s.token_client(t));
+    let mut body = json!({ "app": "typeshelf", "version": s.config.version, "paired": client.is_some() });
+    // How many of the calling client's documents the bridge has open; fewer than it sent tells the plug-in they
+    // were forgotten (restart, expiry) and must be re-sent.
     // ponytail: skipped while a slow activate holds the lock; the plug-in just checks again on its next ping.
-    if let Some(app) = app {
+    if let Some(client) = client {
         if let Ok(docs) = tokio::time::timeout(Duration::from_millis(500), s.docs.lock()).await {
-            body["documents"] = docs.open.keys().filter(|(a, _)| *a == app).count().into();
+            body["documents"] = docs.open.keys().filter(|(c, _)| *c == client).count().into();
         }
     }
     Json(body)
@@ -363,11 +371,12 @@ struct DocBody {
 }
 
 async fn document(State(s): State<Arc<Shared>>, headers: HeaderMap, Json(body): Json<DocBody>) -> Response {
-    // The token decides the app; the body's `app` field is informational.
-    let Some(app) = bearer(&headers).and_then(|t| s.token_app(t)) else {
+    // The token decides the client and so the app; the body's `app` field is informational.
+    let Some(client) = bearer(&headers).and_then(|t| s.token_client(t)) else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
-    let key = (app, body.document.clone());
+    let app = client.0;
+    let key = (client, body.document.clone());
     let mut docs = s.docs.lock().await;
     match body.action {
         DocAction::Open => {
@@ -390,7 +399,7 @@ async fn document(State(s): State<Arc<Shared>>, headers: HeaderMap, Json(body): 
 /// Which fonts each open document uses, and which of them the bridge turned on (and so may turn off).
 #[derive(Default)]
 struct Docs {
-    open: HashMap<(App, String), HashSet<String>>,
+    open: HashMap<DocKey, HashSet<String>>,
     /// Each owned font with the apps whose documents used it, so after a restart it is kept while one runs.
     // ponytail: the apps only grow until the font is released; at worst a font stays on until all of them quit.
     owned: BTreeMap<String, BTreeSet<App>>,
@@ -398,14 +407,15 @@ struct Docs {
 
 impl Docs {
     /// Returns whether `owned` changed (and so needs saving).
-    fn open(&mut self, key: (App, String), fonts: Vec<String>, activated: &[String]) -> bool {
+    fn open(&mut self, key: DocKey, fonts: Vec<String>, activated: &[String]) -> bool {
+        let app = key.0 .0;
         let mut changed = false;
         for f in activated {
-            changed |= self.owned.entry(f.clone()).or_default().insert(key.0);
+            changed |= self.owned.entry(f.clone()).or_default().insert(app);
         }
         for f in &fonts {
             if let Some(apps) = self.owned.get_mut(f) {
-                changed |= apps.insert(key.0);
+                changed |= apps.insert(app);
             }
         }
         // Re-checking an open document only adds fonts, so a font is never dropped while still shown.
@@ -414,7 +424,7 @@ impl Docs {
     }
 
     /// Fonts to release: owned, used by this document, needed by no other open document.
-    fn close(&mut self, key: &(App, String)) -> Vec<String> {
+    fn close(&mut self, key: &DocKey) -> Vec<String> {
         let Some(fonts) = self.open.remove(key) else {
             return Vec::new();
         };
@@ -522,10 +532,14 @@ mod tests {
         names.iter().map(|n| n.to_string()).collect()
     }
 
+    fn key(app: App, document: &str) -> DocKey {
+        ((app, "c1".to_string()), document.to_string())
+    }
+
     #[test]
     fn font_is_kept_while_another_document_needs_it() {
-        let a = (App::Photoshop, "a.psd".to_string());
-        let b = (App::Indesign, "b.indd".to_string());
+        let a = key(App::Photoshop, "a.psd");
+        let b = key(App::Indesign, "b.indd");
         let mut docs = Docs::default();
         docs.open(a.clone(), s(&["X", "Y", "Sys"]), &s(&["X", "Y"]));
         docs.open(b.clone(), s(&["X"]), &[]);
@@ -537,8 +551,8 @@ mod tests {
     #[test]
     fn unclaimed_font_waits_for_every_app_that_used_it() {
         let mut docs = Docs::default();
-        assert!(docs.open((App::Photoshop, "a.psd".into()), s(&["X"]), &s(&["X"])));
-        assert!(docs.open((App::Indesign, "b.indd".into()), s(&["X"]), &[]), "InDesign now holds X too");
+        assert!(docs.open(key(App::Photoshop, "a.psd"), s(&["X"]), &s(&["X"])));
+        assert!(docs.open(key(App::Indesign, "b.indd"), s(&["X"]), &[]), "InDesign now holds X too");
         docs.open.clear(); // a restart: no document re-claimed X
         assert!(docs.orphans(&HashSet::from([App::Photoshop])).is_empty());
         assert_eq!(docs.orphans(&HashSet::from([App::Photoshop, App::Indesign])), s(&["X"]));
@@ -546,7 +560,7 @@ mod tests {
 
     #[test]
     fn fonts_not_activated_by_the_bridge_are_never_released() {
-        let a = (App::Illustrator, "a.ai".to_string());
+        let a = key(App::Illustrator, "a.ai");
         let mut docs = Docs::default();
         docs.open(a.clone(), s(&["UserFont"]), &[]);
         assert!(docs.close(&a).is_empty());

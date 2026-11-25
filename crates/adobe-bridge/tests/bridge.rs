@@ -77,10 +77,15 @@ async fn pair(base: &str) -> reqwest::Response {
 }
 
 async fn pair_as(base: &str, app: &str) -> reqwest::Response {
+    pair_client(base, app, "c1").await
+}
+
+/// `client_id` tells two plug-in instances of one app apart (two Photoshop versions, say).
+async fn pair_client(base: &str, app: &str, client_id: &str) -> reqwest::Response {
     client()
         .post(format!("{base}/v1/pair"))
         .header("X-Typeshelf-Client", "test")
-        .json(&json!({ "app": app, "appVersion": "27.0", "clientId": "c1" }))
+        .json(&json!({ "app": app, "appVersion": "27.0", "clientId": client_id }))
         .send()
         .await
         .unwrap()
@@ -114,7 +119,11 @@ async fn paired_token(base: &str) -> String {
 }
 
 async fn paired_token_as(base: &str, app: &str) -> String {
-    let res = pair_as(base, app).await;
+    paired_client_token(base, app, "c1").await
+}
+
+async fn paired_client_token(base: &str, app: &str, client_id: &str) -> String {
+    let res = pair_client(base, app, client_id).await;
     assert_eq!(res.status(), StatusCode::OK);
     res.json::<Value>().await.unwrap()["token"].as_str().unwrap().to_string()
 }
@@ -384,4 +393,54 @@ async fn authenticated_ping_reports_the_apps_open_documents() {
     handle.shutdown();
     let (_handle, base) = bridge(dir.path(), fake(true)).await;
     assert_eq!(ping(&base, Some(&photoshop)).await["documents"], 0, "a restarted bridge has none");
+}
+
+/// Two instances of one app (two Photoshop versions) pair as two clients. After a restart the first to
+/// re-report must not hide from the second that the bridge forgot its documents.
+#[tokio::test]
+async fn ping_counts_only_the_calling_clients_documents() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_handle, base) = bridge(dir.path(), fake(true)).await;
+    let a = paired_client_token(&base, "photoshop", "ps-2024").await;
+    let b = paired_client_token(&base, "photoshop", "ps-2025").await;
+    doc(&base, &a, "a.psd", "open", &["Lib-A"]).await;
+    doc(&base, &a, "b.psd", "open", &[]).await;
+    assert_eq!(ping(&base, Some(&b)).await["documents"], 0, "B has re-sent nothing");
+    assert_eq!(ping(&base, Some(&a)).await["documents"], 2);
+}
+
+#[tokio::test]
+async fn same_named_documents_in_two_clients_hold_separate_claims() {
+    let dir = tempfile::tempdir().unwrap();
+    let handler = fake(true);
+    let (_handle, base) = bridge(dir.path(), handler.clone()).await;
+    let a = paired_client_token(&base, "photoshop", "ps-2024").await;
+    let b = paired_client_token(&base, "photoshop", "ps-2025").await;
+    assert_eq!(doc(&base, &a, "Untitled-1", "open", &["Lib-A"]).await.1["activated"], json!(["Lib-A"]));
+    assert_eq!(doc(&base, &b, "Untitled-1", "open", &["Lib-A"]).await.1["alreadyActive"], json!(["Lib-A"]));
+
+    assert_eq!(doc(&base, &a, "Untitled-1", "close", &[]).await.1, json!({ "released": [] }), "B still uses it");
+    assert_eq!(doc(&base, &b, "Untitled-1", "close", &[]).await.1, json!({ "released": ["Lib-A"] }));
+    assert_eq!(*handler.released.lock().unwrap(), vec!["Lib-A".to_string()]);
+}
+
+/// Silence is per client: one instance's heartbeat doesn't keep the other's documents alive once the app's
+/// process check says it is gone.
+#[tokio::test]
+async fn a_silent_client_expires_while_another_client_of_its_app_pings() {
+    let dir = tempfile::tempdir().unwrap();
+    let handler = fake(true);
+    let (_handle, base) = bridge_with_expiry(dir.path(), handler.clone(), SHORT_EXPIRY).await;
+    let a = paired_client_token(&base, "photoshop", "ps-2024").await;
+    let b = paired_client_token(&base, "photoshop", "ps-2025").await;
+    doc(&base, &a, "a.psd", "open", &["Lib-A"]).await;
+    doc(&base, &b, "b.psd", "open", &["Lib-B"]).await;
+    let heartbeat = keep_pinging(&base, &b);
+
+    handler.gone.lock().unwrap().insert(App::Photoshop);
+    wait_until(|| !handler.released.lock().unwrap().is_empty()).await;
+    tokio::time::sleep(SHORT_EXPIRY * 2).await;
+    heartbeat.abort();
+    assert_eq!(*handler.released.lock().unwrap(), vec!["Lib-A".to_string()], "B is heard from, so b.psd stays");
+    assert_eq!(ping(&base, Some(&b)).await["documents"], 1);
 }
