@@ -277,11 +277,20 @@ async fn session_cookie_is_secure_over_https() {
     let logout = s.send(Method::POST, "/api/admin/logout", &[("X-Forwarded-Proto", "https")], None).await;
     assert!(cookie(&logout).ends_with("; Secure"), "{}", cookie(&logout));
 
-    // A configured https public URL marks the cookie Secure without the proxy header.
+    // A configured https public URL marks the cookie Secure without the proxy header, for requests to that host.
     assert_eq!(s.admin(Method::PUT, "/settings", Some(json!({ "server_url": "https://fonts.example.com" }))).await.status, StatusCode::OK);
-    let configured = s.send(Method::POST, "/api/admin/login", &[], creds()).await;
+    let public = [("Host", "fonts.example.com")];
+    let configured = s.send(Method::POST, "/api/admin/login", &public, creds()).await;
     assert!(cookie(&configured).ends_with("; Secure"), "{}", cookie(&configured));
-    assert!(cookie(&s.send(Method::POST, "/api/admin/logout", &[], None).await).ends_with("; Secure"));
+    assert!(cookie(&s.send(Method::POST, "/api/admin/logout", &public, None).await).ends_with("; Secure"));
+    let spelled = s.send(Method::POST, "/api/admin/login", &[("Host", "Fonts.Example.com:443")], creds()).await;
+    assert!(cookie(&spelled).ends_with("; Secure"), "{}", cookie(&spelled));
+
+    // The same server opened by its LAN address over plain HTTP: a Secure cookie would be dropped.
+    let lan = s.send(Method::POST, "/api/admin/login", &[("Host", "192.168.1.10:8095")], creds()).await;
+    assert!(!cookie(&lan).contains("Secure"), "{}", cookie(&lan));
+    let lan_proxied = s.send(Method::POST, "/api/admin/login", &[("Host", "192.168.1.10:8095"), ("X-Forwarded-Proto", "https")], creds()).await;
+    assert!(cookie(&lan_proxied).ends_with("; Secure"), "{}", cookie(&lan_proxied));
 }
 
 #[tokio::test]

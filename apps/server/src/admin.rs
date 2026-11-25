@@ -32,10 +32,16 @@ struct Credentials {
     password: String,
 }
 
-/// `Secure` when the request came over HTTPS (a proxy's `X-Forwarded-Proto`) or the public URL is https.
+/// `Secure` when the request came over HTTPS (a proxy's `X-Forwarded-Proto`) or was addressed to the host of an
+/// https public URL. The same server opened by its LAN address over plain HTTP gets a cookie the browser keeps.
 fn session_cookie(s: &AppState, headers: &HeaderMap, token: &str, max_age: i64) -> ApiResult<String> {
-    let proxied_https = headers.get("x-forwarded-proto").and_then(|v| v.to_str().ok()).is_some_and(|p| p.trim().eq_ignore_ascii_case("https"));
-    let secure = proxied_https || db::settings(&s.db())?.server_url.to_ascii_lowercase().starts_with("https://");
+    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+    let proxied_https = header("x-forwarded-proto").is_some_and(|p| p.trim().eq_ignore_ascii_case("https"));
+    let url = db::settings(&s.db())?.server_url.to_ascii_lowercase();
+    // ponytail: compares the URL's authority as written; enough for `https://host[:port][/path]`.
+    let public_host = url.strip_prefix("https://").map(|rest| rest.split('/').next().unwrap_or_default().trim_end_matches(":443").to_string());
+    let host = header("host").map(|h| h.trim().to_ascii_lowercase().trim_end_matches(":443").to_string());
+    let secure = proxied_https || (public_host.is_some() && public_host == host);
     let flag = if secure { "; Secure" } else { "" };
     Ok(format!("{SESSION_COOKIE}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={max_age}{flag}"))
 }

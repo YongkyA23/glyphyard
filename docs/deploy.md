@@ -18,6 +18,7 @@ plus a static DHCP lease so the server keeps `<server-lan-ip>`.
 ~/.config/systemd/user/typeshelf.service   serve --host <server-lan-ip> --port 8095 --public-url https://fonts.example.com (user service, no sudo)
 ```
 It runs as a systemd **user** service of `<server-user>`; `loginctl enable-linger <server-user>` makes it start at boot without a login.
+Open the admin UI through the https public URL (the proxy must pass `X-Forwarded-Proto` or the original `Host` for the session cookie to be marked `Secure`); `http://<server-lan-ip>:8095` also works, with a non-`Secure` cookie, but sends the password unencrypted over the LAN.
 ```
 systemctl --user status typeshelf        # restart / stop / journalctl --user -u typeshelf
 ~/typeshelf/bin/typeshelf-server create-admin you@example.com --data ~/typeshelf/data   # prompts for a password
