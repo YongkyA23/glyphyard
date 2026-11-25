@@ -7,12 +7,16 @@
   Code signing: -CertThumbprint (a certificate in your store) or -CertFile (a .pfx; its password in the
   TYPESHELF_CERT_PASSWORD environment variable) signs typeshelf.exe and the setup program with signtool and a
   timestamp. Without either, the build is unsigned.
+  Without -ServerUrl it makes the standalone build: no server baked in (one can be added later in the app's
+  Settings > Connection).
 .EXAMPLE
   ./scripts/build-windows.ps1 -ServerUrl https://fonts.example.com -InstallKey (cargo run -q -p typeshelf-server -- install-key --data ./data)
+.EXAMPLE
+  ./scripts/build-windows.ps1
 #>
 param(
-    [Parameter(Mandatory)][string]$ServerUrl,
-    [Parameter(Mandatory)][string]$InstallKey,
+    [string]$ServerUrl = '',
+    [string]$InstallKey = '',
     [string]$UpdateKey = '',
     [string]$CertThumbprint = '',
     [string]$CertFile = '',
@@ -21,8 +25,12 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $ServerUrl = $ServerUrl.Trim().TrimEnd('/')
-if ($ServerUrl -notmatch '^https?://[^/\s]+') { throw "ServerUrl must start with http:// or https:// (got '$ServerUrl')." }
-if ($InstallKey.Trim() -eq '') { throw 'InstallKey is empty. Get it with: typeshelf-server install-key --data <dir>' }
+if ($ServerUrl -eq '') {
+    if ($InstallKey.Trim() -ne '') { throw 'An install key needs a server: give -ServerUrl too, or neither for the standalone build.' }
+} else {
+    if ($ServerUrl -notmatch '^https?://[^/\s]+') { throw "ServerUrl must start with http:// or https:// (got '$ServerUrl')." }
+    if ($InstallKey.Trim() -eq '') { throw 'InstallKey is empty. Get it with: typeshelf-server install-key --data <dir>' }
+}
 
 $root = Split-Path $PSScriptRoot -Parent
 
@@ -37,8 +45,14 @@ function Run([string]$dir, [string]$exe, [string[]]$arguments) {
 }
 
 # option_env! in apps/desktop/src-tauri/src/sync.rs and apps/setup read these at compile time.
-$env:TYPESHELF_SERVER_URL = $ServerUrl
-$env:TYPESHELF_INSTALL_KEY = $InstallKey.Trim()
+if ($ServerUrl -eq '') {
+    # Cleared, so a server or key left in the shell is not baked in.
+    Remove-Item Env:TYPESHELF_SERVER_URL, Env:TYPESHELF_INSTALL_KEY -ErrorAction SilentlyContinue
+    Write-Host 'Standalone build: no server baked in.'
+} else {
+    $env:TYPESHELF_SERVER_URL = $ServerUrl
+    $env:TYPESHELF_INSTALL_KEY = $InstallKey.Trim()
+}
 # apps/desktop/src-tauri/src/update.rs. Cleared when not given, so a key left in the shell is never baked in by accident.
 $UpdateKey = $UpdateKey.Trim()
 if ($UpdateKey -ne '' -and $UpdateKey -notmatch '^[0-9a-fA-F]{64}$') { throw 'UpdateKey must be the 64-character public key printed by typeshelf-server update-keygen.' }
@@ -96,5 +110,6 @@ $out = "$root/dist/Typeshelf-Setup-$version.exe"
 Copy-Item "$root/target/release/typeshelf-setup.exe" $out -Force
 Sign $out
 $updates = if ($UpdateKey -ne '') { 'on' } else { 'off (no -UpdateKey)' }
-Write-Host "Installer: $((Resolve-Path $out).Path)  (version $version, server: $ServerUrl, updates: $updates)"
+$server = if ($ServerUrl -ne '') { $ServerUrl } else { 'none (standalone)' }
+Write-Host "Installer: $((Resolve-Path $out).Path)  (version $version, server: $server, updates: $updates)"
 if ($UpdateKey -ne '') { Write-Host "To publish it: typeshelf-server update-sign `"$out`" --key <private key file>, then upload all three files in admin Settings." }

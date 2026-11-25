@@ -58,6 +58,12 @@ ssh <server-host> '~/typeshelf/bin/typeshelf-server install-key --data ~/typeshe
 ./scripts/build-windows.ps1 -ServerUrl https://fonts.example.com -InstallKey <key>
 ```
 
+Without `-ServerUrl` (and `-InstallKey`) the script makes the standalone build, with no server baked in; a server
+can be added later in the app's Settings › Connection:
+```
+./scripts/build-windows.ps1
+```
+
 Optional, both off by default:
 - **Code signing**: add `-CertThumbprint <thumbprint>` (a certificate in your Windows store) or `-CertFile <file.pfx>`
   with the password in `$env:TYPESHELF_CERT_PASSWORD`. `signtool` (Windows SDK) signs `typeshelf.exe` and the
