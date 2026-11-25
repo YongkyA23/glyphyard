@@ -8,6 +8,7 @@ import { api, tagsOf, type Collection, type Family, type ListFamiliesArgs, type 
 import type { MenuItem } from './menu'
 import { spring } from './motion'
 import { useApp } from './state'
+import { turnsOff } from './temporary'
 import { andList, collectionTree, Dialog, errMsg, plural, PromptDialog, Spinner } from './ui'
 
 /** "Select all N results": every family matching a Library query. The engine resolves the query when an action runs. */
@@ -58,7 +59,10 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
       keys = t.keys
       return t.hashes.length ? api.setActiveFor(t.hashes, until) : []
     })
-    if (res?.some((r) => r.ok)) toast(`Turned on ${doneNames(fams, keys)} ${until === 'restart' ? 'until you restart Typeshelf' : 'for 2 hours'}`)
+    const when = until === 'restart' ? 'until you restart Typeshelf' : 'for 2 hours'
+    // Fonts already on for good stay on for good (the engine skips them), so the toast names no count then.
+    const mixed = isAll(fams) || fams.some((f) => f.activeState !== 'none' && !turnsOff(f))
+    if (res?.some((r) => r.ok)) toast(mixed ? `Turned on ${when}; fonts that were already on stay on` : `Turned on ${doneNames(fams, keys)} ${when}`)
     onChanged(false)
   }
   async function setPinned(fams: Family[], pinned: boolean) {
@@ -105,7 +109,8 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
     const one = fams.length === 1 ? fams[0] : null
     const locked = !all && !editable(fams).length
     return [
-      { label: 'Activate', hint: `${mod}Shift+A`, disabled: locked || (!all && fams.every((f) => f.activeState === 'all')), onSelect: () => setActive(targets, true) },
+      // A temporary font is on but not for good: activating keeps it on (the engine drops its timer).
+      { label: fams.some(turnsOff) ? 'Keep on' : 'Activate', hint: `${mod}Shift+A`, disabled: locked || (!all && fams.every((f) => f.activeState === 'all' && !turnsOff(f))), onSelect: () => setActive(targets, true) },
       { label: 'Deactivate', hint: `${mod}Shift+D`, disabled: locked || (!all && fams.every((f) => f.activeState === 'none')), onSelect: () => setActive(targets, false) },
       {
         label: 'Turn on for…', disabled: locked, items: [

@@ -4,7 +4,7 @@ import { fmtWhen } from './ui'
 
 /** When the family's temporary fonts turn off; null when none of its fonts is on temporarily. */
 // ponytail: the first temporary face speaks for the family; styles turned on at different times show one of them.
-export function turnsOff(f: Family): string | null {
+export function turnsOff(f: Pick<Family, 'faces'>): string | null {
   const until = f.faces.find((x) => x.active && x.temporaryUntil)?.temporaryUntil
   if (!until) return null
   return until === 'restart' ? 'Turns off when Typeshelf restarts' : `Turns off ${fmtWhen(until)}`

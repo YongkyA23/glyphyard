@@ -6,6 +6,7 @@ import { api, inTauri, type Face } from '../api'
 import { faceStyle } from '../fonts'
 import { cssStagger, spring } from '../motion'
 import { useApp } from '../state'
+import { turnsOff } from '../temporary'
 import { formatShortcut, Switch } from '../ui'
 
 export function Quick() {
@@ -63,7 +64,7 @@ export function Quick() {
             {i === hi && <motion.span layoutId="quick-hi" className="quick-hi" transition={spring.glide} />}
             <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span className="ellipsis" style={{ fontSize: 20, ...faceStyle(f) }}>{f.fullName}</span>
-              <span className="faint" style={{ fontSize: 12 }}>{f.family} · {f.isVariable ? 'Variable' : f.style}{f.active && f.source === 'admin' ? ' · Set by admin' : ''}</span>
+              <span className="faint" style={{ fontSize: 12 }}>{f.family} · {f.isVariable ? 'Variable' : f.style}{f.active && f.source === 'admin' ? ' · Set by admin' : ''}{turnsOff({ faces: [f] }) && ` · ${turnsOff({ faces: [f] })}`}</span>
             </span>
             <Switch on={f.active} label={`${f.active ? 'Turn off' : 'Turn on'} ${f.fullName}`} onClick={() => toggle(f)} />
           </div>

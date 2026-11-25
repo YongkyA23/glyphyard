@@ -9,6 +9,7 @@ import { useApp } from '../state'
 import { useBreathing } from '../useBreathing'
 import { usePreviewWheel } from '../usePreviewWheel'
 import { useSampleText } from '../useSampleText'
+import { turnsOff } from '../temporary'
 import { GlyphAnatomy } from './family/GlyphTools'
 import { uPlus, useAltHeld, useCopySvg } from './family/hooks'
 import { Poster } from './family/Poster'
@@ -56,7 +57,7 @@ function FaceRow({ face, i, sample, size, axes, onSize, onToggle }: { face: Face
       <div className="face-meta">
         <span className="ellipsis" style={{ fontWeight: 500 }}>{face.style}</span>
         <span className="faint ellipsis" style={{ fontSize: 12 }}>
-          {face.weight}{face.italic && ' · italic'}{face.isVariable && ' · variable'} · v{face.version}
+          {face.weight}{face.italic && ' · italic'}{face.isVariable && ' · variable'} · v{face.version}{turnsOff({ faces: [face] }) && ` · ${turnsOff({ faces: [face] })}`}
         </span>
       </div>
       <div ref={pvRef} className="sample" style={{ ...(seen ? faceStyle(face) : {}), ...pvStyle, fontSize: size, color: on ? 'var(--ink)' : 'var(--ink-2)' }}>{sample}</div>
@@ -419,6 +420,7 @@ export function FamilyPage() {
             {fam.adminSet && <Badge tone="accent">Set by admin</Badge>}
             {fam.category && <Badge tone="neutral">{CATEGORY_LABEL[fam.category]}</Badge>}
             {fam.pinned && <Badge tone="accent">Pinned</Badge>}
+            {turnsOff(fam) && <Badge tone="accent">{turnsOff(fam)}</Badge>}
           </div>
           <TagEditor familyKey={fam.key} />
         </div>
