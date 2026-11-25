@@ -136,7 +136,7 @@ function Form({ initial, onSaved, admins, owner }: { initial: Settings; onSaved:
 
       {admins}
 
-      <Updates />
+      <Updates owner={owner} />
 
       <motion.section aria-labelledby="dat" className="card pad-20 stack-10" variants={fadeRise}>
         <h2 id="dat" className="h2">History and data</h2>
@@ -301,7 +301,7 @@ const UPDATE_FIELDS: [string, string, string][] = [
   ['signature', 'Signature', '.sig'],
 ]
 
-function Updates() {
+function Updates({ owner }: { owner?: boolean }) {
   const state = useLoad(() => api.updateRelease(), [])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -336,10 +336,11 @@ function Updates() {
       <form className="stack-10" onSubmit={submit} noValidate>
         {UPDATE_FIELDS.map(([name, label, accept]) => (
           <label key={name} className="field"><span>{label} ({accept})</span>
-            <input type="file" name={name} accept={accept} className="input" onChange={() => { setError(''); setDone('') }} />
+            <input type="file" name={name} accept={accept} className="input" disabled={!owner} onChange={() => { setError(''); setDone('') }} />
           </label>
         ))}
-        <span className="row-8"><button type="submit" className="btn btn-primary" disabled={busy}>{busy && <Spin />}{busy ? 'Uploading…' : 'Upload release'}</button></span>
+        <span className="row-8"><button type="submit" className="btn btn-primary" disabled={busy || !owner} aria-describedby={owner === false ? 'upd-owner' : undefined}>{busy && <Spin />}{busy ? 'Uploading…' : 'Upload release'}</button></span>
+        {owner === false && <span id="upd-owner" className="meta">Only an owner can upload a release.</span>}
         {error && <span role="alert" className="form-error">{error}</span>}
         <span className="small mute" role="status">{done}</span>
       </form>

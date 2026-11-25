@@ -1380,11 +1380,15 @@ async fn update_release_is_stored_as_uploaded_and_served_to_installs() {
     let (manifest, signature, key) = signed_release("0.2.0", &file);
     let fields: [(&str, &[u8]); 3] = [("file", &file), ("manifest", manifest.as_bytes()), ("signature", signature.as_bytes())];
     assert_eq!(s.upload_update(&fields, "").await.status, StatusCode::UNAUTHORIZED);
+    // Only an owner uploads; a plain admin can still see the current release.
+    let (_, plain) = s.plain_admin("two@example.com").await;
+    let r = s.upload_update(&fields, &plain).await;
+    assert_eq!((r.status, r.json()["error"].as_str()), (StatusCode::FORBIDDEN, Some("owner_only")));
+    assert_eq!(s.as_admin(&plain, Method::GET, "/update", None).await.json(), Value::Null);
     let r = s.upload_update(&fields, &s.cookie).await;
     assert_eq!(r.status, StatusCode::OK, "{}", String::from_utf8_lossy(&r.body));
     assert_eq!(r.json(), json!({ "version": "0.2.0", "size": file.len() }));
     assert_eq!(s.admin(Method::GET, "/update", None).await.json(), json!({ "version": "0.2.0", "size": file.len() }));
-
     // Installs get the manifest and signature byte for byte, and they verify with the key.
     let got = s.desktop(Method::GET, "/update", &token, None).await;
     assert_eq!(got.status, StatusCode::OK);
