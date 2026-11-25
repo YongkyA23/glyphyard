@@ -112,5 +112,6 @@ async fn upload(State(s): State<AppState>, Owner(admin): Owner, mut form: Multip
         tokio::fs::rename(dir.join(format!("{name}.new")), dir.join(name)).await?;
     }
     tracing::info!(version = %m.version, size = m.size, "update release uploaded");
-    crate::audit::record(&s.db(), &admin.email, "release_uploaded", &m.version.to_string(), "")?;    Ok(Json(json!({ "version": m.version.to_string(), "size": m.size })))
+    crate::audit::record(&s.db(), &admin.email, "release_uploaded", &m.version.to_string(), "")?;
+    Ok(Json(json!({ "version": m.version.to_string(), "size": m.size })))
 }
