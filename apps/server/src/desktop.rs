@@ -241,6 +241,12 @@ async fn send(socket: &mut WebSocket, cmd: Command) -> bool {
 async fn run_socket(s: AppState, install_id: String, mut socket: WebSocket) {
     // Register first, then replay the backlog; pushes with ids already replayed are skipped.
     let (conn, mut rx) = s.hub.connect(&install_id);
+    // A revoke that committed after the upgrade's token check kicked nothing yet: close now.
+    let revoked = s.db().query_row("SELECT revoked_at IS NOT NULL FROM installs WHERE id = ?1", [&install_id], |r| r.get::<_, bool>(0));
+    if revoked.unwrap_or(true) {
+        s.hub.disconnect(&install_id, conn);
+        return;
+    }
     let backlog = hub::pending(&s.db(), &install_id);
     let mut last_sent = 0;
     let mut open = true;

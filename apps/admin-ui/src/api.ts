@@ -27,7 +27,7 @@ export type LibraryFile = {
 export type BulkAction = 'deliver' | 'block' | 'unblock' | 'delete'
 /** Selected files by hash, or every file the library search `q` matches. */
 export type BulkSelection = { hashes: string[] } | { q: string }
-export type OrganizeChange ={ case: string; action: { op: string; [k: string]: unknown }; note: string }
+export type OrganizeChange = { case: string; action: { op: string; [k: string]: unknown }; note: string }
 export type Settings = {
   name_change_days: number; allow_connection_edit: boolean; deliver_library_to_new: boolean
   activate_delivered: boolean; notify_admin_changes: boolean; timeline_retention_days: number | null
@@ -134,7 +134,7 @@ export const api = {
     request<LibraryFile>('POST', `/library/${id(hash)}/deliver`, { target, activate }),
   deleteFile: (hash: string) => request<void>('DELETE', `/library/${id(hash)}`),
   bulk: (action: BulkAction, selection: BulkSelection, target?: 'all' | string[], activate?: boolean) =>
-    request<{ changed: number; skipped: number }>('POST', '/library/bulk', { action, ...selection, target, activate }),
+    request<{ changed: number; skipped: number; failed: number }>('POST', '/library/bulk', { action, ...selection, target, activate }),
   organizePlan: () => request<{ changes: OrganizeChange[] }>('GET', '/library/organize'),
   applyOrganize: () => request<{ applied: number }>('POST', '/library/organize/apply'),
   fontRequests: (state: RequestState = 'open', page = 1) => request<Page<FontRequest>>('GET', '/requests' + qs({ state, ...paging(page) })),

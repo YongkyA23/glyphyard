@@ -999,23 +999,75 @@ async fn bulk_library_actions_take_ids_or_the_filter() {
 
     // By ids.
     let r = bulk(json!({ "action": "block", "hashes": [one] })).await;
-    assert_eq!(r.json(), json!({ "changed": 1, "skipped": 0 }));
+    assert_eq!(r.json(), json!({ "changed": 1, "skipped": 0, "failed": 0 }));
     assert_eq!(blocked().await, std::slice::from_ref(&one));
     // By the list's search filter, across every page: files already in that state are skipped.
     let r = bulk(json!({ "action": "block", "q": "alpha" })).await;
-    assert_eq!(r.json(), json!({ "changed": 1, "skipped": 1 }));
+    assert_eq!(r.json(), json!({ "changed": 1, "skipped": 1, "failed": 0 }));
     assert_eq!(blocked().await.len(), 2);
-    assert_eq!(bulk(json!({ "action": "unblock", "q": "alpha two" })).await.json(), json!({ "changed": 1, "skipped": 0 }));
+    assert_eq!(bulk(json!({ "action": "unblock", "q": "alpha two" })).await.json(), json!({ "changed": 1, "skipped": 0, "failed": 0 }));
     // Deliver skips blocked files; an empty filter means the whole library.
     let r = bulk(json!({ "action": "deliver", "q": "", "target": ["a"], "activate": true })).await;
-    assert_eq!(r.json(), json!({ "changed": 2, "skipped": 1 }));
+    assert_eq!(r.json(), json!({ "changed": 2, "skipped": 1, "failed": 0 }));
     assert_eq!(s.desktop(Method::GET, "/me/library", &a, None).await.json().as_array().unwrap().len(), 2);
     // Unknown hashes are skipped; delete quarantines.
     let r = bulk(json!({ "action": "delete", "hashes": [two, other, "nope"] })).await;
-    assert_eq!(r.json(), json!({ "changed": 2, "skipped": 1 }));
+    assert_eq!(r.json(), json!({ "changed": 2, "skipped": 1, "failed": 0 }));
     assert_eq!(s.admin(Method::GET, "/library", None).await.json()["total"], 1);
     assert!(s.state.data_dir.join("quarantine").join("Beta.ttf").exists());
 
+    assert_eq!(bulk(json!({ "action": "delete", "hashes": [one] })).await.json(), json!({ "changed": 0, "skipped": 1, "failed": 0 }), "blocked: skipped");
     assert_eq!(bulk(json!({ "action": "block" })).await.json()["error"], "no_selection");
     assert_eq!(bulk(json!({ "action": "deliver", "hashes": [one] })).await.json()["error"], "invalid_target");
+}
+
+#[tokio::test]
+async fn a_blocked_file_cannot_be_deleted() {
+    let s = Server::new().await;
+    let hash = s.seed_file("Blocked.ttf", b"blocked bytes");
+    s.admin(Method::POST, &format!("/library/{hash}/block"), Some(json!({ "blocked": true }))).await;
+    let r = s.admin(Method::DELETE, &format!("/library/{hash}"), None).await;
+    assert_eq!(r.status, StatusCode::CONFLICT);
+    assert_eq!(r.json()["error"], "blocked");
+    assert_eq!(s.admin(Method::GET, "/library", None).await.json()["total"], 1);
+    assert!(s.state.data_dir.join("library").join(&hash).exists());
+    let free = s.seed_file("Free.ttf", b"free bytes");
+    let r = s.admin(Method::POST, "/library/bulk", Some(json!({ "action": "delete", "hashes": [hash, free] }))).await;
+    assert_eq!(r.json(), json!({ "changed": 1, "skipped": 1, "failed": 0 }));
+    assert!(s.state.data_dir.join("library").join(&hash).exists());
+}
+
+#[tokio::test]
+async fn the_same_file_can_be_deleted_again_and_again() {
+    let s = Server::new().await;
+    for _ in 0..3 {
+        let hash = s.seed_file("Same.ttf", b"same bytes");
+        assert_eq!(s.admin(Method::DELETE, &format!("/library/{hash}"), None).await.status, StatusCode::NO_CONTENT);
+    }
+    assert_eq!(std::fs::read_dir(s.state.data_dir.join("quarantine")).unwrap().count(), 3);
+}
+
+#[tokio::test]
+async fn a_failing_file_does_not_hide_the_rest_of_a_bulk_delete() {
+    let s = Server::new().await;
+    let ok = s.seed_file("Fine.ttf", b"fine");
+    // A file name no file system accepts: its move fails.
+    let bad = s.seed_file(&format!("{}.ttf", "x".repeat(300)), b"too long");
+    let r = s.admin(Method::POST, "/library/bulk", Some(json!({ "action": "delete", "hashes": [bad, ok] }))).await;
+    assert_eq!(r.json(), json!({ "changed": 1, "skipped": 0, "failed": 1 }));
+    let lib = s.admin(Method::GET, "/library", None).await.json();
+    assert_eq!(lib["total"], 1);
+    assert_eq!(lib["items"][0]["hash"], bad.as_str());
+}
+
+#[tokio::test]
+async fn undelivering_drops_queued_deliveries() {
+    let s = Server::new().await;
+    let a = s.register("a", "Ana").await;
+    let b = s.register("b", "Budi").await;
+    let hash = s.library_font().await;
+    s.admin(Method::POST, &format!("/library/{hash}/deliver"), Some(json!({ "target": ["a", "b"] }))).await;
+    s.admin(Method::POST, &format!("/library/{hash}/deliver"), Some(json!({ "target": ["a"] }))).await;
+    assert!(s.commands(&b).await.is_empty(), "b is offline and no longer a target");
+    assert!(s.commands(&a).await.iter().any(|c| c["kind"] == "deliver"));
 }

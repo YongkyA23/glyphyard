@@ -95,7 +95,7 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
       else if (b.action === 'deliver') f.delivered_to = b.target ?? 'none'
       else f.blocked = b.action === 'block'
     }
-    return { changed: hit.length, skipped: 0 }
+    return { changed: hit.length, skipped: 0, failed: 0 }
   }
   if (p === '/overview') return livePoll()
   if (p === '/installs' && method === 'GET') return paged(installs, sp, (i) => [i.id, i.name, ...i.previous_names].join(' '))

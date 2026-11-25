@@ -1,7 +1,7 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { api, errorText, type BulkAction, type LibraryFile, type License, type Page } from '../api'
+import { api, ApiError, errorText, type BulkAction, type LibraryFile, type License, type Page } from '../api'
 import { base, fadeRise, fast, row, spring } from '../motion'
 import {
   Badge, Dialog, Empty, ErrorBox, Loaded, PageHeader, Pager, plural, Skel, Spin, Swap, Table, TableSkeleton, useConfirm, useDebounced, useLoad, usePage,
@@ -57,21 +57,27 @@ export function Library() {
     setNotice('')
     try {
       const r = await api.bulk(action, selection.all ? { q: query } : { hashes: selection.hashes }, target, activate)
-      setNotice(`${DONE[action]} ${plural(r.changed, 'file')}.` + (r.skipped ? ` Skipped ${r.skipped} that ${r.skipped === 1 ? 'was' : 'were'} already done, blocked or gone.` : ''))
-      clearSelection()
-      await state.reload(true)
+      setNotice(`${DONE[action]} ${plural(r.changed, 'file')}.`
+        + (r.skipped ? ` Skipped ${r.skipped} that ${r.skipped === 1 ? 'was' : 'were'} already done, blocked or gone.` : ''))
+      if (r.failed) setError(`${plural(r.failed, 'file')} couldn’t be deleted. Check the server log, then try again.`)
     } catch (e) {
       setError(errorText(e))
+    } finally {
+      // Some files may have changed even when the request failed part way.
+      clearSelection()
+      await state.reload(true)
     }
   }
   const bulkAsk = async (action: 'block' | 'delete') => {
     const n = plural(selectedCount, 'file')
     const text = action === 'block'
       ? `Block ${n}? They will be turned off on every computer.`
-      : `Delete ${n} from the library? The files move to the server’s quarantine folder. Computers that already have them keep their copies.`
+      : `Delete ${n} from the library? The files move to the server’s quarantine folder. Blocked files are skipped: unblock them first. Computers that already have them keep their copies.`
     if (await confirm(text, action === 'block' ? 'Block' : 'Delete', true)) await bulk(action)
   }
   const remove = async (f: LibraryFile) => {
+    const blockedText = `${f.family} ${f.style} is blocked. Unblock it first, then delete it.`
+    if (f.blocked) return setError(blockedText)
     const text = `Delete ${f.family} ${f.style} from the library? The file moves to the server’s quarantine folder. Computers that already have it keep their copy.`
     if (!(await confirm(text, 'Delete', true))) return
     setError('')
@@ -82,7 +88,7 @@ export function Library() {
       setSel({ ...selection, hashes: selection.hashes.filter((h) => h !== f.hash) })
       await state.reload(true)
     } catch (e) {
-      setError(errorText(e))
+      setError(e instanceof ApiError && e.code === 'blocked' ? blockedText : errorText(e))
     }
   }
 
@@ -238,7 +244,7 @@ export function Library() {
       </motion.div>
       <AnimatePresence>
         {delivering === 'selected' && (
-          <DeliverDialog key="selected" title={`Deliver ${plural(selectedCount, 'file')}`} current="none" onClose={() => setDelivering(undefined)}
+          <DeliverDialog key="selected" title={`Deliver ${plural(selectedCount, 'file')}`} onClose={() => setDelivering(undefined)}
             onSubmit={async (target, activate) => { setDelivering(undefined); await bulk('deliver', target, activate) }} />
         )}
         {delivering && delivering !== 'selected' && (
@@ -254,11 +260,12 @@ export function Library() {
 
 const pickSkeleton = <div className="stack-10" style={{ padding: '8px 0' }}>{[60, 45, 70].map((w) => <Skel key={w} w={`${w}%`} />)}</div>
 
-/** Sets who gets the file(s): the ticked users replace the current recipients. */
+/** Sets who gets the file(s): the ticked users replace the current recipients. Without `current` (several files)
+ * nothing is preselected, so one click cannot send every selected file to everyone. */
 function DeliverDialog({ title, current, onClose, onSubmit }: {
-  title: string; current: LibraryFile['delivered_to']; onClose: () => void; onSubmit: (target: 'all' | string[], activate: boolean) => Promise<void>
+  title: string; current?: LibraryFile['delivered_to']; onClose: () => void; onSubmit: (target: 'all' | string[], activate: boolean) => Promise<void>
 }) {
-  const [mode, setMode] = useState<'all' | 'pick'>(Array.isArray(current) ? 'pick' : 'all')
+  const [mode, setMode] = useState<'all' | 'pick' | undefined>(current === undefined ? undefined : Array.isArray(current) ? 'pick' : 'all')
   const [picked, setPicked] = useState<string[]>(Array.isArray(current) ? current : [])
   const [activate, setActivate] = useState(false)
   const [q, setQ] = useState('')
@@ -319,7 +326,7 @@ function DeliverDialog({ title, current, onClose, onSubmit }: {
         {error && <span role="alert" className="form-error">{error}</span>}
         <div className="row-8 end">
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn btn-primary" disabled={busy}>{busy && <Spin />}{busy ? 'Delivering…' : 'Deliver'}</button>
+          <button type="submit" className="btn btn-primary" disabled={busy || !mode}>{busy && <Spin />}{busy ? 'Delivering…' : 'Deliver'}</button>
         </div>
       </form>
     </Dialog>

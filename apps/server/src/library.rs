@@ -292,6 +292,19 @@ fn set_delivery(c: &Connection, hub: &Hub, hash: &str, target: &Target, activate
     let activate = activate.unwrap_or(db::settings(c)?.activate_delivered);
     let (targets, recipients) = resolve_target(c, target)?;
     c.execute("DELETE FROM deliveries WHERE hash = ?1", [hash])?;
+    // Unsent Delivers to computers no longer covered (directly or through the install they are merged into) are dropped.
+    let mut stmt = c.prepare(
+        "SELECT c.id, c.install_id, i.merged_into FROM commands c JOIN installs i ON i.id = c.install_id
+         WHERE c.acked_at IS NULL AND c.kind = 'deliver' AND json_extract(c.payload_json, '$.file.hash') = ?1",
+    )?;
+    let queued: Vec<(i64, String, Option<String>)> = stmt.query_map([hash], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
+    drop(stmt);
+    let covered = |id: &String| targets.iter().any(|t| t == "all" || t == id);
+    for (id, install, merged_into) in queued {
+        if !covered(&install) && !merged_into.as_ref().is_some_and(covered) {
+            c.execute("DELETE FROM commands WHERE id = ?1", [id])?;
+        }
+    }
     for t in &targets {
         c.execute(
             "INSERT INTO deliveries (hash, target, activate) VALUES (?1, ?2, ?3)
@@ -311,9 +324,13 @@ async fn remove(State(s): State<AppState>, _: Admin, Path(hash): Path<String>) -
 }
 
 /// Takes a file out of the library: the stored file moves to the quarantine folder (as organize does) and its
-/// deliveries go with the row. Desktops keep the copies they have.
+/// deliveries go with the row. Desktops keep the copies they have. A blocked file is refused (409 `blocked`): its
+/// row is what keeps the block listed, sent to new installs and liftable.
 fn remove_file(s: &AppState, c: &Connection, hash: &str) -> ApiResult<()> {
     let file = load(c, hash)?;
+    if file.blocked {
+        return Err(ApiError::new(StatusCode::CONFLICT, "blocked", "unblock this font before deleting it"));
+    }
     // ponytail: the move runs under the DB lock, like organize_apply; a same-disk rename is quick.
     match quarantine_file(s, hash, &file.filename) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()), // NotFound: the stored file is already gone
@@ -344,7 +361,8 @@ struct BulkBody {
 }
 
 /// One action over many files. Unknown files, files already blocked/unblocked, and blocked files asked to be
-/// delivered are skipped and counted.
+/// delivered or deleted are skipped and counted. A delete that fails for one file is counted as failed and the
+/// rest go on (files already moved stay moved).
 async fn bulk(State(s): State<AppState>, _: Admin, Json(body): Json<BulkBody>) -> ApiResult<Json<Value>> {
     let mut db = s.db();
     let hashes: Vec<String> = match (body.hashes, &body.q) {
@@ -360,12 +378,16 @@ async fn bulk(State(s): State<AppState>, _: Admin, Json(body): Json<BulkBody>) -
         (BulkAction::Deliver, None) => return Err(ApiError::bad_request("invalid_target", "deliver needs a target")),
         (_, t) => t,
     };
-    let (mut changed, mut skipped) = (0, 0);
-    let mut count = |r: ApiResult<bool>| -> ApiResult<()> {
+    let (mut changed, mut skipped, mut failed) = (0, 0, 0);
+    let mut count = |r: ApiResult<bool>, keep_going: bool| -> ApiResult<()> {
         match r {
             Ok(true) => changed += 1,
             Ok(false) => skipped += 1,
             Err(e) if e.code == "not_found" || e.code == "blocked" => skipped += 1,
+            Err(e) if keep_going => {
+                tracing::warn!("bulk delete: {}", e.message);
+                failed += 1
+            }
             Err(e) => return Err(e),
         }
         Ok(())
@@ -373,7 +395,7 @@ async fn bulk(State(s): State<AppState>, _: Admin, Json(body): Json<BulkBody>) -
     if body.action == BulkAction::Delete {
         // No transaction: a moved file must not get its row back from a rollback.
         for h in &hashes {
-            count(remove_file(&s, &db, h).map(|()| true))?;
+            count(remove_file(&s, &db, h).map(|()| true), true)?;
         }
     } else {
         let tx = db.transaction()?;
@@ -388,11 +410,11 @@ async fn bulk(State(s): State<AppState>, _: Admin, Json(body): Json<BulkBody>) -
                     load(&tx, h).and_then(|f| if f.blocked == want { Ok(false) } else { set_blocked(&tx, &s.hub, h, want).map(|_| true) })
                 }
             };
-            count(r)?;
+            count(r, false)?;
         }
         tx.commit()?;
     }
-    Ok(Json(json!({ "changed": changed, "skipped": skipped })))
+    Ok(Json(json!({ "changed": changed, "skipped": skipped, "failed": failed })))
 }
 
 /// Commands a newly registered install needs: current blocks, and (if enabled) everything delivered to all.
@@ -478,16 +500,16 @@ async fn organize_plan(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Va
     Ok(Json(json!({ "changes": changes, "notes": notes })))
 }
 
-/// Moves a stored file to `<data>/quarantine/<filename>`, or `<hash[..8]>-<filename>` when that name is taken.
+/// Moves a stored file to `<data>/quarantine/<filename>`, or `<hash[..8]>-<filename>` when that name is taken, then
+/// `<hash[..8]>-2-<filename>`, `-3-`, … (the same file can be uploaded and removed many times).
 fn quarantine_file(s: &AppState, hash: &str, filename: &str) -> std::io::Result<()> {
     let dir = s.data_dir.join("quarantine");
     std::fs::create_dir_all(&dir)?;
     let mut to = dir.join(filename);
-    if to.try_exists()? {
-        to = dir.join(format!("{}-{filename}", &hash[..8]));
-    }
-    if to.try_exists()? {
-        return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, format!("{} already exists", to.display())));
+    let mut n = 1;
+    while to.try_exists()? {
+        to = dir.join(if n == 1 { format!("{}-{filename}", &hash[..8]) } else { format!("{}-{n}-{filename}", &hash[..8]) });
+        n += 1;
     }
     std::fs::rename(store_dir(s).join(hash), to)
 }
