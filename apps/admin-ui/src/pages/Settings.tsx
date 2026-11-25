@@ -176,6 +176,12 @@ function Admins({ me }: { me?: Me }) {
     setError('')
     try { await f(); await state.reload(true) } catch (err) { setError(errorText(err)) }
   }
+  const setRole = async (a: Admin, role: Role) => {
+    const text = role === 'owner'
+      ? `Make ${a.email} an owner? Owners can add and remove admins, change roles, reset passwords and regenerate the install key.`
+      : `Make ${a.email} a plain admin? They can no longer manage admins or the install key.`
+    if (await confirm(text, role === 'owner' ? 'Make owner' : 'Make admin', true)) await act(() => api.setRole(a.id, role))
+  }
   const remove = async (a: Admin) => {
     if (await confirm(`Remove ${a.email}? They are signed out at once and can no longer sign in.`, 'Remove', true)) await act(() => api.removeAdmin(a.id))
   }
@@ -204,7 +210,7 @@ function Admins({ me }: { me?: Me }) {
                   </span>
                   {owner && !self ? (
                     <span className="row-8">
-                      <select className="input" aria-label={`Role for ${a.email}`} value={a.role} onChange={(e) => void act(() => api.setRole(a.id, e.target.value as Role))}>
+                      <select className="input" aria-label={`Role for ${a.email}`} value={a.role} onChange={(e) => void setRole(a, e.target.value as Role)}>
                         <option value="owner">Owner</option>
                         <option value="admin">Admin</option>
                       </select>
