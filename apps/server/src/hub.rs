@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use typeshelf_protocol::{Command, CommandKind};
+use typeshelf_protocol::{Command, CommandKind, FONT_NOT_HERE_CODE, FONT_NOT_HERE_SUFFIX};
 
 #[derive(Default)]
 pub struct Hub {
@@ -74,7 +74,7 @@ pub fn queue(c: &Connection, hub: &Hub, install_id: &str, kind: CommandKind) -> 
 /// The engine's ack error when the font is not in that computer's library (`EngineError` "code: message", from
 /// `apply_command`'s `Activate` arm); old desktops send the same text. A file missing on disk is not this.
 fn font_not_here(error: &str) -> bool {
-    error.starts_with("file_missing: ") && error.ends_with(" is not in this library")
+    error.strip_prefix(FONT_NOT_HERE_CODE).and_then(|e| e.strip_prefix(": ")).is_some_and(|e| e.ends_with(FONT_NOT_HERE_SUFFIX))
 }
 
 /// Not yet acknowledged commands, oldest first; marks them delivered.

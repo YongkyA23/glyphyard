@@ -6,7 +6,7 @@ use crate::{EngineError, Engine, License, Result, UiEvent};
 use rusqlite::{params, Connection};
 use typeshelf_core::file_hash;
 use typeshelf_core::organize::sanitize;
-use typeshelf_protocol::{CommandKind, FontRef, LibraryFile, Source};
+use typeshelf_protocol::{CommandKind, FontRef, LibraryFile, Source, FONT_NOT_HERE_CODE, FONT_NOT_HERE_SUFFIX};
 
 /// Local file for an admin font: the exact hash, else the newest version with that PostScript name.
 fn resolve(conn: &Connection, font: &FontRef) -> rusqlite::Result<Option<String>> {
@@ -53,8 +53,8 @@ impl Engine {
                     let db = self.db();
                     let Some(hash) = resolve(&db, font)? else {
                         // No event: in a merged group another computer may have it; the server decides from the
-                        // ack (`hub::ack` matches this exact code and message, so keep them in step).
-                        return Err(EngineError::new("file_missing", format!("{} is not in this library", font.ps_name)));
+                        // ack (`hub::ack` recognises this code and wording).
+                        return Err(EngineError::new(FONT_NOT_HERE_CODE, format!("{}{FONT_NOT_HERE_SUFFIX}", font.ps_name)));
                     };
                     let results = self.activate_hashes(&db, std::slice::from_ref(&hash), Source::Admin)?;
                     (results, self.admin_label(&db, &[hash]))

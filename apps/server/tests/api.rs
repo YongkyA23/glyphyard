@@ -7,7 +7,8 @@ use chrono::{DateTime, Duration, Utc};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tower::ServiceExt;
-use typeshelf_protocol::{ClientMessage, CommandKind, ServerMessage};
+use std::sync::LazyLock;
+use typeshelf_protocol::{ClientMessage, CommandKind, ServerMessage, FONT_NOT_HERE_CODE, FONT_NOT_HERE_SUFFIX};
 use typeshelf_server::{admin, app, auth, db, AppState};
 
 struct Server {
@@ -446,8 +447,9 @@ async fn merged_installs_still_get_commands_and_share_a_font_list() {
     assert_eq!(s.admin(Method::GET, "/installs/old/fonts?active=false", None).await.json()["total"], 0);
 }
 
-/// What a desktop acks when the font is not in its library (`EngineError` display: `code: message`).
-const NOT_HERE: &str = "file_missing: Fraunces-Bold is not in this library";
+/// What a desktop acks when the font is not in its library (`EngineError` display: `code: message`), built from
+/// the wording the engine uses, so the server's matcher cannot drift from it.
+static NOT_HERE: LazyLock<String> = LazyLock::new(|| format!("{FONT_NOT_HERE_CODE}: Fraunces-Bold{FONT_NOT_HERE_SUFFIX}"));
 
 impl Server {
     /// The one pending command's id; acks it with `error` (`None` = success).
@@ -482,18 +484,18 @@ async fn merged_group_fails_a_missing_font_only_when_no_computer_has_it() {
 
     // Fail then succeed, and succeed then fail: the font is on where it exists, so no failure.
     activate().await;
-    s.ack_one(&new, Some(NOT_HERE)).await;
+    s.ack_one(&new, Some(&NOT_HERE)).await;
     s.ack_one(&old, None).await;
     activate().await;
     s.ack_one(&old, None).await;
-    s.ack_one(&new, Some(NOT_HERE)).await;
+    s.ack_one(&new, Some(&NOT_HERE)).await;
     assert_eq!(s.failures("old").await, (0, false));
 
     // Nobody has it: one failure for the group, once the last computer answers.
     activate().await;
-    s.ack_one(&new, Some(NOT_HERE)).await;
+    s.ack_one(&new, Some(&NOT_HERE)).await;
     assert_eq!(s.failures("old").await, (0, false), "the other computer may still have it");
-    s.ack_one(&old, Some(NOT_HERE)).await;
+    s.ack_one(&old, Some(&NOT_HERE)).await;
     assert_eq!(s.failures("old").await, (1, true));
 }
 
@@ -506,10 +508,10 @@ async fn merged_group_fails_at_once_when_the_other_computer_never_got_the_comman
     s.admin(Method::POST, "/installs/merge", Some(json!({ "primary": "old", "secondary": "new", "keep_name": "primary" }))).await;
     s.admin(Method::POST, "/installs/old/fonts", Some(json!({ "hash": "h1", "active": true }))).await;
     // "new" is a dead install: it never connects, so its copy is never delivered.
-    s.ack_one(&old, Some(NOT_HERE)).await;
+    s.ack_one(&old, Some(&NOT_HERE)).await;
     assert_eq!(s.failures("old").await, (1, true));
     let text = &s.admin(Method::GET, "/installs/old/timeline?kind=failures", None).await.json()["items"][0]["text"];
-    assert_eq!(text, &json!(format!("Admin command “activate” failed: {NOT_HERE}")));
+    assert_eq!(text, &json!(format!("Admin command “activate” failed: {}", *NOT_HERE)));
 }
 
 #[tokio::test]
@@ -518,15 +520,15 @@ async fn a_single_install_missing_a_font_is_a_failure_as_before() {
     let token = s.register("solo", "Citra").await;
     s.desktop(Method::POST, "/me/events", &token, Some(event(json!({ "kind": "font_activated", "font": font("h1"), "source": "user" })))).await;
     s.admin(Method::POST, "/installs/solo/fonts", Some(json!({ "hash": "h1", "active": true }))).await;
-    s.ack_one(&token, Some(NOT_HERE)).await;
+    s.ack_one(&token, Some(&NOT_HERE)).await;
     assert_eq!(s.failures("solo").await, (1, true));
     // A repeated ack (socket ack retried over REST) is accepted but recorded once.
     let id: i64 = s.state.db().query_row("SELECT MAX(id) FROM commands", [], |r| r.get(0)).unwrap();
-    let again = s.desktop(Method::POST, &format!("/me/commands/{id}/ack"), &token, Some(json!({ "ok": false, "error": NOT_HERE }))).await;
+    let again = s.desktop(Method::POST, &format!("/me/commands/{id}/ack"), &token, Some(json!({ "ok": false, "error": *NOT_HERE }))).await;
     assert_eq!(again.status, StatusCode::NO_CONTENT);
     assert_eq!(s.failures("solo").await, (1, true));
     let text = &s.admin(Method::GET, "/installs/solo/timeline?kind=failures", None).await.json()["items"][0]["text"];
-    assert_eq!(text, &json!(format!("Admin command “activate” failed: {NOT_HERE}")));
+    assert_eq!(text, &json!(format!("Admin command “activate” failed: {}", *NOT_HERE)));
 }
 
 #[tokio::test]
