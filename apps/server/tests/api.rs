@@ -895,6 +895,8 @@ async fn a_revoked_install_is_refused_hidden_and_kept_in_name_history() {
     s.admin(Method::PUT, "/settings", Some(json!({ "name_change_days": 7 }))).await;
     let pending: i64 = s.state.db().query_row("SELECT COUNT(*) FROM commands WHERE install_id = 'a' AND acked_at IS NULL", [], |r| r.get(0)).unwrap();
     assert_eq!(pending, 0);
+    let cancelled: i64 = s.state.db().query_row("SELECT COUNT(*) FROM commands WHERE install_id = 'a' AND error = 'cancelled'", [], |r| r.get(0)).unwrap();
+    assert!(cancelled > 0, "its unsent commands are cancelled, not deleted");
     // Its name history is still exported.
     let csv = String::from_utf8(s.admin(Method::GET, "/name-changes.csv", None).await.body).unwrap();
     assert!(csv.lines().any(|l| l.contains(",a,,Ana,first,")), "{csv}");
@@ -1090,9 +1092,17 @@ async fn undelivering_drops_queued_deliveries() {
     let b = s.register("b", "Budi").await;
     let hash = s.library_font().await;
     s.admin(Method::POST, &format!("/library/{hash}/deliver"), Some(json!({ "target": ["a", "b"] }))).await;
+    let to_b: i64 = s.state.db().query_row("SELECT MAX(id) FROM commands WHERE install_id = 'b'", [], |r| r.get(0)).unwrap();
     s.admin(Method::POST, &format!("/library/{hash}/deliver"), Some(json!({ "target": ["a"] }))).await;
     assert!(s.commands(&b).await.is_empty(), "b is offline and no longer a target");
     assert!(s.commands(&a).await.iter().any(|c| c["kind"] == "deliver"));
+    // The dropped command is marked cancelled, not deleted, so its id is never handed to a later command.
+    let (owner, ok, error): (String, bool, String) =
+        s.state.db().query_row("SELECT install_id, ok, error FROM commands WHERE id = ?1", [to_b], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
+    assert_eq!((owner.as_str(), ok, error.as_str()), ("b", false, "cancelled"));
+    assert_eq!(s.desktop(Method::POST, &format!("/me/commands/{to_b}/ack"), &b, Some(json!({ "ok": false, "error": "404" }))).await.status, StatusCode::NO_CONTENT);
+    let failures = s.admin(Method::GET, "/installs/b/timeline?kind=failures", None).await.json();
+    assert_eq!(failures["total"], 0, "a late ack of a cancelled command is no failure");
 }
 
 /* ---------- admin accounts, roles and the audit log ---------- */

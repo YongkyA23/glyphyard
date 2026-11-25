@@ -475,7 +475,8 @@ async fn revoke(State(s): State<AppState>, admin: Admin, Path(id): Path<String>)
         for i in &ids {
             tx.execute("UPDATE installs SET revoked_at = ?1 WHERE id = ?2", params![now, i])?;
             tx.execute("DELETE FROM font_states WHERE install_id = ?1", [i])?;
-            tx.execute("DELETE FROM commands WHERE install_id = ?1 AND acked_at IS NULL", [i])?;
+            // Cancelled, not deleted: a deleted command id could be reused (no AUTOINCREMENT).
+            tx.execute("UPDATE commands SET acked_at = ?1, ok = 0, error = 'cancelled' WHERE install_id = ?2 AND acked_at IS NULL", params![now, i])?;
             tx.execute("DELETE FROM deliveries WHERE target = ?1", [i])?;
             db::insert_event(&tx, i, "system", "admin", "Removed by an admin", "{}", &now)?;
         }

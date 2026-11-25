@@ -309,7 +309,8 @@ fn set_delivery(c: &Connection, hub: &Hub, hash: &str, target: &Target, activate
     let activate = activate.unwrap_or(db::settings(c)?.activate_delivered);
     let (targets, recipients) = resolve_target(c, target)?;
     c.execute("DELETE FROM deliveries WHERE hash = ?1", [hash])?;
-    // Unsent Delivers to computers no longer covered (directly or through the install they are merged into) are dropped.
+    // Unsent Delivers to computers no longer covered (directly or through the install they are merged into) are
+    // cancelled. Rows are never deleted: `commands.id` has no AUTOINCREMENT, so a deleted id could come back.
     let mut stmt = c.prepare(
         "SELECT c.id, c.install_id, i.merged_into FROM commands c JOIN installs i ON i.id = c.install_id
          WHERE c.acked_at IS NULL AND c.kind = 'deliver' AND json_extract(c.payload_json, '$.file.hash') = ?1",
@@ -319,7 +320,7 @@ fn set_delivery(c: &Connection, hub: &Hub, hash: &str, target: &Target, activate
     let covered = |id: &String| targets.iter().any(|t| t == "all" || t == id);
     for (id, install, merged_into) in queued {
         if !covered(&install) && !merged_into.as_ref().is_some_and(covered) {
-            c.execute("DELETE FROM commands WHERE id = ?1", [id])?;
+            c.execute("UPDATE commands SET acked_at = ?1, ok = 0, error = 'cancelled' WHERE id = ?2", params![db::now(), id])?;
         }
     }
     for t in &targets {
