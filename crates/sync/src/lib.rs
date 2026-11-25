@@ -31,6 +31,10 @@ const PING_EVERY: Duration = Duration::from_secs(30);
 /// No frame (not even a pong) for this long means the socket is dead, e.g. after sleep/wake.
 const IDLE_LIMIT: Duration = Duration::from_secs(75);
 const BATCH: usize = 200;
+// ponytail: 10,000 events, oldest dropped past it; the outbox is rewritten whole per batch, so it must stay small.
+const OUTBOX_MAX: usize = 10_000;
+/// A release manifest is a few hundred bytes; a larger `GET /update` body is not read to the end.
+const MANIFEST_MAX: usize = 64 * 1024;
 
 // Shared by all clients, so a client replaced at runtime can't race its successor on the same file.
 static OUTBOX_FILE: Mutex<()> = Mutex::const_new(());
@@ -233,7 +237,14 @@ impl SyncClient {
             return Ok(None);
         }
         // A server without the update routes answers with its admin UI (200 HTML): no release, not an error.
-        let body = check(res).await?.bytes().await.map_err(http_err)?;
+        let mut res = check(res).await?;
+        let mut body = Vec::new();
+        while let Some(chunk) = res.chunk().await.map_err(http_err)? {
+            body.extend_from_slice(&chunk);
+            if body.len() > MANIFEST_MAX {
+                return Ok(None);
+            }
+        }
         Ok(serde_json::from_slice::<Release>(&body).ok().map(|r| (r.manifest, r.signature)))
     }
 
@@ -268,6 +279,10 @@ impl SyncClient {
             let _file = OUTBOX_FILE.lock().await;
             let mut lines = read_lines(&self.config.outbox_path).await?;
             lines.extend(events.iter().map(|e| serde_json::to_string(e).expect("events serialize")));
+            // Not while a flush runs: it removes the lines it sent by count, which a drop here would shift.
+            if let Ok(_flushing) = FLUSHING.try_lock() {
+                lines.drain(..lines.len().saturating_sub(OUTBOX_MAX));
+            }
             write_lines(&self.config.outbox_path, &lines).await?;
         }
         self.flush_wanted.notify_one();

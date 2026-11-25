@@ -387,6 +387,19 @@ async fn update_release_and_download() {
     assert!(matches!(anonymous.update_release().await, Err(SyncError::Server { status: 401, .. })));
 }
 
+/// A manifest response past 64 KiB is not read to the end: no release.
+#[tokio::test]
+async fn an_oversized_update_release_is_none() {
+    let big = || async { Json(json!({ "manifest": "x".repeat(70 * 1024), "signature": "abcd\n" })) };
+    let app = Router::new().route("/api/v1/update", get(big));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let dir = tempfile::tempdir().unwrap();
+    let client = SyncClient::new(config(&url, Some(TOKEN), &dir.path().join("outbox.jsonl")));
+    assert_eq!(client.update_release().await.unwrap(), None);
+}
+
 /// An old server without the update routes answers with the admin UI's HTML (200): that is "no release", not an error.
 #[tokio::test]
 async fn update_release_from_an_old_server_is_none() {
