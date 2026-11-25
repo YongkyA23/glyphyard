@@ -122,6 +122,7 @@ function Sidebar() {
     ['/google', 'Google Fonts', null],
     ['/organize', 'Auto-organize', organizeCount || null],
     ['/pdf', 'Fonts in a PDF', null],
+    ['/stats', 'Stats', null],
     ['/settings', 'Settings', null],
   ]
   const licCount = (l: License) => counts?.licenses[l] ?? 0

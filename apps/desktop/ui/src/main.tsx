@@ -17,6 +17,7 @@ import { Playground } from './pages/Playground'
 import { ProjectSets } from './pages/ProjectSets'
 import { Organize } from './pages/Organize'
 import { PdfFonts } from './pages/PdfFonts'
+import { Stats } from './pages/Stats'
 import { GoogleFonts } from './pages/GoogleFonts'
 import { SettingsPage } from './pages/Settings'
 import { Quick } from './pages/Quick'
@@ -38,6 +39,7 @@ function MainRoutes() {
         <Route path="/sets" element={<ProjectSets />} />
         <Route path="/organize" element={<Organize />} />
         <Route path="/pdf" element={<PdfFonts />} />
+        <Route path="/stats" element={<Stats />} />
         <Route path="/google" element={<GoogleFonts />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

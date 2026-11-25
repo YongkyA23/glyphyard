@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   api, type ActivationResult, type Family, type FamilyFilter, type FamilyPage, type FamilySort, type Folder, type FolderNode, type FontCategory, type Health,
@@ -234,7 +234,10 @@ export function Library() {
   const path = params.get('path'), collectionId = params.get('collection'), license = params.get('license') as License | null
   const system = params.get('system') === '1'
   const tag = params.get('tag')
-  const scopeKey = [search.trim(), chars.trim(), lang, filter, sort, sort === 'random' ? seed : '', category, path, collectionId, license, tag, system].join('|')
+  // navigate('/', { state: { select: keys } }) shows just those families, all selected (Stats › Never used).
+  const location = useLocation()
+  const pick = (location.state as { select?: string[] } | null)?.select ?? null
+  const scopeKey = [search.trim(), chars.trim(), lang, filter, sort, sort === 'random' ? seed : '', category, path, collectionId, license, tag, system, pick ? location.key : ''].join('|')
 
   const actions = useFontActions((clear) => {
     if (clear) setSel(new Map())
@@ -268,6 +271,9 @@ export function Library() {
     setSel(new Map())
     anchor.current = null
   }, [scopeKey])
+  useEffect(() => {
+    if (pick) api.listFamilies({ keys: pick }).then((fs) => setSel(new Map(fs.map((f) => [f.key, f]))), () => {})
+  }, [location.key]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => void (anchor.current = null), [page])
   useEffect(() => {
     try {
@@ -287,6 +293,7 @@ export function Library() {
     if (collectionId) args.collectionId = Number(collectionId)
     if (license) args.license = license
     if (tag) args.tag = tag
+    if (pick) args.keys = pick
     if (category) args.category = category
     if (sort === 'random') args.seed = seed
     const t = setTimeout(() => api.familyPage(args, (page - 1) * PAGE, PAGE).then(setData, () => setData({ items: [], total: 0 })), search || chars ? 150 : 0)

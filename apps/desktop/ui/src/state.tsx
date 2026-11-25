@@ -111,6 +111,7 @@ export function AppProvider({ main, children }: { main: boolean; children: React
         on('admin-change', (p) => (setAdminChange({ ...p, at: new Date().toISOString() }), bump())),
         on('organize-requested', () => navigate('/organize')),
         on('adobe-pair-request', setPair),
+        on('badge-earned', (b) => toast(`Badge earned: ${b.name}. ${b.description}`, { label: 'See badges', run: () => navigate('/stats') })),
         on('adobe-activated', ({ app: a, document, activated, missing }) =>
           toast(
             `${ADOBE_LABEL[a]} · ${document}: turned on ${plural(activated.length, 'font')}` +

@@ -1253,3 +1253,4 @@ mod merged;
 mod formats;
 mod languages;
 mod temporary;
+mod stats;

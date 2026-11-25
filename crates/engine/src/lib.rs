@@ -13,6 +13,7 @@ mod pdf;
 mod scan;
 mod search;
 mod settings;
+mod stats;
 mod store;
 mod temporary;
 mod types;
@@ -27,6 +28,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock, RwLock};
 use typeshelf_protocol::{Event, TimedEvent};
 
 pub use activation::{OsFonts, SystemFonts};
+pub use stats::{Badge, FamilyUse, UnusedFamily, UsagePeriod, UsageStats};
 pub use temporary::Until;
 pub use types::*;
 pub use typeshelf_activation::{ActivationError, LedgerEntry, ReconcileReport};
@@ -108,6 +110,7 @@ impl Engine {
     }
 
     fn library_changed(&self, reason: &'static str) {
+        self.check_badges();
         self.ui(UiEvent::LibraryChanged { reason });
     }
 

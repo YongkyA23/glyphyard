@@ -74,6 +74,13 @@ export type ListFamiliesArgs = {
   /** Only families whose representative face fully covers this language (an id from languageCounts). */ lang?: string
 }
 export type FamilyPage = { items: Family[]; total: number }
+/** Local usage statistics (never sent anywhere). `days`: days on which a font of the family was turned on. */
+export type UsageStats = {
+  period: 'month' | 'year'; since: string; mostUsed: { key: string; family: string; days: number }[]
+  neverUsed: { key: string; family: string }[]; neverUsedNote: string | null
+  totalFonts: number; addedInPeriod: number; recordingSince: string | null
+}
+export type Badge = { id: 'collector' | 'archaeologist' | 'quiet'; name: string; description: string; earnedAt: string | null }
 export type LibraryCounts = { library: number; active: number; system: number; licenses: Partial<Record<License, number>> }
 export type LanguageCount = { id: string; name: string; families: number }
 export type FolderNode = { path: string; name: string; fontCount: number; activeCount: number; autoActivate: boolean; hidden: boolean; children: FolderNode[] }
@@ -178,6 +185,8 @@ export const api = {
   health: () => call<Health>('health'),
   repairNow: () => call<Health>('repair_now'),
   pdfFonts: (path: string) => call<PdfFont[]>('pdf_fonts', { path }),
+  usageStats: (period: 'month' | 'year') => call<UsageStats>('usage_stats', { period }),
+  badges: () => call<Badge[]>('badges'),
 
   googleCatalog: (search: string | undefined, category: string | undefined, offset: number, limit: number) =>
     call<GooglePage>('google_catalog', { search, category, offset, limit }),
@@ -246,6 +255,7 @@ export type Events = {
   'folder-status': Folder
   'activation-progress': { done: number; total: number; active: boolean }
   'activation-done': { total: number; failed: string[] }
+  'badge-earned': Badge
   'name-changed': { name: string; nextNameChange: string | null }
   'adobe-pair-request': { requestId: string; app: AdobeApp; appVersion: string }
   'adobe-activated': { app: AdobeApp; document: string; activated: string[]; missing: string[] }

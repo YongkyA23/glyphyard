@@ -590,6 +590,25 @@ const handlers: Record<string, (a: Args) => unknown> = {
     health = { lastCheck: iso(), problems: [], removed: 3, reregistered: 1 }
     return { ...health, active: families.flatMap((f) => f.faces).filter((x) => x.active).length }
   },
+  usage_stats: ({ period }) => {
+    const now = new Date()
+    const since = new Date(Date.UTC(now.getUTCFullYear(), period === 'month' ? now.getUTCMonth() : 0, 1))
+    const used = families.filter((f) => f.activeState !== 'none' || f.addedAt > now.getTime() - 20 * day)
+    return {
+      period, since: since.toISOString(),
+      mostUsed: used.map((f, i) => ({ key: f.key, family: f.family, days: Math.max(1, (period === 'month' ? 14 : 90) - i * 7) })).slice(0, 10),
+      neverUsed: families.filter((f) => !used.includes(f)).map((f) => ({ key: f.key, family: f.family })),
+      neverUsedNote: null,
+      totalFonts: families.reduce((n, f) => n + f.faces.length, 0),
+      addedInPeriod: families.filter((f) => f.addedAt >= since.getTime()).reduce((n, f) => n + f.faces.length, 0),
+      recordingSince: iso(-400 * day),
+    }
+  },
+  badges: () => [
+    { id: 'collector', name: 'Collector', description: '1,000 fonts in your library.', earnedAt: null },
+    { id: 'archaeologist', name: 'Archaeologist', description: 'Turned on a font nobody had used for a year.', earnedAt: iso(-41 * day) },
+    { id: 'quiet', name: 'Quiet', description: 'Turned every font off at once (at least 10).', earnedAt: null },
+  ],
   pdf_fonts: () => {
     const h = (family: string, style: string) => fam(keyOf(family))?.faces.find((x) => x.style === style)?.hash ?? fam(keyOf(family))?.faces[0].hash ?? null
     const st = (family: string): PdfFont['status'] => (fam(keyOf(family))?.activeState === 'none' ? 'inactive' : 'active')

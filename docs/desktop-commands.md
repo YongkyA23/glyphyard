@@ -85,6 +85,8 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `organize_apply` | `{ tidy, excludeIds: number[] }` → `{ historyId, applied }` |
 | `list_history` / `undo_history {id}` | → `{ id, kind, summary, at, undone }[]` |
 | `health` / `repair_now` | → `{ lastCheck, active, problems: { hash, message }[], removed: number, reregistered: number }` |
+| `usage_stats` | `{ period: "month"\|"year" }` → `{ period, since, mostUsed: { key, family, days }[], neverUsed: { key, family }[], neverUsedNote: string\|null, totalFonts, addedInPeriod, recordingSince: string\|null }`. Local only, never sent anywhere. `mostUsed`: top 10 by days (UTC) a font of the family was turned on, by the user, a project set or an Adobe document (not the admin). `neverUsed`: families in the user's folders not turned on for 12 months and not on now; empty with `neverUsedNote` until the oldest font file is 30 days old. `totalFonts` / `addedInPeriod`: font files in the user's folders (system fonts not counted) |
+| `badges` | → `{ id: "collector"\|"archaeologist"\|"quiet", name, description, earnedAt: string\|null }[]`; each is earned once |
 | `pdf_fonts` | `{ path }` → `{ psName, display, pages: number, status: "active"\|"inactive"\|"version"\|"missing", detail, hash: string\|null, google: boolean }[]` |
 | `google_catalog` | `{ search?, category? }` → `{ family, category, styles, variable, installed }[]` |
 | `google_install` / `google_remove` | `{ family }` → `{ family, installed }` |
@@ -111,6 +113,7 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `folder-status` | `Folder` |
 | `activation-progress` | `{ done, total, active }`: a `set_active` batch bigger than one chunk (64 files) reports after each chunk; the database is free between chunks |
 | `activation-done` | `{ total, failed: string[] }`: turning fonts on returns at once and the OS registration runs in the background; when it ends, fonts that failed are already switched back off and `failed` says why ("Family Style: reason", at most 20) |
+| `badge-earned` | `{ id, name, description, earnedAt }` (UI shows a toast) |
 | `name-changed` | `{ name, nextNameChange }` |
 | `adobe-pair-request` | `{ requestId, app, appVersion }` (UI asks "Allow Photoshop to turn on fonts automatically?") |
 | `adobe-activated` | `{ app, document, activated: string[], missing: string[] }` (UI shows a short notice) |

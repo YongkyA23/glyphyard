@@ -586,6 +586,8 @@ pub enum UiEvent {
     ActivationProgress { done: usize, total: usize, active: bool },
     /// A background registration finished; `failed` = "Family Style: reason" (at most 20), already switched back off.
     ActivationDone { total: usize, failed: Vec<String> },
+    /// A badge was just earned (shown as a toast).
+    BadgeEarned(crate::Badge),
 }
 
 impl UiEvent {
@@ -597,6 +599,7 @@ impl UiEvent {
             UiEvent::FolderStatus(_) => "folder-status",
             UiEvent::ActivationProgress { .. } => "activation-progress",
             UiEvent::ActivationDone { .. } => "activation-done",
+            UiEvent::BadgeEarned(_) => "badge-earned",
         }
     }
 

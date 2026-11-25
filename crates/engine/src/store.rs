@@ -122,6 +122,14 @@ INSERT INTO blocked_v2 SELECT ps_name, COALESCE(hash, '') FROM blocked;
 DROP TABLE blocked;
 ALTER TABLE blocked_v2 RENAME TO blocked;
 "#,
+    // 6: usage statistics, local only (stats.rs), and earned badges; `usage_since` = when recording began.
+    r#"
+CREATE TABLE usage_log (id INTEGER PRIMARY KEY, family_key TEXT NOT NULL, hash TEXT NOT NULL, active INTEGER NOT NULL, source TEXT NOT NULL, at TEXT NOT NULL);
+CREATE INDEX usage_log_family ON usage_log(family_key, at);
+CREATE INDEX usage_log_at ON usage_log(at);
+CREATE TABLE badges (id TEXT PRIMARY KEY, earned_at TEXT NOT NULL);
+INSERT OR IGNORE INTO settings (key, value) VALUES ('usage_since', '"' || strftime('%Y-%m-%dT%H:%M:%SZ', 'now') || '"');
+"#,
 ];
 
 pub(crate) fn open(path: &Path) -> rusqlite::Result<Connection> {

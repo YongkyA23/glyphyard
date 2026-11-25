@@ -305,6 +305,7 @@ impl Engine {
                 "INSERT INTO activations (hash, path, full_name, source, activated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![f.hash, path.to_string_lossy(), f.full_name, source_str(source), store::now()],
             )?;
+            crate::stats::record(conn, &f.hash, true, source);
             if matches!(source, Source::User | Source::ProjectSet) {
                 recent.insert(f.family_key.as_str());
             }
@@ -375,6 +376,7 @@ impl Engine {
             }
             conn.execute("DELETE FROM activations WHERE hash = ?1", [&row.hash])?;
             crate::temporary::forget(conn, std::slice::from_ref(&row.hash))?;
+            crate::stats::record(conn, &row.hash, false, source);
             let was_admin = row.source == Source::Admin && source != Source::Admin;
             self.emit(Event::FontDeactivated { font: font_ref(conn, &row.hash), source, was_admin });
             results.push(ok(&row.hash, None));
@@ -495,6 +497,7 @@ impl Engine {
                         "INSERT INTO activations (hash, path, full_name, source, activated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
                         params![winner.hash, path.to_string_lossy(), winner.full_name, source_str(source), store::now()],
                     )?;
+                    crate::stats::record(conn, &winner.hash, true, source);
                     if matches!(source, Source::User | Source::ProjectSet) {
                         recent.insert(winner.family_key.clone());
                     }
@@ -619,6 +622,7 @@ impl Engine {
             }
             db.execute("DELETE FROM activations WHERE hash = ?1 AND path = ?2", params![row.hash, row.path])?;
             crate::temporary::forget(&db, std::slice::from_ref(&row.hash))?;
+            crate::stats::record(&db, &row.hash, false, source);
             let was_admin = row.source == Source::Admin && source != Source::Admin;
             self.emit(Event::FontDeactivated { font: font_ref(&db, &row.hash), source, was_admin });
             results.push(ok(&row.hash, None));
