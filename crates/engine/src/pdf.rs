@@ -30,9 +30,9 @@ fn embedded_version(doc: &Document, font: &Dictionary) -> Option<String> {
 }
 
 /// PostScript name → (pages it appears on, embedded version).
-type PdfUses = BTreeMap<String, (BTreeSet<u32>, Option<String>)>;
+pub(crate) type PdfUses = BTreeMap<String, (BTreeSet<u32>, Option<String>)>;
 
-fn read_fonts(path: &Path) -> Result<PdfUses> {
+pub(crate) fn read_fonts(path: &Path) -> Result<PdfUses> {
     let doc = Document::load(path).map_err(|e| EngineError::new("invalid_pdf", e.to_string()))?;
     let mut fonts = PdfUses::new();
     for (page, id) in doc.get_pages() {
@@ -52,7 +52,11 @@ fn read_fonts(path: &Path) -> Result<PdfUses> {
 
 impl Engine {
     pub fn pdf_fonts(&self, path: impl AsRef<Path>) -> Result<Vec<PdfFont>> {
-        let fonts = read_fonts(path.as_ref())?;
+        self.match_fonts(read_fonts(path.as_ref())?)
+    }
+
+    /// Looks font names up in the library (shared by the PDF and design-file readers).
+    pub(crate) fn match_fonts(&self, fonts: PdfUses) -> Result<Vec<PdfFont>> {
         let google = self.google_names();
         let db = self.db();
         let mut stmt = db.prepare(

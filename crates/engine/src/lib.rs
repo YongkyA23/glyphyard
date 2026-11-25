@@ -5,6 +5,7 @@
 mod activation;
 mod admin;
 mod backup;
+mod docfonts;
 mod folders;
 mod google;
 mod library;

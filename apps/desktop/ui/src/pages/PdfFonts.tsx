@@ -8,6 +8,7 @@ import { cssStagger, dur, easeOut, rise } from '../motion'
 import { useApp } from '../state'
 import { Badge, basename, errMsg, plural, Spinner, type Tone } from '../ui'
 
+const DOC_TYPES = ['pdf', 'psd', 'ai', 'indd']
 const STATUS: Record<PdfFont['status'], [string, Tone]> = {
   active: ['Active', 'ok'], inactive: ['In library · off', 'accent'], version: ['Different version', 'warn'], missing: ['Not in library', 'bad'],
 }
@@ -40,7 +41,7 @@ export function PdfFonts() {
     }
   }
   const choose = async () => {
-    const p = await api.pickFile([{ name: 'PDF', extensions: ['pdf'] }]).catch((e) => (toast(errMsg(e)), null))
+    const p = await api.pickFile([{ name: 'Documents', extensions: DOC_TYPES }]).catch((e) => (toast(errMsg(e)), null))
     if (p) open(p)
   }
 
@@ -53,9 +54,9 @@ export function PdfFonts() {
       else if (t === 'leave') setDragging(false)
       else if (t === 'drop') {
         setDragging(false)
-        const pdf = e.payload.paths.find((p) => p.toLowerCase().endsWith('.pdf'))
-        if (pdf) open(pdf)
-        else toast('Drop a .pdf file.')
+        const doc = e.payload.paths.find((p) => DOC_TYPES.some((t) => p.toLowerCase().endsWith('.' + t)))
+        if (doc) open(doc)
+        else toast('Drop a .pdf, .psd, .ai or .indd file.')
       }
     })
     return () => void un.then((f) => f())
@@ -77,14 +78,14 @@ export function PdfFonts() {
   return (
     <div className="page" style={{ gap: 20 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <h1 className="h-page">Fonts in a PDF</h1>
-        <span className="muted">Find out which fonts a file uses and switch on the ones you have.</span>
+        <h1 className="h-page">Fonts in a document</h1>
+        <span className="muted">Find out which fonts a PDF, Photoshop, Illustrator or InDesign file uses and switch on the ones you have.</span>
       </div>
       <button type="button" className={dragging ? 'dropzone over' : 'dropzone'} onClick={choose} disabled={busy}>
         <span style={{ fontWeight: 500, fontSize: 15, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          {busy && <Spinner />}{busy ? 'Reading the PDF…' : 'Drop a PDF here, or choose a file'}
+          {busy && <Spinner />}{busy ? 'Reading the file…' : 'Drop a file here, or choose one'}
         </span>
-        <span className="faint" style={{ fontSize: 13 }}>Coming later: .psd, .ai, .indd</span>
+        <span className="faint" style={{ fontSize: 13 }}>PDF, .psd, .ai and .indd files</span>
       </button>
       {error && <p role="alert" style={{ margin: 0, color: 'var(--bad)' }}>{error}</p>}
 
@@ -101,6 +102,7 @@ export function PdfFonts() {
               {pending.length ? `Turn on ${pending.length} available ${pending.length === 1 ? 'font' : 'fonts'}` : 'All available fonts are on'}
             </button>
           </div>
+          {!rows.length && <p className="muted" style={{ margin: 0 }}>This file doesn't list its fonts.</p>}
           <div className="card" style={{ padding: 0, gap: 0 }}>
             {rows.map((r, i) => (
               <div key={r.psName} className="pdf-row enter" style={cssStagger(i)}>
@@ -125,7 +127,7 @@ export function PdfFonts() {
             ))}
           </div>
           <p className="faint" style={{ margin: 0, fontSize: 12, lineHeight: 1.5 }}>
-            Fonts are matched by their internal name. When your library has a different version than the PDF used, both versions are shown so you can pick.
+            Fonts are matched by their internal name. Only PDFs record which version of a font they used, so “Different version” appears for PDFs only.
           </p>
         </motion.section>
       )}

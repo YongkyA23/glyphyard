@@ -609,10 +609,10 @@ const handlers: Record<string, (a: Args) => unknown> = {
     { id: 'archaeologist', name: 'Archaeologist', description: 'Turned on a font nobody had used for a year.', earnedAt: iso(-41 * day) },
     { id: 'quiet', name: 'Quiet', description: 'Turned every font off at once (at least 10).', earnedAt: null },
   ],
-  pdf_fonts: () => {
+  pdf_fonts: ({ path }) => {
     const h = (family: string, style: string) => fam(keyOf(family))?.faces.find((x) => x.style === style)?.hash ?? fam(keyOf(family))?.faces[0].hash ?? null
     const st = (family: string): PdfFont['status'] => (fam(keyOf(family))?.activeState === 'none' ? 'inactive' : 'active')
-    return [
+    const pdf = [
       { psName: 'Fraunces-SemiBold', display: 'Fraunces SemiBold', pages: 12, status: st('Fraunces'), detail: 'Used on 12 pages', hash: h('Fraunces', 'Regular'), google: true },
       { psName: 'SpaceGrotesk-Medium', display: 'Space Grotesk Medium', pages: 14, status: st('Space Grotesk'), detail: 'Used on 14 pages', hash: h('Space Grotesk', 'Medium'), google: true },
       { psName: 'BricolageGrotesque-Regular', display: 'Bricolage Grotesque', pages: 3, status: st('Bricolage Grotesque'), detail: 'Used on 3 pages', hash: h('Bricolage Grotesque', 'Regular'), google: true },
@@ -620,6 +620,10 @@ const handlers: Record<string, (a: Args) => unknown> = {
       { psName: 'Lora-SemiBold', display: 'Lora SemiBold', pages: 1, status: 'missing', detail: 'Used on 1 page', hash: null, google: true },
       { psName: 'BrandonGrotesque-Bold', display: 'Brandon Grotesque Bold', pages: 4, status: 'missing', detail: 'Only a subset is embedded in the PDF', hash: null, google: false },
     ] satisfies PdfFont[]
+    // Only PDFs know page numbers and embedded versions; a design file lists names, and some list none.
+    if (/\.pdf$/i.test(path)) return pdf
+    if (/empty/i.test(path)) return []
+    return pdf.filter((r) => r.status !== 'version').map((r) => ({ ...r, pages: 0, detail: r.status === 'missing' ? 'Not in your library' : r.detail.replace(/^Used on .*/, 'In your library') }))
   },
   google_catalog: ({ search, category, offset = 0, limit = 30 }) => {
     const q = search?.trim().toLowerCase()

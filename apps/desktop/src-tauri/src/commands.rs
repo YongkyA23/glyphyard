@@ -338,7 +338,7 @@ pub async fn repair_now(ctx: St<'_>) -> R<Health> {
 
 #[tauri::command]
 pub async fn pdf_fonts(ctx: St<'_>, path: String) -> R<Vec<PdfFont>> {
-    ctx.run(move |e| e.pdf_fonts(&path)).await
+    ctx.run(move |e| e.document_fonts(&path)).await
 }
 
 #[tauri::command]

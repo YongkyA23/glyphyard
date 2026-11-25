@@ -1254,3 +1254,4 @@ mod formats;
 mod languages;
 mod temporary;
 mod stats;
+mod docfonts;

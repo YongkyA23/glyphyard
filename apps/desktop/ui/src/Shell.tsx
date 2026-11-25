@@ -121,7 +121,7 @@ function Sidebar() {
     ['/sets', 'Project sets', sets.length || null],
     ['/google', 'Google Fonts', null],
     ['/organize', 'Auto-organize', organizeCount || null],
-    ['/pdf', 'Fonts in a PDF', null],
+    ['/pdf', 'Fonts in a document', null],
     ['/stats', 'Stats', null],
     ['/settings', 'Settings', null],
   ]
