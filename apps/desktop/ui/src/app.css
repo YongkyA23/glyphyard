@@ -407,7 +407,7 @@ body.dragging-fonts [data-drop-collection] { box-shadow: inset 0 0 0 1px var(--a
 .font-row.drop-over, .font-card.drop-over { position: relative; background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
 .font-row.drop-over::after, .font-card.drop-over::after {
   content: "Drop to pair in the Playground"; position: absolute; top: 6px; right: 10px; padding: 2px 8px; border-radius: 10px;
-  background: var(--accent); color: #fff; font-size: 12px; font-weight: 500; pointer-events: none;
+  background: var(--accent); color: var(--on-accent); font-size: 12px; font-weight: 500; pointer-events: none;
 }
 
 /* Window-wide file drop (Shell FileDrop). pointer-events: none so the overlay never steals the drag. */

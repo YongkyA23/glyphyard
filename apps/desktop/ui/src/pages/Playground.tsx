@@ -151,7 +151,7 @@ export function Playground() {
       <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap' }}>
         <article className="paper" style={{ background: colors.background, transition: `background-color ${dur.base}s` }}>
           {/* Switching fonts cross-fades the specimen; size changes ease via .spec transitions. */}
-          {compare ? <PlaygroundCompare fa={fa} fb={fb} styleA={quote} styleB={body} size={sizes.h1} color={colors.heading} /> : <AnimatePresence mode="popLayout" initial={false}>
+          {compare ? <PlaygroundCompare fa={fa} fb={fb} styleA={quote} styleB={body} size={sizes.h1} color={colors.heading} bodyColor={colors.body} /> : <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
             key={`${a}|${b}`} style={{ maxWidth: 680, display: 'flex', flexDirection: 'column', gap: 18 }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: dur.slow, ease: easeOut }}
