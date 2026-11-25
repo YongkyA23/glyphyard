@@ -181,8 +181,11 @@ function typeshelfPanel(client, host) {
     state = await client.status();
     // A restarted Typeshelf has forgotten our documents, and one that didn't hear from us for 60 s (sleep, a
     // throttled panel) closed them: resend them all. Seen as losing the connection, or as a connected bridge
-    // that has none of the documents we sent. `tracked` is kept so documents closed meanwhile get their "close".
-    if (state !== "connected" || (client.documentsOnBridge() === 0 && reported.size > 0)) reReport = true;
+    // with fewer documents than we sent (it keys them by name, so count distinct names). A document event in
+    // between re-adds only one, hence "fewer", not "none". `tracked` is kept so closed documents get their "close".
+    const onBridge = client.documentsOnBridge();
+    const sent = new Set([...reported].map((id) => tracked.get(id))).size;
+    if (state !== "connected" || (onBridge !== null && onBridge < sent)) reReport = true;
     statusEl.textContent = LABELS[state];
     pairBtn.style.display = state === "not_paired" ? "" : "none";
     checkBtn.disabled = state !== "connected";
