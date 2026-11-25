@@ -4,11 +4,15 @@ import { api, isApiError, on, type AdobeRow, type Folder, type Health, type Hist
 import { collapse, dur, easeOut, inView, spring } from '../motion'
 import { useApp } from '../state'
 import { VersionGames } from '../extras/Games'
+import { refreshPlayful } from '../extras/effects'
 import { ago, Check, daysUntil, errMsg, fmtDate, fmtWhen, num, plural, Spinner, Switch } from '../ui'
 import { ShortcutField } from '../ShortcutField'
 import { setTheme } from '../theme'
 
-const THEMES: [Settings['theme'], string][] = [['system', 'Match system'], ['light', 'Light'], ['dark', 'Dark']]
+/** Same text as `REVOKED` in src-tauri/src/sync.rs. */
+const REVOKED = 'This computer was removed by your admin. Save the connection again to rejoin.'
+
+const THEMES:[Settings['theme'], string][] = [['system', 'Match system'], ['light', 'Light'], ['dark', 'Dark']]
 
 const APP_TOGGLES: [keyof Settings, string, string][] = [
   ['startAtLogin', 'Start at login', 'Fonts are ready as soon as you sign in to your computer'],
@@ -84,9 +88,9 @@ function NameSection() {
             You can change it again on <strong style={{ fontWeight: 600 }}>{fmtDate(next!)}</strong> (in {plural(daysUntil(next!), 'day')}).
           </span>
         </div>
-      ) : (
+      ) : app.registered ? (
         <div className="note warn">After you save, you won’t be able to change your name again for {app.nameChangeDays} days.</div>
-      )}
+      ) : null}
       {!local && <span className="faint" style={{ fontSize: 12 }}>Your admin can see every name you’ve used.</span>}
     </Section>
   )
@@ -230,7 +234,7 @@ function BackupSection() {
       </div>
       <span className="faint" style={{ fontSize: 12 }}>
         {last && `Last backup: ${fmtDate(last.at)} · ${last.path.split(/[\\/]/).pop()}. `}
-        Moving to a new computer? Restore there, then ask your admin to merge the two installs.
+        Moving to a new computer? Restore there{app.serverConfigured ? ', then ask your admin to merge the two installs' : ''}.
       </span>
     </Section>
   )
@@ -244,17 +248,21 @@ function AppSection() {
     if (!s) return
     const patch = { [k]: !s[k] } as Partial<Settings>
     setS({ ...s, ...patch })
-    api.updateSettings(patch).then(setS, (e) => (toast(errMsg(e)), setS(s)))
+    api.updateSettings(patch).then(
+      (next) => (setS(next), k === 'playful' && refreshPlayful()),
+      // Only this switch goes back: another one may have saved meanwhile.
+      (e) => (toast(errMsg(e)), setS((cur) => cur && { ...cur, [k]: s[k] })),
+    )
   }
   return (
     <motion.section aria-labelledby="s-app" className="settings-card" style={{ gap: 4 }} {...inView}>
       <h2 id="s-app" className="h-section" style={{ marginBottom: 8 }}>App</h2>
-      {APP_TOGGLES.filter(([k]) => k !== 'autoUpdate' || s?.canUpdate).map(([k, label, hint]) => (
+      {APP_TOGGLES.filter(([k]) => k !== 'autoUpdate' || (s?.canUpdate && app.serverConfigured)).map(([k, label, hint]) => (
         <div key={k} className="setting-row">
           <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span>{label}</span><span className="faint" style={{ fontSize: 12 }}>{hint}</span>
             {k === 'autoUpdate' && s?.autoUpdate && s.updateReady && <span style={{ fontSize: 12, color: 'var(--accent-ink)' }}>Version {s.updateReady} will be installed when you quit Typeshelf.</span>}
-            {k === 'autoUpdate' && s?.autoUpdate && s.updateProblem && <span role="alert" style={{ fontSize: 12, color: 'var(--bad)' }}>{s.updateProblem}</span>}
+            {k === 'autoUpdate' && s?.autoUpdate && s.updateProblem && <span role="status" style={{ fontSize: 12, color: 'var(--bad)' }}>{s.updateProblem}</span>}
           </span>
           <Switch on={!!s?.[k]} label={label} onClick={() => flip(k)} disabled={!s} />
         </div>
@@ -269,7 +277,7 @@ function AppSection() {
                 if (!s || s.theme === t) return
                 setS({ ...s, theme: t })
                 setTheme(t)
-                api.updateSettings({ theme: t }).then(setS, (e) => (toast(errMsg(e)), setS(s), setTheme(s.theme)))
+                api.updateSettings({ theme: t }).then(setS, (e) => (toast(errMsg(e)), setS((cur) => cur && { ...cur, theme: s.theme }), setTheme(s.theme)))
               }}
             >
               {label}
@@ -407,6 +415,8 @@ function ConnectionSection() {
   const [showKey, setShowKey] = useState(false)
   const [result, setResult] = useState<{ color: string; label: string; detail: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  // The admin removed this computer: saving the same address and key joins again (the shell's REVOKED text).
+  const removed = c.status === 'error' && c.error === REVOKED
   const dirty = server !== c.serverUrl || key !== c.installKey
   const locked = !c.editable
   const local = !app.serverConfigured
@@ -482,7 +492,7 @@ function ConnectionSection() {
       </AnimatePresence>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         <button type="button" className="btn" onClick={test} disabled={locked || busy}>Test connection</button>
-        <button type="button" className="btn primary" onClick={save} disabled={locked || busy || !dirty}>{local ? 'Connect' : 'Save and reconnect'}</button>
+        <button type="button" className="btn primary" onClick={save} disabled={locked || busy || (!dirty && !removed)}>{local ? 'Connect' : 'Save and reconnect'}</button>
         <button type="button" className="btn link" onClick={reset} disabled={locked || busy}>Use installer defaults</button>
       </div>
       <span className="faint" style={{ fontSize: 12 }}>

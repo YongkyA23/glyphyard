@@ -122,7 +122,7 @@ const families: Fam[] = SEEDS.map((s) => {
       version: `Version ${s.dupe ? '2.000' : '1.000'}`, uniqueId: `${s.dupe ? '2.000' : '1.000'};${s.foundry.slice(0, 4).toUpperCase()};${base}-Regular`,
       format: s.variable ? 'Variable TrueType' : 'OpenType (CFF)', upm: 1000, glyphCount: glyphsOf(keyOf(s.family)).length + 24,
     },
-    faceMetrics: Object.fromEntries(faces.map((f) => [f.hash, { x_height: s.category === 'display' ? 0.7 : 0.5, cap_height: 0.7, ascender: 0.95, descender: -0.25 }])),
+    faceMetrics: Object.fromEntries(faces.map((f) => [f.hash, { x_height: s.category === 'display' ? 0.7 : 0.5, cap_height: 0.7, ascender: 0.95, descender: -0.25, avg_width: 0.5, width_class: 5, category: s.category, panose: Array(10).fill(0), fixed_pitch: s.category === 'mono' }])),
   }
 })
 // Fraunces ships 9 static styles grouped with the variable one; the mockup counts them as "9 styles".
@@ -183,7 +183,7 @@ let connection: Connection = {
 // `?mockName=Ayu` skips onboarding (used for README screenshots with a headless browser).
 const savedName = new URLSearchParams(location.search).get('mockName') ?? sessionStorage.getItem('typeshelf-mock-name') ?? ''
 let app: AppState = {
-  onboarded: !!savedName, serverConfigured: !!connection.serverUrl, name: savedName, nextNameChange: null, nameChangeDays: 30, connection, platform: 'windows', appVersion: '1.0.0',
+  onboarded: !!savedName, serverConfigured: !!connection.serverUrl, registered: !!savedName && !!connection.serverUrl, name: savedName, nextNameChange: null, nameChangeDays: 30, connection, platform: 'windows', appVersion: '1.0.0',
 }
 let settings: Settings = {
   startAtLogin: true, startHidden: true, autoUpdate: true, deactivateOnQuit: false, canUpdate: true, updateReady: '1.1.0', updateProblem: null,
@@ -406,7 +406,7 @@ const handlers: Record<string, (a: Args) => unknown> = {
     if (!name?.trim()) throw err('invalid_name', 'Enter your name to continue.')
     const online = app.serverConfigured && !offline
     if (online && connection.status !== 'connected') throw err('offline', 'Typeshelf can’t reach your server. Check your connection and try again.')
-    app = { ...app, onboarded: true, name: name.trim(), nextNameChange: null }
+    app = { ...app, onboarded: true, registered: online, name: name.trim(), nextNameChange: null }
     sessionStorage.setItem('typeshelf-mock-name', app.name)
     if (online) setTimeout(() => emit('admin-change', { action: 'activated', fonts: [{ family: 'Fraunces', style: 'Regular' }, { family: 'Space Grotesk', style: 'Medium' }, { family: 'Syne', style: 'SemiBold' }] }), 1500)
     return app

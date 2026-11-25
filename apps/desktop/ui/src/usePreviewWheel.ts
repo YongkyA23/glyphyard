@@ -2,17 +2,13 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { api, type Axis } from './api'
 
-// ponytail: refreshed whenever a page with previews opens; a change in Settings shows up on the next page visit.
-let playful = true
-export const playfulOn = () => playful
-export const refreshPlayful = () => api.getSettings().then((s) => void (playful = (s as { playful?: boolean }).playful !== false), () => {})
-
 const axesCache = new Map<string, Axis[] | Promise<void>>()
-/** Axes of a family, loaded once with the call the family page uses. Undefined while loading. */
+/** Axes of a family, loaded once with the call the family page uses. Undefined while loading; none after a failed load. */
 export function familyAxes(key: string): Axis[] | undefined {
   const hit = axesCache.get(key)
   if (Array.isArray(hit)) return hit
-  if (!hit) axesCache.set(key, api.getFamily(key).then((f) => void axesCache.set(key, f.axes), () => void axesCache.delete(key)))
+  // ponytail: a failed load counts as "no axes" until the page reloads, so the breathing loop doesn't ask every frame.
+  if (!hit) axesCache.set(key, api.getFamily(key).then((f) => void axesCache.set(key, f.axes), () => void axesCache.set(key, [])))
   return undefined
 }
 

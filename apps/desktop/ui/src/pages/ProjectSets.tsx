@@ -10,7 +10,7 @@ import { ago, Badge, Dialog, errMsg, LicenseBadge, plural, SelectRing, Skel } fr
 type Draft = { id?: number; name: string; note: string; familyKeys: string[] }
 
 export function ProjectSets() {
-  const { libVersion, activate, toast } = useApp()
+  const { app, libVersion, activate, toast } = useApp()
   const [sets, setSets] = useState<ProjectSet[] | null>(null)
   const [families, setFamilies] = useState<Family[]>([])
   const [sel, setSel] = useState<number | null>(null)
@@ -142,7 +142,7 @@ export function ProjectSets() {
                 )
               })}
             </div>
-            <span className="faint" style={{ fontSize: 12 }}>Turning a set off only turns off fonts that no other active set or admin rule still needs.</span>
+            <span className="faint" style={{ fontSize: 12 }}>Turning a set off only turns off fonts that no other active set{app.serverConfigured ? ' or admin rule' : ''} still needs.</span>
           </section>
         </div>
       )}

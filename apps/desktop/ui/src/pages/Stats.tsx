@@ -11,7 +11,7 @@ import './stats.css'
 type Data = { month: UsageStats; year: UsageStats; badges: Badge[]; faces: Map<string, Family> }
 
 export function Stats() {
-  const { libVersion } = useApp()
+  const { app, libVersion } = useApp()
   const navigate = useNavigate()
   const [data, setData] = useState<Data | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -39,7 +39,9 @@ export function Stats() {
   const header = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <h1 className="h-page">Stats</h1>
-      <span className="muted">How you use your fonts. Counted on this computer only, never sent anywhere.</span>
+      <span className="muted">
+        How you use your fonts. {app.serverConfigured ? 'These statistics are worked out on this computer and are not sent to your server.' : 'Counted on this computer only, never sent anywhere.'}
+      </span>
     </div>
   )
   if (error)

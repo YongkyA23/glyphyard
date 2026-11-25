@@ -36,12 +36,13 @@ export type FamilyDetail = Family & {
   details: FontDetails
   /** Representative face's stored x-height / unitsPerEm; 0 when the font does not say. */
   xHeight: number
-  /** Stored metrics per face hash, lengths per em (0 when the font does not say; ascender/descender are missing in rows stored before they existed). */
+  /** Stored metrics per face hash, lengths per em (0 when the font does not say; ascender/descender are 0 in rows stored before they existed). */
   faceMetrics: Record<string, FaceMetrics>
 }
 export type FaceMetrics = {
   x_height: number; cap_height: number
-  /** Descender is negative (below the baseline). */ ascender?: number; descender?: number
+  /** Descender is negative (below the baseline). */ ascender: number; descender: number
+  avg_width: number; width_class: number; category: FontCategory | null; panose: number[]; fixed_pitch: boolean
 }
 /** Saved variable-axis values (axis tag → value) for one family. */
 export type AxisPreset = { name: string; values: Record<string, number> }
@@ -67,6 +68,8 @@ export type AppState = {
   onboarded: boolean; name: string; nextNameChange: string | null; nameChangeDays: number
   /** False in standalone mode (no server address): hide what needs the server (admin requests, name rule). */
   serverConfigured: boolean
+  /** Holds a server token: the once-every-N-days name rule applies. False after "Continue offline" until the app joins. */
+  registered: boolean
   connection: Connection; platform: 'windows' | 'macos'; appVersion: string
 }
 export type ActivationResult = {

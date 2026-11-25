@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import type { Axis } from './api'
-import { playfulOn, previews, refreshPlayful } from './usePreviewWheel'
+import { playfulOff, refreshPlayful } from './extras/effects'
+import { previews } from './usePreviewWheel'
 
 const IDLE = 180_000
 const PERIOD = 9000
@@ -9,7 +10,7 @@ const INPUTS = ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const
 /** After 3 minutes without input, variable previews on screen slowly move along their weight axis and back. One timer and one frame loop per page. */
 export function useBreathing() {
   useEffect(() => {
-    void refreshPlayful()
+    refreshPlayful()
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)')
     let last = Date.now(), frame = 0, t0 = 0
     const saved = new Map<HTMLElement, string>()
@@ -37,7 +38,7 @@ export function useBreathing() {
     }
     const onInput = () => (last = Date.now(), frame && stop())
     const check = window.setInterval(() => {
-      if (frame || document.hidden || reduce.matches || !playfulOn() || Date.now() - last < IDLE) return
+      if (frame || document.hidden || reduce.matches || playfulOff() || Date.now() - last < IDLE) return
       t0 = performance.now()
       frame = requestAnimationFrame(run)
     }, 5000)
