@@ -46,6 +46,7 @@ type Connection = { status: "connected" | "offline" | "error"; serverUrl: string
   lastSync: string | null; installId: string; error: string | null };
 type AppState = { onboarded: boolean; name: string; nextNameChange: string | null; nameChangeDays: number;
   serverConfigured: boolean; /* false = standalone: no server address, nothing syncs */
+  registered: boolean; /* holds a server token: the name rule applies (false after "Continue offline" until it joins) */
   connection: Connection; platform: "windows" | "macos"; appVersion: string };
 type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in_use" | "invalid_font" | "blocked" | "name_conflict" | "os" | null; message: string | null };
 ```
@@ -94,7 +95,7 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `list_project_sets` / `save_project_set {id?, name, note, familyKeys}` / `delete_project_set {id}` | → `ProjectSet[]` |
 | `toggle_project_set` | `{ id, on }` → `ActivationResult[]` (same unknown-license rejection) |
 | `organize_plan` | `{ tidy }` → `{ changes: OrganizeChange[], scanned: number, scannedAt: string }` |
-| `organize_apply` | `{ tidy, excludeIds: number[] }` → `{ historyId, applied }` |
+| `organize_apply` | `{ tidy, excludeIds: number[] }` → `{ historyId, applied, failed: string[] }` (`failed`: "path: reason" for skipped changes, at most 20) |
 | `list_history` / `undo_history {id}` | → `{ id, kind, summary, at, undone }[]` |
 | `health` / `repair_now` | → `{ lastCheck, active, problems: { hash, message }[], removed: number, reregistered: number }` |
 | `usage_stats` | `{ period: "month"\|"year" }` → `{ period, since, mostUsed: { key, family, days }[], neverUsed: { key, family }[], neverUsedNote: string\|null, totalFonts, addedInPeriod, recordingSince: string\|null }`. Local only, never sent anywhere. `mostUsed`: top 10 by days (UTC) a font of the family was turned on, by the user, a project set or an Adobe document (not the admin). `neverUsed`: families in the user's folders for at least 30 days, not turned on for 12 months (or since `recordingSince`) and not on now; empty with `neverUsedNote` until both the oldest font file and the recording are 30 days old. `totalFonts` / `addedInPeriod`: font files in the user's folders (system fonts not counted) |
@@ -105,8 +106,8 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `google_catalog` | `{ search?, category? }` → `{ family, category, styles, variable, installed }[]` |
 | `google_install` / `google_remove` | `{ family }` → `{ family, installed }` |
 | `backup_create {path}` / `backup_restore {path}` | → `{ path, at }`; a backup holds collections, tags, pins, licenses, project sets and settings |
-| `get_settings` / `update_settings {patch}` | → `{ startAtLogin, startHidden, autoUpdate, deactivateOnQuit, quickShortcut, theme: "system"\|"light"\|"dark", sampleText, sampleTexts: string[], playful }` (`sampleText`: the current text; `sampleTexts`: presets for the sample picker, 5 by default; `playful`: "Playful extras" easter eggs and hidden games, on by default). Read-only extras: `canUpdate` (false when the build has no update key; the "Update automatically" switch is hidden) and `updateReady: string \| null` (a downloaded, verified version that installs when the app quits), `updateProblem: string | null` (plain text when the last check refused the server's release: bad signature, malformed manifest or a file that does not match; cleared by the next good check) |
-| `get_connection` / `test_connection {serverUrl, installKey}` / `save_connection {serverUrl, installKey}` / `reset_connection` | → `Connection` (`test_connection` → `{ ok, error }`) |
+| `get_settings` / `update_settings {patch}` | → `{ startAtLogin, startHidden, autoUpdate, deactivateOnQuit, quickShortcut, theme: "system"\|"light"\|"dark", sampleText, sampleTexts: string[], playful }` (`sampleText`: the current text; `sampleTexts`: presets for the sample picker, 5 by default; `playful`: "Playful extras" easter eggs and hidden games, on by default). Read-only extras: `canUpdate` (false when the build has no update key; the "Update automatically" switch is hidden) and `updateReady: string \| null` (a downloaded, verified version that installs when the app quits), `updateProblem: string \| null` (plain text when the last check refused the server's release: bad signature, malformed manifest or a file that does not match; cleared by the next good check) |
+| `get_connection` / `test_connection {serverUrl, installKey}` / `save_connection {serverUrl, installKey}` / `reset_connection` | → `Connection` (`test_connection` → `{ ok, error }`). Saving an empty address keeps it empty across restarts (the installer defaults are not filled in again until a save with an address or `reset_connection`). When the admin removed this computer, `connection.error` is "This computer was removed by your admin. Save the connection again to rejoin." and saving the same values registers again as a new install |
 | `quick_search` | `{ query }` → `Face[]` (max 20) |
 | `show_in_folder` | `{ path }` → void |
 | `open_url` | `{ url }` → void; http(s) only, opens the default browser (links from font metadata) |
@@ -129,6 +130,6 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `activation-progress` | `{ done, total, active }`: a `set_active` batch bigger than one chunk (64 files) reports after each chunk; the database is free between chunks |
 | `activation-done` | `{ total, failed: string[] }`: turning fonts on returns at once and the OS registration runs in the background; when it ends, fonts that failed are already switched back off and `failed` says why ("Family Style: reason", at most 20) |
 | `badge-earned` | `{ id, name, description, earnedAt }` (UI shows a toast) |
-| `name-changed` | `{ name, nextNameChange }` |
+| `name-changed` | `{ name, nextNameChange }` (also after the sync loop registers, with the name the server stored; an empty name means the server refused it) |
 | `adobe-pair-request` | `{ requestId, app, appVersion }` (UI asks "Allow Photoshop to turn on fonts automatically?") |
 | `adobe-activated` | `{ app, document, activated: string[], missing: string[] }` (UI shows a short notice) |
