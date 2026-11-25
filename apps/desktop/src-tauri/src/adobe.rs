@@ -130,7 +130,7 @@ impl BridgeHandler for Bridge {
                     hashes.extend(faces(e, ps)?.into_iter().filter(|f| f.active && f.source == Some(Source::User)).map(|f| f.hash));
                 }
                 if !hashes.is_empty() {
-                    e.set_active_now(&hashes, false)?;
+                    e.deactivate_unrecorded(&hashes)?;
                 }
                 Ok(())
             })

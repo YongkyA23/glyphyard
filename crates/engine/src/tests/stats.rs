@@ -27,13 +27,13 @@ fn recording_since(fx: &Fixture, t: DateTime<Utc>) {
     fx.engine.db().execute("UPDATE settings SET value = ?1 WHERE key = 'usage_since'", [format!("\"{}\"", at(t))]).unwrap();
 }
 
-fn usage_rows(fx: &Fixture) -> Vec<(bool, String)> {
+pub(super) fn usage_rows(fx: &Fixture) -> Vec<(bool, String)> {
     let db = fx.engine.db();
     let mut stmt = db.prepare("SELECT active, source FROM usage_log ORDER BY id").unwrap();
     stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|r| r.unwrap()).collect()
 }
 
-fn earned(fx: &Fixture, id: &str) -> Option<String> {
+pub(super) fn earned(fx: &Fixture, id: &str) -> Option<String> {
     fx.engine.badges(Utc::now()).unwrap().into_iter().find(|b| b.id == id).unwrap().earned_at
 }
 
@@ -224,7 +224,7 @@ const ELEVEN: [&str; 11] = [
 ];
 
 /// Eleven fonts with different PostScript names, all on; None when the OS lacks some.
-fn eleven_on(fx: &Fixture) -> Option<Vec<String>> {
+pub(super) fn eleven_on(fx: &Fixture) -> Option<Vec<String>> {
     for name in ELEVEN {
         fx.put(name, &system_font(name)?);
     }

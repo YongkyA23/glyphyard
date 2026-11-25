@@ -11,6 +11,8 @@ struct FakeState {
     notifies: Mutex<u32>,
     /// activate() fails for these paths.
     fail: Mutex<HashSet<PathBuf>>,
+    /// deactivate() fails for these paths.
+    fail_off: Mutex<HashSet<PathBuf>>,
     /// Held by a test to keep activate() waiting.
     gate: Mutex<()>,
     /// Held by a test to keep deactivate() and reconcile() waiting (a stalled OS call).
@@ -38,6 +40,9 @@ impl OsFonts for FakeOs {
     }
     fn deactivate(&self, e: &LedgerEntry) -> std::result::Result<(), ActivationError> {
         let _stall = self.0.stall.lock().unwrap();
+        if self.0.fail_off.lock().unwrap().contains(&e.path) {
+            return Err(ActivationError::InvalidFont(e.path.clone()));
+        }
         self.0.registered.lock().unwrap().remove(&e.path);
         Ok(())
     }
@@ -1262,3 +1267,4 @@ mod pairing;
 mod reconcile;
 mod glyph_tools;
 mod select_all;
+mod final_fixes;

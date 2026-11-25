@@ -183,8 +183,8 @@ impl Engine {
         if hashes.is_empty() {
             return Ok(false);
         }
-        // The user opted in for this folder, so no unknown-license prompt here.
-        self.activate_hashes(&db, &hashes, Source::User)?;
+        // The user opted in for this folder, so no unknown-license prompt here. A file arriving is not a day of use.
+        self.activate_hashes_as(&db, &hashes, Source::User, false)?;
         Ok(true)
     }
 }

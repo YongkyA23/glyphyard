@@ -246,7 +246,12 @@ impl Engine {
     /// Turns on `hashes`, at most one file per PostScript name: when the batch has several, the newest
     /// version wins; a single pick (the user chose it) replaces whatever version is active.
     pub(crate) fn activate_hashes(&self, conn: &Connection, hashes: &[String], source: Source) -> Result<Vec<ActivationResult>> {
-        let (results, changed) = self.activate_batch(conn, hashes, source)?;
+        self.activate_hashes_as(conn, hashes, source, true)
+    }
+
+    /// [`Engine::activate_hashes`]; `record_use: false` keeps it out of usage statistics (auto-activation).
+    pub(crate) fn activate_hashes_as(&self, conn: &Connection, hashes: &[String], source: Source, record_use: bool) -> Result<Vec<ActivationResult>> {
+        let (results, changed) = self.activate_batch(conn, hashes, source, record_use)?;
         if changed {
             self.os.notify_font_change();
         }
@@ -254,7 +259,7 @@ impl Engine {
     }
 
     /// [`Engine::activate_hashes`] without the OS broadcast; also says whether the OS font list changed.
-    fn activate_batch(&self, conn: &Connection, hashes: &[String], source: Source) -> Result<(Vec<ActivationResult>, bool)> {
+    fn activate_batch(&self, conn: &Connection, hashes: &[String], source: Source, record_use: bool) -> Result<(Vec<ActivationResult>, bool)> {
         crate::temporary::forget(conn, hashes)?;
         let mut results = Vec::new();
         let mut by_ps: BTreeMap<String, Vec<FontFile>> = BTreeMap::new();
@@ -305,7 +310,9 @@ impl Engine {
                 "INSERT INTO activations (hash, path, full_name, source, activated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![f.hash, path.to_string_lossy(), f.full_name, source_str(source), store::now()],
             )?;
-            crate::stats::record(conn, &f.hash, true, source);
+            if record_use {
+                crate::stats::record(conn, &f.hash, true, source);
+            }
             if matches!(source, Source::User | Source::ProjectSet) {
                 recent.insert(f.family_key.as_str());
             }
@@ -376,7 +383,11 @@ impl Engine {
             }
             conn.execute("DELETE FROM activations WHERE hash = ?1", [&row.hash])?;
             crate::temporary::forget(conn, std::slice::from_ref(&row.hash))?;
-            crate::stats::record(conn, &row.hash, false, source);
+            // Only a project set turned off is the user's choice here; `User` callers are quit, folder
+            // removal, deletion and version swaps (the user's own turn-off goes through `deactivate_unlocked`).
+            if source == Source::ProjectSet {
+                crate::stats::record(conn, &row.hash, false, source);
+            }
             let was_admin = row.source == Source::Admin && source != Source::Admin;
             self.emit(Event::FontDeactivated { font: font_ref(conn, &row.hash), source, was_admin });
             results.push(ok(&row.hash, None));
@@ -568,7 +579,13 @@ impl Engine {
         self.set_active_now_as(hashes, active, true)
     }
 
-    /// `set_active_now`; `record_use: false` for turn-offs the user did not ask for (a temporary font expiring),
+    /// Turns fonts off for something other than the user (an Adobe document closed): usage statistics and
+    /// badges do not count it.
+    pub fn deactivate_unrecorded(&self, hashes: &[String]) -> Result<Vec<ActivationResult>> {
+        self.set_active_now_as(hashes, false, false)
+    }
+
+    /// `set_active_now`; `record_use: false` for changes the user did not ask for (a temporary font expiring),
     /// which usage statistics and badges must not count.
     pub(crate) fn set_active_now_as(&self, hashes: &[String], active: bool, record_use: bool) -> Result<Vec<ActivationResult>> {
         const CHUNK: usize = 64;
@@ -581,7 +598,7 @@ impl Engine {
         let mut changed = false;
         for chunk in chunks {
             let (r, did) = if active {
-                self.activate_batch(&self.db(), &chunk, Source::User)?
+                self.activate_batch(&self.db(), &chunk, Source::User, record_use)?
             } else {
                 self.deactivate_unlocked(&chunk, Source::User, record_use)?
             };

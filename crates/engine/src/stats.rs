@@ -1,6 +1,8 @@
-//! Usage statistics and badges, kept on this computer only. Every font the user (or an Adobe document,
-//! which comes in as the user) turns on or off is written to `usage_log` by the activation code, in the
-//! same savepoint as its ledger row; admin-pushed changes are not the user's use and are not recorded.
+//! Usage statistics and badges, kept on this computer only. Every font the user turns on or off is written to
+//! `usage_log` by the activation code, in the same savepoint as its ledger row. An Adobe document turning a
+//! font on counts (it comes in as the user: the font is used); turn-offs the user did not ask for (quit,
+//! folder removed, Adobe document closed, a file gone, a temporary font expiring) and auto-activation of
+//! arriving files do not. Admin-pushed changes are not the user's use and are not recorded.
 //! Rows older than `KEEP_DAYS` are deleted at every check, so the log stays bounded.
 // ponytail: a queued (background) registration that fails afterwards keeps its "on" row, so it still counts
 // as a day of use; remove the row in `register_queued`'s error branch if that ever matters.
