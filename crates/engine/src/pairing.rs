@@ -21,6 +21,9 @@ pub(crate) fn x_height(conn: &Connection, hash: &str, idx: i64) -> rusqlite::Res
     Ok(serde_json::from_str::<Metrics>(&json).unwrap_or_default().x_height)
 }
 
+const MAX_NAME: usize = 80;
+const MAX_PRESETS: usize = 50;
+
 fn presets_key(family_key: &str) -> String {
     format!("axis_presets:{family_key}")
 }
@@ -52,12 +55,19 @@ impl Engine {
         if name.is_empty() {
             return Err(EngineError::new("invalid", "name is empty"));
         }
+        if name.chars().count() > MAX_NAME {
+            return Err(EngineError::new("invalid", format!("name is longer than {MAX_NAME} characters")));
+        }
+        if values.values().any(|v| !v.is_finite()) {
+            return Err(EngineError::new("invalid", "axis values must be numbers"));
+        }
         let db = self.db();
         let key = presets_key(family_key);
         let mut list: Vec<AxisPreset> = store::get(&db, &key)?.unwrap_or_default();
         let preset = AxisPreset { name: name.into(), values: values.clone() };
-        match list.iter_mut().find(|p| p.name == name) {
-            Some(p) => *p = preset,
+        match list.iter().position(|p| p.name == name) {
+            Some(i) => list[i] = preset,
+            None if list.len() >= MAX_PRESETS => return Err(EngineError::new("invalid", format!("a family can have at most {MAX_PRESETS} presets"))),
             None => list.push(preset),
         }
         store::set(&db, &key, &list)?;

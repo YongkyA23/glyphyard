@@ -62,3 +62,36 @@ fn axis_presets_save_list_replace_delete() {
     assert_eq!(list.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["Light"]);
     assert_eq!(fx.engine.axis_presets("fam").unwrap(), list);
 }
+
+#[test]
+fn axis_presets_reject_bad_input() {
+    let fx = fixture!();
+    let ok = BTreeMap::from([("wght".to_string(), 400.0)]);
+    let code = |r: Result<Vec<AxisPreset>>| r.unwrap_err().code;
+    assert_eq!(code(fx.engine.save_axis_preset("fam", "Inf", &BTreeMap::from([("wght".to_string(), f32::INFINITY)]))), "invalid");
+    assert_eq!(code(fx.engine.save_axis_preset("fam", "NaN", &BTreeMap::from([("wght".to_string(), f32::NAN)]))), "invalid");
+    assert_eq!(code(fx.engine.save_axis_preset("fam", &"x".repeat(81), &ok)), "invalid");
+    fx.engine.save_axis_preset("fam", &"x".repeat(80), &ok).unwrap();
+    for i in 1..50 {
+        fx.engine.save_axis_preset("fam", &format!("p{i}"), &ok).unwrap();
+    }
+    assert_eq!(code(fx.engine.save_axis_preset("fam", "one too many", &ok)), "invalid");
+    // Replacing an existing one still works at the cap.
+    assert_eq!(fx.engine.save_axis_preset("fam", "p1", &ok).unwrap().len(), 50);
+}
+
+#[test]
+fn axis_presets_follow_a_family_rename() {
+    let fx = fixture!();
+    if !put_mixed(&fx) {
+        return;
+    }
+    let arial = fx.family("Arial");
+    let vals = BTreeMap::from([("wght".to_string(), 700.0)]);
+    fx.engine.save_axis_preset(&arial.key, "Bold", &vals).unwrap();
+    fx.engine.set_family_name(&fx.hashes("Arial"), Some("Brand Sans")).unwrap();
+    let renamed = fx.family("Brand Sans");
+    assert_ne!(renamed.key, arial.key);
+    assert_eq!(fx.engine.axis_presets(&renamed.key).unwrap()[0].name, "Bold");
+    assert!(fx.engine.axis_presets(&arial.key).unwrap().is_empty());
+}

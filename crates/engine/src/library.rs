@@ -828,6 +828,7 @@ impl Engine {
                     for table in ["collection_items", "family_tags", "licenses", "project_set_items", "pins", "usage_log"] {
                         tx.execute(&format!("UPDATE OR IGNORE {table} SET family_key = ?2 WHERE family_key = ?1"), params![old, new])?;
                     }
+                    tx.execute("UPDATE OR IGNORE settings SET key = ?2 WHERE key = ?1", params![format!("axis_presets:{old}"), format!("axis_presets:{new}")])?;
                 }
             }
             tx.commit()?;

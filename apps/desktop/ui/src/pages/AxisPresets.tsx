@@ -35,7 +35,7 @@ export function AxisPresets({ s, set }: { s: AxisState | null; set: (s: AxisStat
       <button type="button" className="btn small" style={{ alignSelf: 'flex-start' }} onClick={() => setNaming(true)}>Save axes as preset…</button>
       <PromptDialog
         open={naming} title="Save axis preset" label="Preset name" confirm="Save" onClose={() => setNaming(false)}
-        onSubmit={(name) => (setNaming(false), run(api.saveAxisPreset(key, name, s.v), `Preset “${name}” saved`))}
+        onSubmit={(name) => (setNaming(false), run(api.saveAxisPreset(key, name, s.v), `Preset “${name.trim()}” saved`))}
       />
     </div>
   )
