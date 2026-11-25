@@ -48,7 +48,8 @@ pub struct UsageStats {
     pub since: String,
     /// Top 10, most days first.
     pub most_used: Vec<FamilyUse>,
-    /// Families not turned on in the last 12 months and not on now; empty while `never_used_note` says why.
+    /// Families not turned on in the last 12 months (or since `recording_since`, if later), not on now and in
+    /// the library for 30 days; empty while `never_used_note` says why.
     pub never_used: Vec<UnusedFamily>,
     pub never_used_note: Option<String>,
     /// Font files in the user's folders (system fonts not counted).
@@ -213,23 +214,31 @@ impl Engine {
             .query_map([&since, &until], |r| Ok(FamilyUse { key: r.get(0)?, days: r.get(1)?, family: r.get(2)? }))?
             .collect::<rusqlite::Result<_>>()?;
 
-        // The library's age is the arrival of its oldest font file in the user's folders.
+        // The library's age is the arrival of its oldest font file in the user's folders. Both it and the
+        // recording must be 30 days old, and a family only counts once its own first file is.
         let oldest: Option<String> = db.query_row(&format!("SELECT MIN(added) FROM ({USER_FILES})"), [], |r| r.get(0))?;
+        let recording_since: Option<String> = store::get(&db, "usage_since")?;
+        let month_ago = ts(now - Duration::days(30));
         let (never_used, never_used_note) = match oldest {
-            Some(o) if o <= ts(now - Duration::days(30)) => {
+            None => (Vec::new(), Some("Add a folder of fonts first.".into())),
+            Some(o) if o > month_ago => {
+                (Vec::new(), Some("Your library is less than 30 days old, so it is too early to tell which fonts go unused.".into()))
+            }
+            _ if recording_since.as_ref().is_none_or(|s| *s > month_ago) => {
+                (Vec::new(), Some("Typeshelf started counting less than 30 days ago, so it is too early to tell which fonts go unused.".into()))
+            }
+            _ => {
                 let mut stmt = db.prepare(&format!(
                     "SELECT fa.family_key, MIN(fa.family) FROM ({USER_FILES}) uf JOIN faces fa ON fa.hash = uf.hash
                      WHERE NOT EXISTS (SELECT 1 FROM usage_log u WHERE u.family_key = fa.family_key AND u.active = 1 AND u.at >= ?1)
                        AND NOT EXISTS (SELECT 1 FROM activations a JOIN faces g ON g.hash = a.hash WHERE g.family_key = fa.family_key)
-                     GROUP BY fa.family_key ORDER BY MIN(fa.family)"
+                     GROUP BY fa.family_key HAVING MIN(uf.added) <= ?2 ORDER BY MIN(fa.family)"
                 ))?;
                 let rows = stmt
-                    .query_map([ts(now - Duration::days(365))], |r| Ok(UnusedFamily { key: r.get(0)?, family: r.get(1)? }))?
+                    .query_map([ts(now - Duration::days(365)), month_ago], |r| Ok(UnusedFamily { key: r.get(0)?, family: r.get(1)? }))?
                     .collect::<rusqlite::Result<_>>()?;
                 (rows, None)
             }
-            Some(_) => (Vec::new(), Some("Your library is less than 30 days old, so it is too early to tell which fonts go unused.".into())),
-            None => (Vec::new(), Some("Add a folder of fonts first.".into())),
         };
 
         let total_fonts = library_fonts(&db)?;
@@ -242,7 +251,7 @@ impl Engine {
             never_used_note,
             total_fonts,
             added_in_period,
-            recording_since: store::get(&db, "usage_since")?,
+            recording_since,
         })
     }
 }

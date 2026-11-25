@@ -811,7 +811,7 @@ impl Engine {
             for (old, new) in moves.into_iter().filter(|(o, n)| o != n) {
                 let left: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM faces WHERE family_key = ?1)", [&old], |r| r.get(0))?;
                 if !left {
-                    for table in ["collection_items", "family_tags", "licenses", "project_set_items", "pins"] {
+                    for table in ["collection_items", "family_tags", "licenses", "project_set_items", "pins", "usage_log"] {
                         tx.execute(&format!("UPDATE OR IGNORE {table} SET family_key = ?2 WHERE family_key = ?1"), params![old, new])?;
                     }
                 }

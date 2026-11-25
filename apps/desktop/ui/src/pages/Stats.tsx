@@ -18,6 +18,7 @@ export function Stats() {
   const [period, setPeriod] = useState<'month' | 'year'>('month')
 
   const [december] = useState(() => new Date().getMonth() === 11)
+  const [yearAgo] = useState(() => Date.now() - 365 * 86_400_000)
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
@@ -102,7 +103,12 @@ export function Stats() {
             <p className="muted stats-empty">{data.year.neverUsedNote}</p>
           ) : unused.length ? (
             <>
-              <span className="muted">{plural(unused.length, 'family', 'families')} not turned on in the last 12 months.</span>
+              <span className="muted">
+                {plural(unused.length, 'family', 'families')} not turned on{' '}
+                {data.year.recordingSince && new Date(data.year.recordingSince).getTime() > yearAgo
+                  ? `since ${fmtDate(data.year.recordingSince)}, when Typeshelf started counting.`
+                  : 'in the last 12 months.'}
+              </span>
               <p className="stats-names">
                 {unused.slice(0, 24).map((f) => f.family).join(', ')}
                 {unused.length > 24 && ` and ${num(unused.length - 24)} more`}

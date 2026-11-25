@@ -22,6 +22,11 @@ fn added(fx: &Fixture, t: DateTime<Utc>) {
     fx.engine.db().execute("UPDATE files SET added_at = ?1", [at(t)]).unwrap();
 }
 
+/// Pretends recording started at `t`.
+fn recording_since(fx: &Fixture, t: DateTime<Utc>) {
+    fx.engine.db().execute("UPDATE settings SET value = ?1 WHERE key = 'usage_since'", [format!("\"{}\"", at(t))]).unwrap();
+}
+
 fn usage_rows(fx: &Fixture) -> Vec<(bool, String)> {
     let db = fx.engine.db();
     let mut stmt = db.prepare("SELECT active, source FROM usage_log ORDER BY id").unwrap();
@@ -90,6 +95,7 @@ fn never_used_needs_a_library_older_than_30_days() {
     assert_eq!(young.added_in_period, 2);
 
     added(&fx, now - Duration::days(400));
+    recording_since(&fx, now - Duration::days(400));
     log(&fx, &arial, true, now - Duration::days(10));
     log(&fx, &times, true, now - Duration::days(380)); // more than 12 months ago: still never used
     let old = fx.engine.usage_stats(UsagePeriod::Year, now).unwrap();
@@ -102,6 +108,45 @@ fn never_used_needs_a_library_older_than_30_days() {
     fx.engine.db().execute("DELETE FROM usage_log", []).unwrap();
     let on = fx.engine.usage_stats(UsagePeriod::Year, now).unwrap();
     assert_eq!(on.never_used.iter().map(|f| f.key.as_str()).collect::<Vec<_>>(), vec![arial.as_str()]);
+}
+
+#[test]
+fn never_used_skips_families_added_in_the_last_30_days() {
+    let fx = fixture!();
+    let Some((arial, _times)) = two_families(&fx) else { return };
+    let now = Utc::now();
+    added(&fx, now - Duration::days(400));
+    recording_since(&fx, now - Duration::days(400));
+    let times = fx.hashes("Times New Roman");
+    fx.engine.db().execute("UPDATE files SET added_at = ?1 WHERE hash = ?2", rusqlite::params![at(now - Duration::days(5)), times[0]]).unwrap();
+    let stats = fx.engine.usage_stats(UsagePeriod::Year, now).unwrap();
+    assert_eq!(stats.never_used.iter().map(|f| f.key.as_str()).collect::<Vec<_>>(), vec![arial.as_str()], "Times arrived last week");
+}
+
+#[test]
+fn never_used_waits_for_30_days_of_recording() {
+    let fx = fixture!();
+    let Some(_) = two_families(&fx) else { return };
+    let now = Utc::now();
+    added(&fx, now - Duration::days(400));
+    // Recording started today (a library upgraded to this version): nothing is known yet.
+    let stats = fx.engine.usage_stats(UsagePeriod::Year, now).unwrap();
+    assert!(stats.never_used.is_empty());
+    assert!(stats.never_used_note.is_some());
+    recording_since(&fx, now - Duration::days(31));
+    assert_eq!(fx.engine.usage_stats(UsagePeriod::Year, now).unwrap().never_used.len(), 2);
+}
+
+#[test]
+fn renaming_a_family_keeps_its_usage() {
+    let fx = fixture!();
+    fx.put("arial.ttf", &system_font("arial.ttf").unwrap());
+    fx.engine.add_folder(&fx.root).unwrap();
+    let now = Utc::now();
+    log(&fx, &fx.family("Arial").key, true, now);
+    fx.engine.set_family_name(&fx.hashes("Arial"), Some("Renamed")).unwrap();
+    let stats = fx.engine.usage_stats(UsagePeriod::Year, now).unwrap();
+    assert_eq!(stats.most_used.iter().map(|f| f.family.as_str()).collect::<Vec<_>>(), vec!["Renamed"]);
 }
 
 #[test]
@@ -149,7 +194,7 @@ fn archaeologist_needs_a_font_unused_for_a_year() {
     let Some((arial, times)) = two_families(&fx) else { return };
     let now = Utc::now();
     added(&fx, now - Duration::days(800));
-    fx.engine.db().execute("UPDATE settings SET value = ?1 WHERE key = 'usage_since'", [format!("\"{}\"", at(now - Duration::days(700)))]).unwrap();
+    recording_since(&fx, now - Duration::days(700));
     log(&fx, &arial, true, now - Duration::days(400));
     log(&fx, &times, true, now - Duration::days(100));
     // That history was checked when it happened.

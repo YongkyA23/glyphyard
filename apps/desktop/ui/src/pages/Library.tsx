@@ -9,6 +9,7 @@ import { familyStyle } from '../fonts'
 import { useAddFonts, useFamilyDrag, useFontActions } from '../fontActions'
 import { clockMark, turnsOff } from '../temporary'
 import { useContextMenu, type MenuItem } from '../menu'
+import { PreselectBar } from '../PreselectBar'
 import { collapse, dur, easeOut, rise, spring, STAGGER_CAP, staggerDelay } from '../motion'
 import { useApp } from '../state'
 import {
@@ -235,9 +236,10 @@ export function Library() {
   const system = params.get('system') === '1'
   const tag = params.get('tag')
   // navigate('/', { state: { select: keys } }) shows just those families, all selected (Stats › Never used).
+  // `location.key` tells one hand-off from the next.
   const location = useLocation()
-  const pick = (location.state as { select?: string[] } | null)?.select ?? null
-  const scopeKey = [search.trim(), chars.trim(), lang, filter, sort, sort === 'random' ? seed : '', category, path, collectionId, license, tag, system, pick ? location.key : ''].join('|')
+  const preselect = (location.state as { select?: string[] } | null)?.select ?? null
+  const scopeKey = [search.trim(), chars.trim(), lang, filter, sort, sort === 'random' ? seed : '', category, path, collectionId, license, tag, system, preselect ? location.key : ''].join('|')
 
   const actions = useFontActions((clear) => {
     if (clear) setSel(new Map())
@@ -272,7 +274,7 @@ export function Library() {
     anchor.current = null
   }, [scopeKey])
   useEffect(() => {
-    if (pick) api.listFamilies({ keys: pick }).then((fs) => setSel(new Map(fs.map((f) => [f.key, f]))), () => {})
+    if (preselect) api.listFamilies({ keys: preselect }).then((fs) => setSel(new Map(fs.map((f) => [f.key, f]))), () => {})
   }, [location.key]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => void (anchor.current = null), [page])
   useEffect(() => {
@@ -293,7 +295,7 @@ export function Library() {
     if (collectionId) args.collectionId = Number(collectionId)
     if (license) args.license = license
     if (tag) args.tag = tag
-    if (pick) args.keys = pick
+    if (preselect) args.keys = preselect
     if (category) args.category = category
     if (sort === 'random') args.seed = seed
     const t = setTimeout(() => api.familyPage(args, (page - 1) * PAGE, PAGE).then(setData, () => setData({ items: [], total: 0 })), search || chars ? 150 : 0)
@@ -520,6 +522,7 @@ export function Library() {
         )}
       </div>
       {node && <FolderBar node={node} onDone={() => setReload((n) => n + 1)} />}
+      {preselect && <PreselectBar count={preselect.length} />}
 
       <AnimatePresence initial={false}>
       {adminChange && (
