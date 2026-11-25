@@ -24,7 +24,10 @@ export type LibraryFile = {
   hash: string; filename: string; ps_name: string; family: string; style: string; version: string
   license: License; size: number; delivered_to: 'all' | 'none' | string[]; active_on: number; blocked: boolean; uploaded_at: string
 }
-export type OrganizeChange = { case: string; action: { op: string; [k: string]: unknown }; note: string }
+export type BulkAction = 'deliver' | 'block' | 'unblock' | 'delete'
+/** Selected files by hash, or every file the library search `q` matches. */
+export type BulkSelection = { hashes: string[] } | { q: string }
+export type OrganizeChange ={ case: string; action: { op: string; [k: string]: unknown }; note: string }
 export type Settings = {
   name_change_days: number; allow_connection_edit: boolean; deliver_library_to_new: boolean
   activate_delivered: boolean; notify_admin_changes: boolean; timeline_retention_days: number | null
@@ -116,6 +119,7 @@ export const api = {
   merge: (primary: string, secondary: string, keep_name: 'primary' | 'secondary') =>
     request<InstallDetail>('POST', '/installs/merge', { primary, secondary, keep_name }),
   split: (retiredId: string) => request<void>('POST', `/installs/${id(retiredId)}/split`),
+  removeInstall: (installId: string) => request<void>('DELETE', `/installs/${id(installId)}`),
   nameChanges: (q = '', since = '', page = 1) => request<Page<NameChangeRow>>('GET', '/name-changes' + qs({ q, since, ...paging(page) })),
   nameChangesCsvUrl: (q = '', since = '') => BASE + '/name-changes.csv' + qs({ q, since }),
   library: (q = '', page = 1, size = PAGE_SIZE) => request<Page<LibraryFile>>('GET', '/library' + qs({ q, ...paging(page, size) })),
@@ -128,6 +132,9 @@ export const api = {
   block: (hash: string, blocked: boolean) => request<LibraryFile>('POST', `/library/${id(hash)}/block`, { blocked }),
   deliver: (hash: string, target: 'all' | string[], activate: boolean) =>
     request<LibraryFile>('POST', `/library/${id(hash)}/deliver`, { target, activate }),
+  deleteFile: (hash: string) => request<void>('DELETE', `/library/${id(hash)}`),
+  bulk: (action: BulkAction, selection: BulkSelection, target?: 'all' | string[], activate?: boolean) =>
+    request<{ changed: number; skipped: number }>('POST', '/library/bulk', { action, ...selection, target, activate }),
   organizePlan: () => request<{ changes: OrganizeChange[] }>('GET', '/library/organize'),
   applyOrganize: () => request<{ applied: number }>('POST', '/library/organize/apply'),
   fontRequests: (state: RequestState = 'open', page = 1) => request<Page<FontRequest>>('GET', '/requests' + qs({ state, ...paging(page) })),

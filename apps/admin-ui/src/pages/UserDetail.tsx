@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import { api, errorText, type FontState, type InstallDetail, type TimelineEvent, type TimelineFilter } from '../api'
 import { dropIn, fadeRise, row } from '../motion'
 import {
-  ago, Badge, byLabel, byTone, Chips, downloadCsv, Empty, ErrorBox, fmtDate, fmtShort, firstName, Loaded, PageHeader, Pager, Skel, Spin, Swap, Toggle,
-  useDebounced, useLoad, usePage,
+  ago, Badge, byLabel, byTone, Chips, downloadCsv, Empty, ErrorBox, fmtDate, fmtShort, firstName, Loaded, PageHeader, Pager, plural, Skel, Spin, Swap, Toggle,
+  useConfirm, useDebounced, useLoad, usePage,
 } from '../ui'
 
 const eventsSkeleton = (
@@ -89,6 +89,7 @@ function Detail({ u, reload }: { u: InstallDetail; reload: () => void }) {
             </button>
             <Link className="btn" to={`/users?select=${encodeURIComponent(u.id)}`}>Merge with another install</Link>
             <ExportCsv u={u} />
+            <RemoveComputer u={u} />
           </div>
         }>
           <span className="pills">
@@ -288,6 +289,29 @@ function Merged({ ids, reload }: { ids: string[]; reload: () => void }) {
       {error && <span role="alert" className="form-error">{error}</span>}
     </motion.section>
   )
+}
+
+function RemoveComputer({ u }: { u: InstallDetail }) {
+  const navigate = useNavigate()
+  const [confirmDialog, confirm] = useConfirm()
+  const [busy, setBusy] = useState(false)
+  const run = async () => {
+    const merged = u.merged_from.length ? ` and the ${plural(u.merged_from.length, 'computer')} merged into it` : ''
+    const text = `Remove ${u.name}’s computer${merged}? It is disconnected at once and disappears from your lists. Its name history stays in the export. If Typeshelf is set up on it again, it shows up as a new user.`
+    if (!(await confirm(text, 'Remove', true))) return
+    setBusy(true)
+    try {
+      await api.removeInstall(u.id)
+      navigate('/users')
+    } catch (e) {
+      alert(errorText(e))
+      setBusy(false)
+    }
+  }
+  return <>
+    <button type="button" className="btn btn-danger" disabled={busy} onClick={run}>{busy && <Spin />}{busy ? 'Removing…' : 'Remove this computer'}</button>
+    {confirmDialog}
+  </>
 }
 
 function ExportCsv({ u }: { u: InstallDetail }) {

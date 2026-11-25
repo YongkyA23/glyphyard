@@ -1,14 +1,18 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { api, errorText, type LibraryFile, type License, type Page } from '../api'
+import { api, errorText, type BulkAction, type LibraryFile, type License, type Page } from '../api'
 import { base, fadeRise, fast, row, spring } from '../motion'
 import {
   Badge, Dialog, Empty, ErrorBox, Loaded, PageHeader, Pager, plural, Skel, Spin, Swap, Table, TableSkeleton, useConfirm, useDebounced, useLoad, usePage,
 } from '../ui'
 
 const HEAD = ['Family', 'License', 'Delivered to', 'Active on', 'Status', <span className="sr-only">Actions</span>]
+const SKELETON_HEAD = [<span key="sel" className="sr-only">Select</span>, ...HEAD]
 type Upload = { name: string; state: 'busy' | 'done' | 'error' }
+/** Picked files for this search: hashes on any page, or `all` = every result of the search. */
+type Selection = { query: string; hashes: string[]; all: boolean }
+const DONE: Record<BulkAction, string> = { deliver: 'Delivered', block: 'Blocked', unblock: 'Unblocked', delete: 'Deleted' }
 
 const LICENSES: [License, string][] = [['licensed', 'Licensed'], ['personal', 'Personal use'], ['client', 'Client-provided'], ['unknown', 'Unknown']]
 const ACCEPT = '.otf,.ttf,.ttc,.otc,.woff,.woff2'
@@ -27,8 +31,60 @@ export function Library() {
   const [uploading, setUploading] = useState(false)
   const [uploads, setUploads] = useState<Upload[]>([])
   const [confirmDialog, confirm] = useConfirm()
-  const [delivering, setDelivering] = useState<LibraryFile>()
+  const [delivering, setDelivering] = useState<LibraryFile | 'selected'>()
   const fileInput = useRef<HTMLInputElement>(null)
+  // A new search starts with nothing selected.
+  const [sel, setSel] = useState<Selection>({ query, hashes: [], all: false })
+  const selection = sel.query === query ? sel : { query, hashes: [], all: false }
+  const total = state.data?.total ?? 0
+  const selectedCount = selection.all ? total : selection.hashes.length
+  const isSelected = (hash: string) => selection.all || selection.hashes.includes(hash)
+  const clearSelection = () => setSel({ query, hashes: [], all: false })
+  const toggle = (hash: string) => setSel({
+    query, all: false,
+    // Unticking one row while "all results" is on keeps the rest of this page.
+    hashes: selection.all ? (state.data?.items ?? []).map((f) => f.hash).filter((h) => h !== hash)
+      : selection.hashes.includes(hash) ? selection.hashes.filter((h) => h !== hash) : [...selection.hashes, hash],
+  })
+  const togglePage = (shown: LibraryFile[]) => {
+    const page = shown.map((f) => f.hash)
+    const allOn = page.every(isSelected)
+    setSel({ query, all: false, hashes: allOn ? (selection.all ? [] : selection.hashes.filter((h) => !page.includes(h))) : [...new Set([...selection.hashes, ...page])] })
+  }
+
+  const bulk = async (action: BulkAction, target?: 'all' | string[], activate?: boolean) => {
+    setError('')
+    setNotice('')
+    try {
+      const r = await api.bulk(action, selection.all ? { q: query } : { hashes: selection.hashes }, target, activate)
+      setNotice(`${DONE[action]} ${plural(r.changed, 'file')}.` + (r.skipped ? ` Skipped ${r.skipped} that ${r.skipped === 1 ? 'was' : 'were'} already done, blocked or gone.` : ''))
+      clearSelection()
+      await state.reload(true)
+    } catch (e) {
+      setError(errorText(e))
+    }
+  }
+  const bulkAsk = async (action: 'block' | 'delete') => {
+    const n = plural(selectedCount, 'file')
+    const text = action === 'block'
+      ? `Block ${n}? They will be turned off on every computer.`
+      : `Delete ${n} from the library? The files move to the server’s quarantine folder. Computers that already have them keep their copies.`
+    if (await confirm(text, action === 'block' ? 'Block' : 'Delete', true)) await bulk(action)
+  }
+  const remove = async (f: LibraryFile) => {
+    const text = `Delete ${f.family} ${f.style} from the library? The file moves to the server’s quarantine folder. Computers that already have it keep their copy.`
+    if (!(await confirm(text, 'Delete', true))) return
+    setError('')
+    setNotice('')
+    try {
+      await api.deleteFile(f.hash)
+      setNotice(`Deleted ${f.family} ${f.style}.`)
+      setSel({ ...selection, hashes: selection.hashes.filter((h) => h !== f.hash) })
+      await state.reload(true)
+    } catch (e) {
+      setError(errorText(e))
+    }
+  }
 
   const replace = (f: LibraryFile) => state.setData((p) => ({ ...p, items: p.items.map((r) => (r.hash === f.hash ? f : r)) }))
   const run = async (fn: () => Promise<LibraryFile>) => {
@@ -102,11 +158,35 @@ export function Library() {
       </AnimatePresence>
       {notice && <span role="status" className="notice">{notice}</span>}
       {error && <ErrorBox message={error} />}
-      <Loaded state={state} skeleton={<TableSkeleton head={HEAD} minWidth={980} rows={3} />}>{({ items: shown, total }) => (
+      {selectedCount > 0 && (
+        <div className="toolbar" role="group" aria-label="Selected files">
+          <span className="meta">
+            {selection.all ? `All ${plural(total, 'result')} selected` : `${plural(selectedCount, 'file')} selected`}
+          </span>
+          {!selection.all && state.data && total > state.data.items.length && state.data.items.every((f) => isSelected(f.hash)) && (
+            <button type="button" className="link-btn small" onClick={() => setSel({ query, hashes: [], all: true })}>Select all {total} results</button>
+          )}
+          <button type="button" className="link-btn small" onClick={clearSelection}>Clear selection</button>
+          <span className="row-6">
+            <button type="button" className="btn btn-xs" onClick={() => setDelivering('selected')}>Deliver…</button>
+            <button type="button" className="btn btn-xs" onClick={() => void bulkAsk('block')}>Block</button>
+            <button type="button" className="btn btn-xs" onClick={() => void bulk('unblock')}>Unblock</button>
+            <button type="button" className="btn btn-xs btn-danger" onClick={() => void bulkAsk('delete')}>Delete</button>
+          </span>
+        </div>
+      )}
+      <Loaded state={state} skeleton={<TableSkeleton head={SKELETON_HEAD} minWidth={1020} rows={3} />}>{({ items: shown, total }) => (
           <>
-            <Table caption="Font files in the shared library" minWidth={980} head={HEAD}>
+            <Table caption="Font files in the shared library" minWidth={1020} head={[
+              <input key="sel" type="checkbox" className="check" aria-label="Select every file on this page"
+                checked={shown.length > 0 && shown.every((f) => isSelected(f.hash))} onChange={() => togglePage(shown)} />,
+              ...HEAD,
+            ]}>
               {shown.map((f, i) => (
                 <motion.tr key={f.hash} {...row(i, shown.length)}>
+                  <td>
+                    <input type="checkbox" className="check" aria-label={`Select ${f.family} ${f.style}`} checked={isSelected(f.hash)} onChange={() => toggle(f.hash)} />
+                  </td>
                   <td>
                     <span className="stack-2">
                       <span className={f.blocked ? 'lib-name lib-blocked' : 'lib-name'}>{f.family}</span>
@@ -136,6 +216,7 @@ export function Library() {
                       <button type="button" className={f.blocked ? 'btn btn-xs' : 'btn btn-xs btn-danger'} onClick={() => void block(f)}>
                         <Swap>{f.blocked ? 'Unblock' : 'Block'}</Swap>
                       </button>
+                      <button type="button" className="btn btn-xs btn-danger" aria-label={`Delete ${f.family} ${f.style}`} onClick={() => void remove(f)}>Delete</button>
                     </span>
                   </td>
                 </motion.tr>
@@ -156,8 +237,15 @@ export function Library() {
         </div>
       </motion.div>
       <AnimatePresence>
-        {delivering && <DeliverDialog key={delivering.hash} file={delivering} onClose={() => setDelivering(undefined)}
-          onDone={(f) => { replace(f); setDelivering(undefined) }} />}
+        {delivering === 'selected' && (
+          <DeliverDialog key="selected" title={`Deliver ${plural(selectedCount, 'file')}`} current="none" onClose={() => setDelivering(undefined)}
+            onSubmit={async (target, activate) => { setDelivering(undefined); await bulk('deliver', target, activate) }} />
+        )}
+        {delivering && delivering !== 'selected' && (
+          <DeliverDialog key={delivering.hash} title={`Deliver ${delivering.family} ${delivering.style}`} current={delivering.delivered_to}
+            onClose={() => setDelivering(undefined)}
+            onSubmit={async (target, activate) => { replace(await api.deliver(delivering.hash, target, activate)); setDelivering(undefined) }} />
+        )}
       </AnimatePresence>
       {confirmDialog}
     </div>
@@ -166,9 +254,12 @@ export function Library() {
 
 const pickSkeleton = <div className="stack-10" style={{ padding: '8px 0' }}>{[60, 45, 70].map((w) => <Skel key={w} w={`${w}%`} />)}</div>
 
-function DeliverDialog({ file, onClose, onDone }: { file: LibraryFile; onClose: () => void; onDone: (f: LibraryFile) => void }) {
-  const [mode, setMode] = useState<'all' | 'pick'>(Array.isArray(file.delivered_to) ? 'pick' : 'all')
-  const [picked, setPicked] = useState<string[]>(Array.isArray(file.delivered_to) ? file.delivered_to : [])
+/** Sets who gets the file(s): the ticked users replace the current recipients. */
+function DeliverDialog({ title, current, onClose, onSubmit }: {
+  title: string; current: LibraryFile['delivered_to']; onClose: () => void; onSubmit: (target: 'all' | string[], activate: boolean) => Promise<void>
+}) {
+  const [mode, setMode] = useState<'all' | 'pick'>(Array.isArray(current) ? 'pick' : 'all')
+  const [picked, setPicked] = useState<string[]>(Array.isArray(current) ? current : [])
   const [activate, setActivate] = useState(false)
   const [q, setQ] = useState('')
   const [error, setError] = useState('')
@@ -179,11 +270,10 @@ function DeliverDialog({ file, onClose, onDone }: { file: LibraryFile; onClose: 
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (mode === 'pick' && picked.length === 0) return setError('Pick at least one user.')
     setBusy(true)
     setError('')
     try {
-      onDone(await api.deliver(file.hash, mode === 'all' ? 'all' : picked, activate))
+      await onSubmit(mode === 'all' ? 'all' : picked, activate)
     } catch (err) {
       setError(errorText(err))
       setBusy(false)
@@ -193,7 +283,7 @@ function DeliverDialog({ file, onClose, onDone }: { file: LibraryFile; onClose: 
   return (
     <Dialog labelledBy="dlg-title" onClose={onClose}>
       <form className="stack-12" onSubmit={submit} noValidate>
-        <h2 id="dlg-title" className="h2">Deliver {file.family} {file.style}</h2>
+        <h2 id="dlg-title" className="h2">{title}</h2>
         <fieldset className="fieldset-plain stack-6">
           <legend className="sr-only">Who gets it</legend>
           <label className="radio"><input type="radio" name="target" checked={mode === 'all'} onChange={() => setMode('all')} /><span>Everyone, including new installs</span></label>
@@ -217,7 +307,7 @@ function DeliverDialog({ file, onClose, onDone }: { file: LibraryFile; onClose: 
               }}</Loaded>
             </div>
             {installs.data && <Pager label="User pages" page={page} total={installs.data.total} onPage={setPage} />}
-            <span className="meta">{plural(picked.length, 'user')} selected</span>
+            <span className="meta">{picked.length ? `${plural(picked.length, 'user')} selected` : 'Nobody selected: it stays in the library but goes to no one.'}</span>
           </motion.div>
         )}
         </AnimatePresence>
@@ -225,6 +315,7 @@ function DeliverDialog({ file, onClose, onDone }: { file: LibraryFile; onClose: 
           <input type="checkbox" className="check" checked={activate} onChange={(e) => setActivate(e.target.checked)} />
           <span>Also turn it on for them</span>
         </label>
+        <span className="small mute lh">These users replace the current list. People you leave out stop getting it, including on new installs, but computers that already have the file keep it.</span>
         {error && <span role="alert" className="form-error">{error}</span>}
         <div className="row-8 end">
           <button type="button" className="btn" onClick={onClose}>Cancel</button>

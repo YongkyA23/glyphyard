@@ -81,6 +81,22 @@ function paged<T>(list: T[], sp: URLSearchParams, text: (x: T) => string = () =>
 function route(method: string, p: string, sp: URLSearchParams, body: unknown): unknown {
   const m = (re: RegExp) => p.match(re)
   if (p === '/me') return { email: 'admin@example.test', role: 'owner' }
+  if (method === 'DELETE') {
+    const list: { id?: string; hash?: string }[] = p.startsWith('/installs/') ? installs : library
+    const i = list.findIndex((x) => (x.id ?? x.hash) === decodeURIComponent(p.split('/')[2]))
+    if (i >= 0) list.splice(i, 1)
+    return undefined
+  }
+  if (p === '/library/bulk') {
+    const b = body as { action: string; hashes?: string[]; q?: string; target?: LibraryFile['delivered_to'] }
+    const hit = library.filter((f) => b.hashes ? b.hashes.includes(f.hash) : `${f.family} ${f.style} ${f.ps_name} ${f.filename}`.toLowerCase().includes((b.q ?? '').toLowerCase()))
+    for (const f of hit) {
+      if (b.action === 'delete') library.splice(library.indexOf(f), 1)
+      else if (b.action === 'deliver') f.delivered_to = b.target ?? 'none'
+      else f.blocked = b.action === 'block'
+    }
+    return { changed: hit.length, skipped: 0 }
+  }
   if (p === '/overview') return livePoll()
   if (p === '/installs' && method === 'GET') return paged(installs, sp, (i) => [i.id, i.name, ...i.previous_names].join(' '))
   if (m(/^\/installs\/[^/]+\/fonts$/) && method === 'GET') return paged(fonts, sp, (f) => `${f.family} ${f.style} ${f.ps_name}`)
