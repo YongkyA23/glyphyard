@@ -1,0 +1,64 @@
+/* Easter eggs and hidden games (Task 10). Colours come from the tokens so both themes work. */
+
+/* Interface font swaps (effects.ts): only the chrome changes. Previews set their own font-family inline, so they keep theirs. */
+:root[data-egg-font="comic"] { --font-ui: "Comic Sans MS", "Comic Sans", "Chalkboard SE", "Comic Neue", cursive; --font-mono: var(--font-ui); }
+:root[data-egg-font="papyrus"] { --font-ui: Papyrus, fantasy; --font-mono: var(--font-ui); }
+:root[data-egg-font="wingdings"] { --font-ui: Wingdings, "Zapf Dingbats", Webdings, fantasy; --font-mono: var(--font-ui); }
+:root[data-egg-font] .egg-logo { font-family: var(--font-ui); }
+
+/* Sidebar mark (Roulette.tsx). */
+.egg-logo {
+  align-self: flex-start; margin: -4px 0 -6px; padding: 0 10px; border: 0; border-radius: var(--radius); background: none; color: var(--ink);
+  font-family: "Instrument Serif", serif; font-size: 30px; line-height: 1; letter-spacing: -.5px; cursor: default; user-select: none;
+}
+.egg-logo .g { font-style: italic; color: var(--accent); }
+.egg-logo + .side-group { gap: 2px; }
+
+/* Text-like buttons (the version number and the games in Settings). */
+.egg-plain { border: 0; padding: 0; background: none; font: inherit; color: inherit; cursor: text; }
+.egg-plain.egg-link { color: var(--accent-ink); text-decoration: underline; cursor: pointer; }
+.egg-games .dialog { font-size: 14px; }
+
+/* Frying a tofu (Extras.tsx). */
+.egg-fry { position: fixed; z-index: 30; pointer-events: none; overflow: visible; animation: egg-fade-late 1.8s linear forwards; }
+.egg-fry-pan { fill: var(--bg); }
+.egg-fry-white, .egg-fry-yolk { transform-box: fill-box; transform-origin: center; }
+.egg-fry-white { fill: var(--paper); stroke: var(--line-strong); stroke-width: 1; animation: egg-pop .35s var(--ease-spring) both, egg-sizzle .12s linear .35s 6 alternate; }
+.egg-fry-yolk { fill: var(--amber); animation: egg-pop .35s var(--ease-spring) .12s both; }
+@keyframes egg-pop { from { transform: scale(0); } }
+@keyframes egg-sizzle { to { transform: scale(1.06) rotate(4deg); } }
+@keyframes egg-fade-late { 0%, 80% { opacity: 1; } to { opacity: 0; } }
+
+/* The fox (LibraryEggs.tsx). */
+.egg-fox { position: fixed; left: 0; bottom: 6px; z-index: 30; pointer-events: none; animation: egg-fox-run 3.2s linear forwards; }
+@keyframes egg-fox-run { from { transform: translateX(-80px); } to { transform: translateX(calc(100vw + 16px)); } }
+.egg-fox-body, .egg-fox-tail { fill: var(--amber); }
+.egg-fox-tip { fill: var(--paper); }
+.egg-fox-eye { fill: var(--ink); }
+.egg-fox-legs path { fill: none; stroke: var(--ink-2); stroke-width: 2.4; stroke-linecap: round; transform-box: fill-box; transform-origin: top; animation: egg-fox-legs .22s ease-in-out infinite alternate; }
+.egg-fox-legs path:last-child { animation-delay: -.11s; }
+@keyframes egg-fox-legs { from { transform: skewX(18deg); } to { transform: skewX(-18deg); } }
+
+/* Font roulette. */
+.egg-reels { display: flex; justify-content: center; gap: 10px; }
+.egg-reel {
+  width: 96px; height: 96px; display: grid; place-items: center; font-size: 52px; line-height: 1; color: var(--mute);
+  border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--panel); overflow: hidden;
+}
+.egg-reel.stopped { color: var(--ink); border-color: var(--accent-line); background: var(--accent-soft); animation: egg-reel-stop .3s var(--ease-spring); }
+@keyframes egg-reel-stop { from { transform: translateY(-8px); } }
+.dialog-body .egg-result { text-align: center; font-size: 30px; line-height: 1.2; color: var(--ink); overflow-wrap: anywhere; }
+
+/* Name that font. */
+.dialog-body .egg-word { margin: 8px 0; font-size: 56px; line-height: 1.15; text-align: center; color: var(--ink); overflow-wrap: anywhere; }
+.egg-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+.egg-choices .btn { justify-content: center; white-space: normal; }
+.egg-choices .btn.right { border-color: var(--ok); background: var(--ok-soft); color: var(--ok); }
+.egg-choices .btn.wrong { border-color: var(--bad); background: var(--bad-soft); color: var(--bad); }
+
+/* Kern it. */
+.egg-kern { position: relative; max-width: 100%; margin: 4px auto; border-bottom: 1px dashed var(--dash); touch-action: none; }
+.egg-kern-letter { position: absolute; top: 0; line-height: 1.3; color: var(--ink); cursor: grab; user-select: none; touch-action: none; border-radius: 4px; }
+.egg-kern-letter:active { cursor: grabbing; background: var(--accent-soft); }
+.egg-kern-ref { position: absolute; left: 0; top: 0; visibility: hidden; display: flex; flex-direction: column; gap: 4px; }
+.egg-kern-ref.shown { position: static; visibility: visible; align-items: center; color: var(--ink-2); }

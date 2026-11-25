@@ -6,6 +6,7 @@ import {
   type LanguageCount, type LibraryCounts, type License, type ListFamiliesArgs,
 } from '../api'
 import { familyStyle } from '../fonts'
+import { LibraryEggs } from '../extras/LibraryEggs'
 import { useAddFonts, useFamilyDrag, useFontActions } from '../fontActions'
 import { clockMark, turnsOff } from '../temporary'
 import { useContextMenu, type MenuItem } from '../menu'
@@ -591,6 +592,7 @@ export function Library() {
       {addMenu.menu}
       {drag.ghost}
       {actions.dialogs}
+      <LibraryEggs search={search} sample={sample} />
 
       <div className="statusbar">
         {counts && <span>{num(counts.active)} active</span>}

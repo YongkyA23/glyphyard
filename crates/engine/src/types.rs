@@ -504,6 +504,8 @@ pub struct AppSettings {
     pub sample_text: String,
     /// Presets for the sample picker.
     pub sample_texts: Vec<String>,
+    /// "Playful extras": easter eggs and hidden games.
+    pub playful: bool,
 }
 
 impl Default for AppSettings {
@@ -525,6 +527,7 @@ impl Default for AppSettings {
             ]
             .map(String::from)
             .to_vec(),
+            playful: true,
         }
     }
 }

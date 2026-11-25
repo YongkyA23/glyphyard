@@ -187,6 +187,7 @@ let settings: Settings = {
     'Sphinx of black quartz, judge my vow', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz', '0123456789 !?&@#%(){}[]', 'Hamburgefonstiv',
     'Typography is the craft of endowing human language with a durable visual form.',
   ],
+  playful: true,
 }
 let history: HistoryEntry[] = [
   { id: 2, kind: 'organize', summary: 'Auto-organize · 89 changes applied', at: '2026-10-21T14:05:00', undone: false },

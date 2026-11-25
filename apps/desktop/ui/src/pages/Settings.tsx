@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { api, isApiError, on, type AdobeRow, type Folder, type Health, type HistoryEntry, type Settings } from '../api'
 import { collapse, dur, easeOut, inView, spring } from '../motion'
 import { useApp } from '../state'
+import { VersionGames } from '../extras/Games'
 import { ago, Check, daysUntil, errMsg, fmtDate, fmtWhen, num, plural, Spinner, Switch } from '../ui'
 import { ShortcutField } from '../ShortcutField'
 import { setTheme } from '../theme'
@@ -14,6 +15,7 @@ const APP_TOGGLES: [keyof Settings, string, string][] = [
   ['startHidden', 'Start in the tray', 'Open quietly without showing the window'],
   ['autoUpdate', 'Update automatically', 'Install new versions when you restart the app'],
   ['deactivateOnQuit', 'Turn off all fonts when quitting', 'Leaves no fonts active after Typeshelf closes'],
+  ['playful', 'Playful extras', 'Easter eggs and hidden games. They never change your fonts'],
 ]
 
 function Section({ id, title, children, tinted, action }: { id: string; title: string; children: ReactNode; tinted?: boolean; action?: ReactNode }) {
@@ -480,7 +482,7 @@ function ConnectionSection() {
         <button type="button" className="btn link" onClick={reset} disabled={locked || busy}>Use installer defaults</button>
       </div>
       <span className="faint" style={{ fontSize: 12 }}>
-        Install ID <span className="mono">{c.installId}</span> · Typeshelf {app.appVersion} · {app.platform === 'macos' ? 'macOS' : 'Windows'}.{local ? '' : ' Your admin can lock these two fields.'}
+        Install ID <span className="mono">{c.installId}</span> · <VersionGames version={app.appVersion} /> · {app.platform === 'macos' ? 'macOS' : 'Windows'}.{local ? '' : ' Your admin can lock these two fields.'}
       </span>
     </Section>
   )

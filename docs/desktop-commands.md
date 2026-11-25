@@ -94,7 +94,7 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `google_catalog` | `{ search?, category? }` → `{ family, category, styles, variable, installed }[]` |
 | `google_install` / `google_remove` | `{ family }` → `{ family, installed }` |
 | `backup_create {path}` / `backup_restore {path}` | → `{ path, at }`; a backup holds collections, tags, pins, licenses, project sets and settings |
-| `get_settings` / `update_settings {patch}` | → `{ startAtLogin, startHidden, autoUpdate, deactivateOnQuit, quickShortcut, theme: "system"\|"light"\|"dark", sampleText, sampleTexts: string[] }` (`sampleText`: the current text; `sampleTexts`: presets for the sample picker, 5 by default) |
+| `get_settings` / `update_settings {patch}` | → `{ startAtLogin, startHidden, autoUpdate, deactivateOnQuit, quickShortcut, theme: "system"\|"light"\|"dark", sampleText, sampleTexts: string[], playful }` (`sampleText`: the current text; `sampleTexts`: presets for the sample picker, 5 by default; `playful`: "Playful extras" easter eggs and hidden games, on by default) |
 | `get_connection` / `test_connection {serverUrl, installKey}` / `save_connection {serverUrl, installKey}` / `reset_connection` | → `Connection` (`test_connection` → `{ ok, error }`) |
 | `quick_search` | `{ query }` → `Face[]` (max 20) |
 | `show_in_folder` | `{ path }` → void |

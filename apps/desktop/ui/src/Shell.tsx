@@ -10,6 +10,8 @@ import { useAddFonts } from './fontActions'
 import { useContextMenu, type MenuItem } from './menu'
 import { dur, easeOut, pop, route, spring } from './motion'
 import { useApp } from './state'
+import { Extras } from './extras/Extras'
+import { Logo } from './extras/Roulette'
 import { ago, basename, collectionTree, Dialog, errMsg, initials, keysBusy, LICENSE_LABEL, Num, plural, PromptDialog, Spinner } from './ui'
 
 /** The highlight behind the current sidebar entry; glides between entries via the shared layoutId. */
@@ -296,6 +298,7 @@ function Sidebar() {
   const hiddenCount = countHidden(tree)
   return (
     <nav aria-label="Main" className="sidebar">
+      <Logo />
       <div className="side-group">
         {nav.map(([to, label, count]) => (
           <Link key={to} to={to} className="side-nav" aria-current={current(to) ? 'page' : undefined}>
@@ -499,6 +502,7 @@ export function Shell() {
         </AnimatePresence>
       </main>
       <FileDrop />
+      <Extras />
     </div>
   )
 }

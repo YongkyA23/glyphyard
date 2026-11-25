@@ -105,6 +105,7 @@ export type Settings = {
   startAtLogin: boolean; startHidden: boolean; autoUpdate: boolean; deactivateOnQuit: boolean
   quickShortcut: string; theme: 'system' | 'light' | 'dark'; sampleText: string
   /** Presets for the sample text picker. */ sampleTexts: string[]
+  /** "Playful extras": easter eggs and hidden games. */ playful: boolean
 }
 export type AdobeApp = 'photoshop' | 'illustrator' | 'indesign'
 export type AdobeRow = { app: AdobeApp; label: string; versions: string[]; installed: boolean; paired: boolean }
