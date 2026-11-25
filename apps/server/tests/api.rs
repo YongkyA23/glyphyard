@@ -473,23 +473,43 @@ async fn merged_group_fails_a_missing_font_only_when_no_computer_has_it() {
     let new = s.register("new", "Budi S.").await;
     s.desktop(Method::POST, "/me/events", &old, Some(event(json!({ "kind": "font_activated", "font": font("h1"), "source": "user" })))).await;
     s.admin(Method::POST, "/installs/merge", Some(json!({ "primary": "old", "secondary": "new", "keep_name": "primary" }))).await;
-    let activate = || s.admin(Method::POST, "/installs/old/fonts", Some(json!({ "hash": "h1", "active": true })));
+    // Both computers have the command (fetching it delivers it).
+    let activate = || async {
+        assert_eq!(s.admin(Method::POST, "/installs/old/fonts", Some(json!({ "hash": "h1", "active": true }))).await.status, StatusCode::OK);
+        s.commands(&old).await;
+        s.commands(&new).await;
+    };
 
     // Fail then succeed, and succeed then fail: the font is on where it exists, so no failure.
-    assert_eq!(activate().await.status, StatusCode::OK);
+    activate().await;
     s.ack_one(&new, Some(NOT_HERE)).await;
     s.ack_one(&old, None).await;
-    assert_eq!(activate().await.status, StatusCode::OK);
+    activate().await;
     s.ack_one(&old, None).await;
     s.ack_one(&new, Some(NOT_HERE)).await;
     assert_eq!(s.failures("old").await, (0, false));
 
     // Nobody has it: one failure for the group, once the last computer answers.
-    assert_eq!(activate().await.status, StatusCode::OK);
+    activate().await;
     s.ack_one(&new, Some(NOT_HERE)).await;
     assert_eq!(s.failures("old").await, (0, false), "the other computer may still have it");
     s.ack_one(&old, Some(NOT_HERE)).await;
     assert_eq!(s.failures("old").await, (1, true));
+}
+
+#[tokio::test]
+async fn merged_group_fails_at_once_when_the_other_computer_never_got_the_command() {
+    let s = Server::new().await;
+    let old = s.register("old", "Budi").await;
+    s.register("new", "Budi S.").await;
+    s.desktop(Method::POST, "/me/events", &old, Some(event(json!({ "kind": "font_activated", "font": font("h1"), "source": "user" })))).await;
+    s.admin(Method::POST, "/installs/merge", Some(json!({ "primary": "old", "secondary": "new", "keep_name": "primary" }))).await;
+    s.admin(Method::POST, "/installs/old/fonts", Some(json!({ "hash": "h1", "active": true }))).await;
+    // "new" is a dead install: it never connects, so its copy is never delivered.
+    s.ack_one(&old, Some(NOT_HERE)).await;
+    assert_eq!(s.failures("old").await, (1, true));
+    let text = &s.admin(Method::GET, "/installs/old/timeline?kind=failures", None).await.json()["items"][0]["text"];
+    assert_eq!(text, &json!(format!("Admin command “activate” failed: {NOT_HERE}")));
 }
 
 #[tokio::test]

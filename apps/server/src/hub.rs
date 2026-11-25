@@ -103,9 +103,18 @@ pub fn mark_delivered(c: &Connection, id: i64) -> rusqlite::Result<()> {
 
 /// Records an ack; a failed command shows up as a failure on the timeline. `false` = no such command.
 /// The first ack of a command stands; a repeat (a socket ack retried over REST) changes nothing.
-/// "Font not on this computer" from one copy of a fan-out is a failure only once every copy is acked and none
-/// succeeded: another computer of the same person may have the font.
+/// "Font not on this computer" from one copy of a fan-out waits while another copy succeeded or was delivered
+/// and is not acked yet: another computer of the same person may have the font. A copy never delivered (that
+/// computer offline, gone or split away) does not hold it back, so a computer that succeeds later leaves the
+/// failure on the timeline. The update and its event are one transaction (callers hold none).
 pub fn ack(c: &Connection, install_id: &str, id: i64, ok: bool, error: Option<&str>) -> rusqlite::Result<bool> {
+    let tx = c.unchecked_transaction()?;
+    let found = record_ack(&tx, install_id, id, ok, error)?;
+    tx.commit()?;
+    Ok(found)
+}
+
+fn record_ack(c: &Connection, install_id: &str, id: i64, ok: bool, error: Option<&str>) -> rusqlite::Result<bool> {
     let now = db::now();
     let n = c.execute(
         "UPDATE commands SET acked_at = ?1, ok = ?2, error = ?3 WHERE id = ?4 AND install_id = ?5 AND acked_at IS NULL",
@@ -121,12 +130,18 @@ pub fn ack(c: &Connection, install_id: &str, id: i64, ok: bool, error: Option<&s
     let (kind, error) = (kind.replace('_', " "), error.unwrap_or("unknown error"));
     let mut text = format!("Admin command “{kind}” failed: {error}");
     if let (Some(fanout), true) = (fanout, font_not_here(error)) {
-        let open_or_ok: bool =
-            c.query_row("SELECT EXISTS(SELECT 1 FROM commands WHERE fanout = ?1 AND (acked_at IS NULL OR ok))", [fanout], |r| r.get(0))?;
+        let (open_or_ok, unacked): (bool, bool) = c.query_row(
+            "SELECT EXISTS(SELECT 1 FROM commands WHERE fanout = ?1 AND (ok OR (acked_at IS NULL AND delivered_at IS NOT NULL))),
+                    EXISTS(SELECT 1 FROM commands WHERE fanout = ?1 AND acked_at IS NULL)",
+            [fanout],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
         if open_or_ok {
             return Ok(true);
         }
-        text = format!("Admin command “{kind}” failed on every computer: {error}");
+        if !unacked {
+            text = format!("Admin command “{kind}” failed on every computer: {error}");
+        }
     }
     db::insert_event(c, install_id, "failure", "system", &text, "{}", &now)?;
     Ok(true)
