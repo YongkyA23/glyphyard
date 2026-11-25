@@ -3,7 +3,11 @@ import { AnimatePresence, motion } from 'motion/react'
 import { api, isApiError, on, type AdobeRow, type Folder, type Health, type HistoryEntry, type Settings } from '../api'
 import { collapse, dur, easeOut, inView, spring } from '../motion'
 import { useApp } from '../state'
-import { ago, Check, daysUntil, errMsg, fmtDate, fmtWhen, formatShortcut, num, plural, Spinner, Switch } from '../ui'
+import { ago, Check, daysUntil, errMsg, fmtDate, fmtWhen, num, plural, Spinner, Switch } from '../ui'
+import { ShortcutField } from '../ShortcutField'
+import { setTheme } from '../theme'
+
+const THEMES: [Settings['theme'], string][] = [['system', 'Match system'], ['light', 'Light'], ['dark', 'Dark']]
 
 const APP_TOGGLES: [keyof Settings, string, string][] = [
   ['startAtLogin', 'Start at login', 'Fonts are ready as soon as you sign in to your computer'],
@@ -245,9 +249,30 @@ function AppSection() {
           <Switch on={!!s?.[k]} label={label} onClick={() => flip(k)} disabled={!s} />
         </div>
       ))}
-      <div className="setting-row" style={{ borderBottom: 0 }}>
+      <div className="setting-row" style={{ flexWrap: 'wrap', padding: '8px 0' }}>
+        <span id="theme-label">Appearance</span>
+        <div className="chips" role="group" aria-labelledby="theme-label">
+          {THEMES.map(([t, label]) => (
+            <button
+              key={t} type="button" className="chip" aria-pressed={s?.theme === t} disabled={!s}
+              onClick={() => {
+                if (!s || s.theme === t) return
+                setS({ ...s, theme: t })
+                setTheme(t)
+                api.updateSettings({ theme: t }).then(setS, (e) => (toast(errMsg(e)), setS(s), setTheme(s.theme)))
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="setting-row" style={{ borderBottom: 0, flexWrap: 'wrap', padding: '8px 0' }}>
         <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}><span>Quick activate shortcut</span><span className="faint" style={{ fontSize: 12 }}>Opens a small search box from anywhere</span></span>
-        <kbd className="kbd">{formatShortcut(s?.quickShortcut ?? 'CmdOrCtrl+Alt+Space', app.platform)}</kbd>
+        <ShortcutField
+          value={s?.quickShortcut ?? 'CmdOrCtrl+Alt+Space'} platform={app.platform}
+          onSave={async (quickShortcut) => setS(await api.updateSettings({ quickShortcut }))}
+        />
       </div>
     </motion.section>
   )

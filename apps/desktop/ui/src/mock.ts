@@ -180,7 +180,7 @@ let app: AppState = {
 }
 let settings: Settings = {
   startAtLogin: true, startHidden: true, autoUpdate: true, deactivateOnQuit: false,
-  quickShortcut: 'CmdOrCtrl+Alt+Space', theme: 'light', sampleText: 'Sphinx of black quartz, judge my vow',
+  quickShortcut: 'CmdOrCtrl+Alt+Space', theme: (localStorage.getItem('typeshelf.theme') as Settings['theme'] | null) ?? 'system', sampleText: 'Sphinx of black quartz, judge my vow',
   sampleTexts: [
     'Sphinx of black quartz, judge my vow', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz', '0123456789 !?&@#%(){}[]', 'Hamburgefonstiv',
     'Typography is the craft of endowing human language with a durable visual form.',

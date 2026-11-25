@@ -35,6 +35,65 @@
   --radius-card: 12px;
   --font-ui: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "Geist Mono", ui-monospace, Consolas, monospace;
+
+  /* Text and marks on --ink / --accent fills (buttons, toasts, chips), shadows, overlays. */
+  --on-ink-rgb: 255 255 255;
+  --on-ink: rgb(var(--on-ink-rgb));
+  --on-accent: var(--on-ink);
+  --shadow-rgb: 28 25 23;
+  --knob: #fff;
+  --toast-link: #a9b8f7;
+  --toast-x: #d6d3d1;
+  --bad-hover: #93190f;
+  --accent-wash: rgb(37 71 208 / .08);
+  --shimmer: rgb(255 255 255 / .7);
+}
+
+/* Dark palette. Only the desktop UI sets data-theme (theme.ts resolves "system"), so the admin UI stays light.
+   :root[...] outranks the desktop's own :root block in app.css, which it also overrides here. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1c1917;
+  --bg-page: #171412;
+  --panel: #23201d;
+  --line: #3a3532;
+  --line-soft: #2c2825;
+  --line-strong: #57534e;
+  --ink: #f5f5f4;
+  --ink-2: #d6d3d1;
+  --mute: #b4aea8;
+  --faint: #9c958f;
+  --disabled: #7d7670;
+
+  --accent: #8199f5;
+  --accent-hover: #a3b4f8;
+  --accent-ink: #aebcf8;
+  --accent-soft: #263159;
+  --accent-soft-2: #1f2744;
+  --accent-line: #3d4f94;
+
+  --ok: #74d69a;     --ok-soft: #15301f;    --ok-dot: #22c55e;
+  --warn: #f2b867;   --warn-soft: #36280f;  --warn-ink: #f7d49c;
+  --bad: #ff8f84;    --bad-soft: #3d1b18;
+  --violet: #c7adfb; --violet-soft: #2a2140;
+
+  --on-ink-rgb: 28 25 23;
+  --shadow-rgb: 0 0 0;
+  --toast-link: #1e3bb0;
+  --toast-x: #57534e;
+  --bad-hover: #ffb3ab;
+  --accent-wash: rgb(129 153 245 / .12);
+  --shimmer: rgb(255 255 255 / .06);
+
+  /* app.css extras */
+  --neutral-soft: #2a2623;
+  --amber: #f59e0b;
+  --violet-dot: #a78bfa;
+  --banner-ink: #bcc6ee;
+  --dash: #57534e;
+  --offline-line: #6b4f1d;
+  --offline-bg: #2a2010;
+  --ok-line: #2d5a3c;
 }
 
 * { box-sizing: border-box; }

@@ -5,6 +5,7 @@ import { Link, useParams } from 'react-router'
 import { api, type Family } from '../api'
 import { familyStyle } from '../fonts'
 import { cssStagger } from '../motion'
+import { paintTheme } from '../theme'
 import { CATEGORY_LABEL, errMsg, fmtDate, plural, Skel } from '../ui'
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789 &?!'
@@ -22,6 +23,11 @@ export function PrintCollection() {
   const [fams, setFams] = useState<Family[] | null>(null)
   const [sample, setSample] = useState('Sphinx of black quartz, judge my vow')
   const [error, setError] = useState<string | null>(null)
+  // A specimen is on paper: light while this page is open, the chosen theme again after.
+  useEffect(() => {
+    paintTheme()
+    return paintTheme
+  }, [])
 
   useEffect(() => {
     Promise.all([api.listCollections(), api.listFamilies({ collectionId: Number(id), sort: 'name', includeHidden: true }), api.getSettings()]).then(
