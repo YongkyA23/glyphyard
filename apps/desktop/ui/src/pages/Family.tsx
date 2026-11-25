@@ -53,6 +53,23 @@ function FaceRow({ face, i, sample, size, axes, onSize, onToggle }: { face: Face
   )
 }
 
+/** The size ladder. Ctrl+wheel scales all rows together (0.5x to 2x), Shift+wheel moves a variable font's weight. */
+function Waterfall({ style, axes, variable }: { style: CSSProperties; axes: Axis[]; variable: boolean }) {
+  const [scale, setScale] = useState(1)
+  const onSize = useCallback((d: number) => setScale((k) => Math.min(2, Math.max(0.5, k + d * 0.025))), [])
+  const [ref, wheelStyle] = usePreviewWheel({ axes, variable, onSize })
+  return (
+    <div ref={ref} style={{ flex: '2 1 440px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {WATERFALL.map((s, i) => (
+        <motion.div key={s} className="waterfall-row" {...rise} transition={{ duration: dur.slow, ease: easeOut, delay: 0.05 + i * 0.05 }}>
+          <span className="faint" style={{ width: 40, flexShrink: 0, fontSize: 12 }}>{s}</span>
+          <span className="ellipsis" style={{ ...style, ...wheelStyle, fontSize: s * scale, lineHeight: 1.15 }}>Office hours ½ off · Affinity 2026</span>
+        </motion.div>
+      ))}
+    </div>
+  )
+}
+
 /** Blocks show at most this many cells until "Show all". */
 const GLYPH_CAP = 512
 const uPlus = (cp: number) => `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`
@@ -410,14 +427,7 @@ export function FamilyPage() {
 
         {tab === 'preview' && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24 }}>
-            <div style={{ flex: '2 1 440px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {WATERFALL.map((s, i) => (
-                <motion.div key={s} className="waterfall-row" {...rise} transition={{ duration: dur.slow, ease: easeOut, delay: 0.05 + i * 0.05 }}>
-                  <span className="faint" style={{ width: 40, flexShrink: 0, fontSize: 12 }}>{s}</span>
-                  <span className="ellipsis" style={{ ...previewStyle, fontSize: s, lineHeight: 1.15 }}>Office hours ½ off · Affinity 2026</span>
-                </motion.div>
-              ))}
-            </div>
+            <Waterfall style={previewStyle} axes={fam.axes} variable={fam.isVariable} />
             <div className="panel" style={{ flex: '1 1 280px' }}>
               {fam.axes.length > 0 && (
                 <>
