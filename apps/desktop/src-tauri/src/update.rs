@@ -24,8 +24,12 @@ use crate::Ctx;
 const UPDATE_KEY: Option<&str> = option_env!("TYPESHELF_UPDATE_KEY");
 const CURRENT: &str = env!("CARGO_PKG_VERSION");
 
-/// The baked-in public key; `None` (updates off, setting hidden) when the build has none or it is malformed.
+/// The baked-in public key; `None` (updates off, setting hidden) when the build has none or it is malformed, and
+/// on every system but Windows (the update is a Windows Setup program).
 pub fn key() -> Option<[u8; 32]> {
+    if !cfg!(windows) {
+        return None;
+    }
     update::public_key(UPDATE_KEY)
 }
 
@@ -95,8 +99,9 @@ pub async fn run(app: AppHandle) {
     };
     let ctx = app.state::<Ctx>();
     let dir = dir(&ctx.data_dir);
-    // Leftovers from an earlier run (an installed release, an interrupted download) are never reused.
-    let _ = std::fs::remove_dir_all(&dir);
+    // An interrupted download is never resumed. A finished installer is kept: `check` reuses it when it is still
+    // the server's release and matches its manifest, and deletes it otherwise.
+    let _ = std::fs::remove_file(dir.join("Typeshelf-Setup.part"));
     let mut wait = Duration::from_secs(60);
     loop {
         tokio::time::sleep(wait).await;
@@ -135,7 +140,15 @@ pub async fn check(client: &SyncClient, key: Option<&[u8; 32]>, dir: &Path, curr
     let Some((text, signature)) = client.update_release().await.map_err(|e| failed(e.to_string()))? else { return Ok(None) };
     let manifest = update::verify_manifest(key, text.as_bytes(), &signature).map_err(|e| CheckError::Refused(format!("refused the release: {e}")))?;
     if !wanted(&manifest, current, have) {
+        if have.is_none() {
+            // Nothing waiting and nothing newer: what is left (the release already installed) is stale.
+            let _ = std::fs::remove_dir_all(dir);
+        }
         return Ok(None);
+    }
+    let (d, m) = (dir.to_path_buf(), manifest.clone());
+    if let Some(ready) = tauri::async_runtime::spawn_blocking(move || reuse(&d, &m)).await.map_err(|e| failed(e.to_string()))? {
+        return Ok(Some(ready));
     }
     std::fs::create_dir_all(dir).map_err(|e| failed(e.to_string()))?;
     let part = dir.join("Typeshelf-Setup.part");
@@ -158,6 +171,19 @@ pub fn finish(part: &Path, manifest: Manifest, dir: &Path) -> Result<Ready, Upda
     let path = dir.join(format!("Typeshelf-Setup-{}.exe", manifest.version));
     std::fs::rename(part, &path).map_err(io)?;
     Ok(Ready { path, manifest })
+}
+
+/// The installer of this release left by an earlier run, when it still matches the (freshly verified) manifest;
+/// `launch` checks it again at quit. Every other file in the folder (an older or tampered installer) is deleted.
+pub fn reuse(dir: &Path, manifest: &Manifest) -> Option<Ready> {
+    let path = dir.join(format!("Typeshelf-Setup-{}.exe", manifest.version));
+    let ok = File::open(&path).map_err(io).and_then(|f| update::check_file(manifest, f)).is_ok();
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        if !ok || entry.path() != path {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    ok.then(|| Ready { path, manifest: manifest.clone() })
 }
 
 /// Whether a scheduled check talks to the server. Standalone (no server) or not registered yet (no token):
@@ -215,6 +241,8 @@ fn io(e: std::io::Error) -> UpdateError {
 
 /// At quit, from `shutdown`: starts the waiting release when updates are still on and no Typeshelf Setup or
 /// uninstall is the one closing the app. Silent Setup updates the registered install folder in place.
+// ponytail: only a real quit installs; with "Start in the tray" on, closing the window only hides it, so a tray-mode
+// user installs the update at their next explicit Quit (the file is kept and reused across starts until then).
 pub fn on_quit(app: &AppHandle) {
     let Some(ready) = app.state::<Pending>().ready.lock().unwrap().take() else { return };
     let auto_update = app.state::<Ctx>().engine.get_settings().is_ok_and(|s| s.auto_update);
@@ -304,6 +332,27 @@ mod tests {
         let ready = finish(&part, manifest_for(b"original"), &dir).unwrap();
         assert_eq!(ready.path, dir.join("Typeshelf-Setup-9.0.0.exe"));
         assert!(ready.path.exists() && !part.exists());
+    }
+
+    #[test]
+    fn a_verified_installer_from_an_earlier_run_is_reused() {
+        let dir = tempfile_dir("reuse");
+        let path = dir.join("Typeshelf-Setup-9.0.0.exe");
+        let older = dir.join("Typeshelf-Setup-8.0.0.exe");
+        std::fs::write(&path, b"original").unwrap();
+        std::fs::write(&older, b"older").unwrap();
+        let ready = reuse(&dir, &manifest_for(b"original")).expect("the matching file is reused");
+        assert_eq!(ready.path, path);
+        assert!(path.exists(), "kept for the launch at quit");
+        assert!(!older.exists(), "any other leftover installer is deleted");
+
+        // Present but not the release the manifest describes: deleted, so it is downloaded again.
+        std::fs::write(&path, b"tampered").unwrap();
+        assert!(reuse(&dir, &manifest_for(b"original")).is_none());
+        assert!(!path.exists());
+
+        // Nothing there: downloaded.
+        assert!(reuse(&dir, &manifest_for(b"original")).is_none());
     }
 
     #[test]
