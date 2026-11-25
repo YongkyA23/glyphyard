@@ -18,7 +18,7 @@ Everything except registration also carries `Authorization: Bearer <install toke
 | POST | `/me/events` | `EventBatch` → 204. Stored in the timeline; `FontActivated/FontDeactivated` also update `font_states`. |
 | PUT | `/me/fonts` | `FontSnapshot` → 204. Replaces this install's `font_states`. |
 | GET | `/me/commands` | → `Command[]` not yet acked (used after reconnect) |
-| POST | `/me/commands/{id}/ack` | `{ ok, error? }` → 204 |
+| POST | `/me/commands/{id}/ack` | `{ ok, error? }` → 204. The first ack of a command stands; a repeat is accepted and ignored. A failed ack becomes a `failure` timeline event, except that a command queued to a merged group (one copy per computer) that fails with `file_missing: … is not in this library` is a failure only once every copy is acked and none succeeded (one event, on the last computer to answer). The WebSocket `Ack` follows the same rules. |
 | GET | `/me/ws` | WebSocket. Server sends `ServerMessage`, client sends `ClientMessage`. Token may also be passed as `?token=` and key as `?key=`. While connected the install counts as online. |
 | GET | `/library/files/{hash}` | → font bytes, only if delivered to this install, to the install it was merged into, or to all, and not blocked; else 404. |
 

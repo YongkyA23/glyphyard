@@ -446,6 +446,69 @@ async fn merged_installs_still_get_commands_and_share_a_font_list() {
     assert_eq!(s.admin(Method::GET, "/installs/old/fonts?active=false", None).await.json()["total"], 0);
 }
 
+/// What a desktop acks when the font is not in its library (`EngineError` display: `code: message`).
+const NOT_HERE: &str = "file_missing: Fraunces-Bold is not in this library";
+
+impl Server {
+    /// The one pending command's id; acks it with `error` (`None` = success).
+    async fn ack_one(&self, token: &str, error: Option<&str>) {
+        let cmds = self.commands(token).await;
+        assert_eq!(cmds.len(), 1);
+        let id = cmds[0]["id"].as_i64().unwrap();
+        let r = self.desktop(Method::POST, &format!("/me/commands/{id}/ack"), token, Some(json!({ "ok": error.is_none(), "error": error }))).await;
+        assert_eq!(r.status, StatusCode::NO_CONTENT);
+    }
+
+    async fn failures(&self, id: &str) -> (i64, bool) {
+        let total = self.admin(Method::GET, &format!("/installs/{id}/timeline?kind=failures"), None).await.json()["total"].as_i64().unwrap();
+        let flags = self.admin(Method::GET, &format!("/installs/{id}"), None).await.json()["flags"].clone();
+        (total, flags.as_array().unwrap().contains(&json!("failures")))
+    }
+}
+
+#[tokio::test]
+async fn merged_group_fails_a_missing_font_only_when_no_computer_has_it() {
+    let s = Server::new().await;
+    let old = s.register("old", "Budi").await;
+    let new = s.register("new", "Budi S.").await;
+    s.desktop(Method::POST, "/me/events", &old, Some(event(json!({ "kind": "font_activated", "font": font("h1"), "source": "user" })))).await;
+    s.admin(Method::POST, "/installs/merge", Some(json!({ "primary": "old", "secondary": "new", "keep_name": "primary" }))).await;
+    let activate = || s.admin(Method::POST, "/installs/old/fonts", Some(json!({ "hash": "h1", "active": true })));
+
+    // Fail then succeed, and succeed then fail: the font is on where it exists, so no failure.
+    assert_eq!(activate().await.status, StatusCode::OK);
+    s.ack_one(&new, Some(NOT_HERE)).await;
+    s.ack_one(&old, None).await;
+    assert_eq!(activate().await.status, StatusCode::OK);
+    s.ack_one(&old, None).await;
+    s.ack_one(&new, Some(NOT_HERE)).await;
+    assert_eq!(s.failures("old").await, (0, false));
+
+    // Nobody has it: one failure for the group, once the last computer answers.
+    assert_eq!(activate().await.status, StatusCode::OK);
+    s.ack_one(&new, Some(NOT_HERE)).await;
+    assert_eq!(s.failures("old").await, (0, false), "the other computer may still have it");
+    s.ack_one(&old, Some(NOT_HERE)).await;
+    assert_eq!(s.failures("old").await, (1, true));
+}
+
+#[tokio::test]
+async fn a_single_install_missing_a_font_is_a_failure_as_before() {
+    let s = Server::new().await;
+    let token = s.register("solo", "Citra").await;
+    s.desktop(Method::POST, "/me/events", &token, Some(event(json!({ "kind": "font_activated", "font": font("h1"), "source": "user" })))).await;
+    s.admin(Method::POST, "/installs/solo/fonts", Some(json!({ "hash": "h1", "active": true }))).await;
+    s.ack_one(&token, Some(NOT_HERE)).await;
+    assert_eq!(s.failures("solo").await, (1, true));
+    // A repeated ack (socket ack retried over REST) is accepted but recorded once.
+    let id: i64 = s.state.db().query_row("SELECT MAX(id) FROM commands", [], |r| r.get(0)).unwrap();
+    let again = s.desktop(Method::POST, &format!("/me/commands/{id}/ack"), &token, Some(json!({ "ok": false, "error": NOT_HERE }))).await;
+    assert_eq!(again.status, StatusCode::NO_CONTENT);
+    assert_eq!(s.failures("solo").await, (1, true));
+    let text = &s.admin(Method::GET, "/installs/solo/timeline?kind=failures", None).await.json()["items"][0]["text"];
+    assert_eq!(text, &json!(format!("Admin command “activate” failed: {NOT_HERE}")));
+}
+
 #[tokio::test]
 async fn block_is_pushed_to_every_install() {
     let s = Server::new().await;
