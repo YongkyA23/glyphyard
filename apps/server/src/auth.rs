@@ -38,9 +38,19 @@ impl LoginThrottle {
 
     /// How long this email stays locked, if it is.
     pub fn locked_for(&self, email: &str, now: Instant) -> Option<Duration> {
-        let (n, start) = *self.map().get(&Self::key(email))?;
-        let left = (start + LOGIN_WINDOW).checked_duration_since(now).filter(|d| !d.is_zero())?;
-        (n >= LOGIN_MAX_FAILURES).then_some(left)
+        let left = |start: Instant| (start + LOGIN_WINDOW).checked_duration_since(now).filter(|d| !d.is_zero());
+        let mut map = self.map();
+        if let Some(&(n, start)) = map.get(&Self::key(email)) {
+            return left(start).filter(|_| n >= LOGIN_MAX_FAILURES);
+        }
+        // ponytail: fails closed. While the map is full (a flood of distinct emails), every untracked email is locked,
+        // correct password or not, so flooding cannot switch the limit off; the cost is that admins not already
+        // tracked can be locked out for up to LOGIN_WINDOW. Upgrade: a per-IP limit behind a trusted proxy header.
+        map.retain(|_, (_, start)| left(*start).is_some());
+        if map.len() < LOGIN_MAX_TRACKED {
+            return None;
+        }
+        map.values().map(|(_, start)| *start).min().and_then(left)
     }
 
     pub fn failed(&self, email: &str, now: Instant) {
@@ -52,7 +62,6 @@ impl LoginThrottle {
             return;
         }
         map.retain(|_, (_, start)| live(start));
-        // ponytail: at the cap a flood of distinct emails stops new emails being tracked; add a per-IP limit if that matters.
         if map.len() < LOGIN_MAX_TRACKED || map.contains_key(&key) {
             map.insert(key, (1, now));
         }
@@ -196,5 +205,19 @@ mod tests {
         t.failed("a@x", start + LOGIN_WINDOW);
         assert_eq!(t.locked_for("a@x", start + LOGIN_WINDOW), None);
         assert_eq!(t.map().len(), 1);
+    }
+
+    #[test]
+    fn a_full_map_locks_untracked_emails() {
+        let t = LoginThrottle::default();
+        let start = Instant::now();
+        t.failed("admin@x", start);
+        t.map().extend((1..LOGIN_MAX_TRACKED).map(|i| (format!("junk{i}@x"), (1, start + Duration::from_secs(60)))));
+        // Flooding cannot push a new email out of tracking: it is locked until the oldest entry expires.
+        let later = start + Duration::from_secs(120);
+        assert_eq!(t.locked_for("new@x", later), Some(LOGIN_WINDOW - Duration::from_secs(120)));
+        assert_eq!(t.locked_for("admin@x", later), None, "tracked emails keep their own count");
+        // Once entries expire there is room again.
+        assert_eq!(t.locked_for("new@x", start + LOGIN_WINDOW + Duration::from_secs(60)), None);
     }
 }
