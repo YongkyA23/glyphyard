@@ -121,6 +121,7 @@ Optional tidy: move into `Foundry/Family/Family-Style vX.YYY.ext`; license files
 - `events(id, install_id, kind, payload_json, at)` — the per-user timeline (name, fonts, overrides, failures, organize).
 - `commands(id, install_id, kind[activate|deactivate|organize_request|deliver], payload_json, created_at, delivered_at, acked_at, ok, error, fanout)`
 - `library_files(hash, filename, size, ps_name, family, license, uploaded_at, blocked)` + `deliveries(hash, target[all|install_id], activate)`
+- `font_requests(id, install_id, font_name, note, at, done_at)` — "I need this font" requests; `done_at` NULL = open.
 - `admins(id, email, password_hash, role)`, `sessions(token_hash, admin_id, expires_at)`
 - `settings(key, value)` — name_change_days, install_key, allow_user_connection_edit, delivery defaults.
 
@@ -128,13 +129,13 @@ Optional tidy: move into `Foundry/Family/Family-Style vX.YYY.ext`; license files
 Desktop (header `X-Install-Key`, then `Authorization: Bearer <install token>`):
 - `POST /installs` register `{install_id, name, os, app_version}` → `{token, next_name_change}`
 - `PUT /me/name {name}` → 200 `{next_name_change}` or 409 `{next_name_change}`
-- `POST /me/events` batch `{events:[…]}` (font on/off with source, failures, organize summaries, duplicates report)
+- `POST /me/events` batch `{events:[…]}` (font on/off with source, failures, organize summaries, duplicates report, font requests)
 - `PUT /me/fonts` full active-font snapshot (after reconcile)
 - `GET /me/library` deliveries for this install; `GET /library/files/{hash}` download
 - `GET /me/ws` WebSocket: server pushes `commands`; client acks.
 Admin (cookie session, under `/api/admin`): login/logout, overview, installs (list/search/detail/timeline),
 name history (+CSV), remote activate/deactivate, override restore, reset name limit, merge/split installs,
-library upload/block/deliver, organize plan/apply for library, organize requests, settings, admins.
+library upload/block/deliver, organize plan/apply for library, organize requests, font requests (list, mark done, reopen), settings, admins.
 
 ### Rules
 - Name change allowed when `now >= last_change + name_change_days` (first name doesn't count as a change) or an admin reset is newer than the last change.

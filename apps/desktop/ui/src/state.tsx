@@ -112,6 +112,7 @@ export function AppProvider({ main, children }: { main: boolean; children: React
         on('organize-requested', () => navigate('/organize')),
         on('adobe-pair-request', setPair),
         on('badge-earned', (b) => toast(`Badge earned: ${b.name}. ${b.description}`, { label: 'See badges', run: () => navigate('/stats') })),
+        on('events-dropped', () => toast('Your Typeshelf server didn’t accept some updates from this computer. It may need updating: tell your admin.')),
         on('adobe-activated', ({ app: a, document, activated, missing }) =>
           toast(
             `${ADOBE_LABEL[a]} · ${document}: turned on ${plural(activated.length, 'font')}` +

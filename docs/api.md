@@ -15,7 +15,7 @@ Everything except registration also carries `Authorization: Bearer <install toke
 | POST | `/installs` | `RegisterRequest` → `RegisterResponse`. First name is recorded as `by: "first"`. Re-registering an existing `install_id` that has never made an authenticated request (its first response was lost) returns 200 with a new token and the old token stops working; once the install has used its token it returns 409 `already_registered`. |
 | GET | `/me` | → `{ name, next_name_change, policy }` (also updates `last_seen`) |
 | PUT | `/me/name` | `NameChange` → 200 `NameStatus`, or 409 `{ error: "name_locked", next_name_change }` |
-| POST | `/me/events` | `EventBatch` → 204. Stored in the timeline; `FontActivated/FontDeactivated` also update `font_states`. |
+| POST | `/me/events` | `EventBatch` → 204. Stored in the timeline; `FontActivated/FontDeactivated` also update `font_states`. `FontRequested { name, note? }` (kind `font_requested`) also creates a font request for the person (the install plus everything merged into it): name cut to 200 characters and note to 1000, an empty name ignored, no new row while the same name (ASCII case-insensitive) is open for that person or the person has 50 open requests. A server older than this kind answers 422 for the batch; the desktop then resends the events one at a time and drops only the rejected ones. |
 | PUT | `/me/fonts` | `FontSnapshot` → 204. Replaces this install's `font_states`. |
 | GET | `/me/commands` | → `Command[]` not yet acked (used after reconnect) |
 | POST | `/me/commands/{id}/ack` | `{ ok, error? }` → 204. The first ack of a command stands; a repeat is accepted and ignored. A failed ack becomes a `failure` timeline event, except that a command queued to a merged group (one copy per computer) that fails with `file_missing: … is not in this library` is held back while another copy succeeded, or was delivered to its computer and is not acked yet; copies never delivered (computer offline, gone or split away) do not hold it back. So a computer that gets the command and succeeds after the failure was recorded leaves that failure on the timeline. The WebSocket `Ack` follows the same rules. |
@@ -59,7 +59,7 @@ Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–20
 | POST | `/login` | `{ email, password }` → 204 + cookie; 401 `bad_credentials`; 429 `too_many_attempts` after 5 failed sign-ins for the same email within 15 minutes |
 | POST | `/logout` | → 204 |
 | GET | `/me` | → `{ email, role }` or 401 |
-| GET | `/overview` | → `{ installs, online, os: {windows, macos}, name_changes_month, overrides_week, failures_week, recent: Activity[], attention: { overrides, failures, possible_duplicates, stale }, top_fonts: { family, users }[] }` |
+| GET | `/overview` | → `{ installs, online, os: {windows, macos}, name_changes_month, overrides_week, failures_week, recent: Activity[], attention: { overrides, failures, possible_duplicates, stale, requests }, top_fonts: { family, users }[] }` |
 | GET | `/installs?q=&filter=all\|online\|overrides\|duplicates\|stale&offset=&limit=` | → `Page<InstallSummary>` sorted by name (q matches current name, old names, install id) |
 | GET | `/installs/{id}` | → `InstallDetail` (fonts are paged separately) |
 | GET | `/installs/{id}/fonts?q=&active=true\|false&offset=&limit=` | → `Page<FontState>` active first, then family (q matches family, style, PostScript name). Covers the install and every install merged into it: one row per font, `active` if on in any of them |
@@ -79,6 +79,9 @@ Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–20
 | GET | `/library/organize` | → `{ changes: OrganizeChange[] }` |
 | POST | `/library/organize/apply` | → `{ applied }`. Removals move the stored file to `<data>/quarantine/` (nothing is deleted); a file that cannot be moved keeps its row and is not counted |
 | GET | `/organize/reports?offset=&limit=` | → `Page<{ install_id, name, duplicates, version_conflicts, name_clashes, last_organized: string \| null }>` by name |
+| GET | `/requests?state=all\|open\|done&offset=&limit=` | → `Page<{ id, install_id, install_name, font_name, note: string \| null, at, done_at: string \| null }>` newest first. `install_id`/`install_name` are the person the request belongs to now (the merge primary). Default `all`; another state is 400 `invalid_state`. `attention.requests` on `/overview` counts the open ones |
+| POST | `/requests/{id}/done` | → 204 (an already done request keeps its first `done_at`); 404 if there is no such request |
+| POST | `/requests/{id}/reopen` | → 204; 404 if there is no such request |
 | GET | `/settings` | → `Settings` |
 | PUT | `/settings` | `Partial<Settings>` without `install_key` → `Settings` (pushes `PolicyChanged`). 400 `invalid_setting` unless `name_change_days` is 1–3650 and `timeline_retention_days` is null or 1–3650 |
 | POST | `/settings/install-key` | → `{ install_key }` (regenerates) |

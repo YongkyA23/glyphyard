@@ -36,7 +36,7 @@ function RequestForm({ initial, onDone }: { initial: string; onDone: () => void 
     setError(null)
     try {
       await api.requestFont(name.trim(), note.trim() || null)
-      toast(online ? `Asked your admin for ${name.trim()}.` : `Your request for ${name.trim()} will be sent when this computer is next connected.`)
+      toast(online ? `Request for ${name.trim()} queued for your admin.` : `Request for ${name.trim()} queued: it will be sent when this computer is next connected.`)
       onDone()
     } catch (e) {
       setError(errMsg(e))

@@ -262,6 +262,7 @@ export type Events = {
   'name-changed': { name: string; nextNameChange: string | null }
   'adobe-pair-request': { requestId: string; app: AdobeApp; appVersion: string }
   'adobe-activated': { app: AdobeApp; document: string; activated: string[]; missing: string[] }
+  'events-dropped': { count: number }
 }
 
 /** Subscribe; returns an unsubscribe function usable directly as a useEffect cleanup. */

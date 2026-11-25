@@ -89,7 +89,7 @@ async fn run(app: AppHandle, client: Arc<SyncClient>, cancel: CancellationToken)
         return;
     }
     tauri::async_runtime::spawn(watch_status(app.clone(), client.clone(), cancel.clone()));
-    tauri::async_runtime::spawn(watch_dropped_events(client.clone(), cancel.clone()));
+    tauri::async_runtime::spawn(watch_dropped_events(app.clone(), client.clone(), cancel.clone()));
     let handler = {
         let (app, client) = (app.clone(), client.clone());
         move |cmd: Command| {
@@ -140,8 +140,9 @@ async fn ensure_registered(app: &AppHandle, engine: &Arc<Engine>, client: &SyncC
     }
 }
 
-/// The client flushes the outbox itself while connected; events the server rejects are dropped there and reported here.
-async fn watch_dropped_events(client: Arc<SyncClient>, cancel: CancellationToken) {
+/// The client flushes the outbox itself while connected; events the server rejects are dropped there and reported here
+/// (log, plus `events-dropped` so the UI can say the server may need an update, e.g. a font request an old server refused).
+async fn watch_dropped_events(app: AppHandle, client: Arc<SyncClient>, cancel: CancellationToken) {
     let mut rx = client.dropped_events();
     let mut seen = *rx.borrow_and_update();
     loop {
@@ -151,7 +152,10 @@ async fn watch_dropped_events(client: Arc<SyncClient>, cancel: CancellationToken
             r = rx.changed() => if r.is_err() { return },
         }
         let total = *rx.borrow_and_update();
-        tracing::warn!(count = total - seen, "the server rejected these events, so they were dropped and will not be retried");
+        if total > seen {
+            tracing::warn!(count = total - seen, "the server rejected these events, so they were dropped and will not be retried");
+            let _ = app.emit("events-dropped", json!({ "count": total - seen }));
+        }
         seen = total;
     }
 }

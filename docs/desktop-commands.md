@@ -112,6 +112,7 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `admin-change` | `{ action: "activated" \| "deactivated" \| "blocked" \| "delivered", fonts: { family: string, style: string }[] }` (UI shows the blue banner) |
 | `organize-requested` | `{}` (admin asked; UI opens the auto-organize preview) |
 | `connection-changed` | `Connection` |
+| `events-dropped` | `{ count }` (the server refused some queued events for good, e.g. a font request sent to an older server; they are not retried) |
 | `folder-status` | `Folder` |
 | `activation-progress` | `{ done, total, active }`: a `set_active` batch bigger than one chunk (64 files) reports after each chunk; the database is free between chunks |
 | `activation-done` | `{ total, failed: string[] }`: turning fonts on returns at once and the OS registration runs in the background; when it ends, fonts that failed are already switched back off and `failed` says why ("Family Style: reason", at most 20) |
