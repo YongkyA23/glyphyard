@@ -67,9 +67,11 @@ export type ListFamiliesArgs = {
   /** With sort 'random': same seed, same order, so paging is stable. */ seed?: number
   /** Default false: fonts in hidden folders are left out unless `path` points inside one. */ includeHidden?: boolean
   /** Glyph search: only families whose representative face has every one of these characters. */ chars?: string
+  /** Only families whose representative face fully covers this language (an id from languageCounts). */ lang?: string
 }
 export type FamilyPage = { items: Family[]; total: number }
 export type LibraryCounts = { library: number; active: number; system: number; licenses: Partial<Record<License, number>> }
+export type LanguageCount = { id: string; name: string; families: number }
 export type FolderNode = { path: string; name: string; fontCount: number; activeCount: number; autoActivate: boolean; hidden: boolean; children: FolderNode[] }
 export type Tag = { name: string; count: number }
 export type OrganizePlan = {
@@ -128,6 +130,7 @@ export const api = {
   listFamilies: (query: ListFamiliesArgs = {}) => call<Family[]>('list_families', { query }),
   familyPage: (query: ListFamiliesArgs, offset: number, limit: number) => call<FamilyPage>('family_page', { query, offset, limit }),
   libraryCounts: () => call<LibraryCounts>('library_counts'),
+  languageCounts: () => call<LanguageCount[]>('language_counts'),
   getFaces: (hashes: string[]) => call<Face[]>('get_faces', { hashes }),
   folderTree: () => call<FolderNode[]>('folder_tree'),
   setFolderActive: (path: string, active: boolean) =>

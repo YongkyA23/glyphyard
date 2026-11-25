@@ -3,6 +3,7 @@
 
 pub mod face;
 pub mod glyphs;
+pub mod languages;
 pub mod name_rule;
 pub mod organize;
 

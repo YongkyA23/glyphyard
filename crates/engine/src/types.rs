@@ -225,6 +225,16 @@ pub struct FamilyQuery {
     pub include_hidden: bool,
     /// Glyph search: the representative face maps every character (whitespace ignored).
     pub chars: Option<String>,
+    /// Only families whose representative face fully covers this language (an id from `language_counts`).
+    pub lang: Option<String>,
+}
+
+/// A language and how many library families cover it fully.
+#[derive(Debug, Clone, Serialize)]
+pub struct LanguageCount {
+    pub id: String,
+    pub name: String,
+    pub families: usize,
 }
 
 /// One page of `list_families`.

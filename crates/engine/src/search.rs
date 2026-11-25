@@ -22,6 +22,8 @@ pub(crate) enum Term {
     System,
     /// Glyph search, case kept.
     Chars(String),
+    /// A language id from `typeshelf_core::languages`.
+    Lang(String),
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -95,6 +97,7 @@ fn term(tok: &str) -> Option<Term> {
         },
         "weight" => weight(&lv)?,
         "char" | "glyph" => Term::Chars(value.into()),
+        "lang" | "language" => Term::Lang(typeshelf_core::languages::language(&lv)?.id.into()),
         _ => return None,
     })
 }

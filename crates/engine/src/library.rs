@@ -5,7 +5,7 @@ use crate::scan::{family_key, numbered};
 use crate::search::{self, Term};
 use crate::{
     not_found, store, ActivationResult, ActiveState, Axis, Builtin, Category, Collection, Engine, EngineError, ExportResult, Face,
-    Family, FamilyDetail, FamilyFilter, FamilyPage, FamilyQuery, FileRow, FileStatus, FontDetails, GlyphMap, LibraryCounts, License,
+    Family, FamilyDetail, FamilyFilter, FamilyPage, FamilyQuery, FileRow, FileStatus, FontDetails, GlyphMap, LanguageCount, LibraryCounts, License,
     LicenseInfo, ProjectSet, Result, SortBy, TagCount,
 };
 use rusqlite::{params, Connection, OptionalExtension};
@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use typeshelf_core::glyphs::{covers, glyph_map, Coverage};
+use typeshelf_core::languages::{language, LANGUAGES};
 use typeshelf_core::{font_details, Metrics};
 use typeshelf_protocol::Source;
 
@@ -233,7 +234,7 @@ fn term_matches(t: &Term, f: &Family, rows: &[&Row]) -> bool {
         Term::Inactive => f.active_state == ActiveState::None,
         Term::Pinned => f.pinned,
         Term::System => rows.iter().any(|r| r.system),
-        Term::Chars(_) => true,
+        Term::Chars(_) | Term::Lang(_) => true,
     }
 }
 
@@ -351,7 +352,7 @@ impl Engine {
         };
         let search = search::parse(q.search.as_deref().unwrap_or(""));
         let wants_system = search.terms.contains(&Term::System);
-        let chars: Vec<u32> = search
+        let mut chars: Vec<u32> = search
             .terms
             .iter()
             .filter_map(|t| if let Term::Chars(c) = t { Some(c.as_str()) } else { None })
@@ -360,6 +361,14 @@ impl Engine {
             .filter(|c| !c.is_whitespace())
             .map(u32::from)
             .collect();
+        // A language is its required characters, so it rides the glyph search (representative face).
+        let wanted = search.terms.iter().filter_map(|t| if let Term::Lang(l) = t { Some(l.as_str()) } else { None }).chain(q.lang.as_deref());
+        for id in wanted {
+            match language(id) {
+                Some(l) => chars.extend(l.chars()),
+                None => return Ok(Vec::new()),
+            }
+        }
         let pins = pins(&db)?;
         let hidden = hidden_dirs(&db)?;
         let in_hidden = |p: &str| hidden.iter().any(|h| Path::new(p).starts_with(h));
@@ -456,6 +465,31 @@ impl Engine {
             system,
             licenses,
         })
+    }
+
+    /// Every language with the number of library families whose representative face covers it.
+    // ponytail: reads each family's representative coverage once (a JSON parse per family), no
+    // cache; fine for thousands of families, store per-language flags per face if it gets slow.
+    pub fn language_counts(&self) -> Result<Vec<LanguageCount>> {
+        let keys: HashSet<String> = self.list_families(&FamilyQuery::default())?.into_iter().map(|f| f.key).collect();
+        let db = self.db();
+        let rows = load_rows(&db, None)?;
+        let mut groups: HashMap<&str, Vec<&Row>> = HashMap::new();
+        for r in rows.iter().filter(|r| keys.contains(&r.family_key)) {
+            groups.entry(&r.family_key).or_default().push(r);
+        }
+        let mut counts = vec![0; LANGUAGES.len()];
+        for rows in groups.values() {
+            let Some(r) = rep(rows) else { continue };
+            let json: String = db
+                .prepare_cached("SELECT coverage_json FROM faces WHERE hash = ?1 AND idx = ?2")?
+                .query_row(params![r.hash, r.idx], |r| r.get(0))?;
+            let cov: Coverage = serde_json::from_str(&json).unwrap_or_default();
+            for (n, l) in counts.iter_mut().zip(LANGUAGES) {
+                *n += usize::from(l.covered_by(&cov));
+            }
+        }
+        Ok(LANGUAGES.iter().zip(counts).map(|(l, families)| LanguageCount { id: l.id.into(), name: l.name.into(), families }).collect())
     }
 
     /// Families that look most like `key`, nearest first (system fonts included). See [`distance`].

@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   api, type ActivationResult, type Family, type FamilyFilter, type FamilyPage, type FamilySort, type Folder, type FolderNode, type FontCategory, type Health,
-  type LibraryCounts, type License, type ListFamiliesArgs,
+  type LanguageCount, type LibraryCounts, type License, type ListFamiliesArgs,
 } from '../api'
 import { familyStyle } from '../fonts'
 import { useAddFonts, useFamilyDrag, useFontActions } from '../fontActions'
@@ -20,7 +20,7 @@ const TOKENS: [string, string][] = [
   ['designer:Carter', 'Designer contains'], ['category:serif', 'Or sans, display, mono…'],
   ['license:personal', 'Or licensed, client…'], ['weight:700', 'Has this weight'], ['weight:>600', 'Heavier (or < lighter)'],
   ['weight:300-500', 'Weight range'], ['italic', 'Has italics'], ['variable', 'Variable font'], ['active', 'Turned on'], ['inactive', 'Turned off'],
-  ['pinned', 'Pinned to the top'], ['system', 'System font'], ['char:€ß', 'Has these characters'],
+  ['pinned', 'Pinned to the top'], ['system', 'System font'], ['char:€ß', 'Has these characters'], ['lang:vietnamese', 'Covers a language'],
 ]
 const PinMark = () => (
   <svg role="img" aria-label="Pinned" className="pin-mark" width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
@@ -197,6 +197,8 @@ export function Library() {
   const [params, setParams] = useSearchParams()
   const [search, setSearch] = useState('')
   const [chars, setChars] = useState('')
+  const [lang, setLang] = useState('')
+  const [langs, setLangs] = useState<LanguageCount[]>([])
   const [presets, setPresets] = useState<string[]>([])
   const sampleBtn = useRef<HTMLButtonElement>(null)
   const navigate = useNavigate()
@@ -227,7 +229,7 @@ export function Library() {
   const path = params.get('path'), collectionId = params.get('collection'), license = params.get('license') as License | null
   const system = params.get('system') === '1'
   const tag = params.get('tag')
-  const scopeKey = [search.trim(), chars.trim(), filter, sort, sort === 'random' ? seed : '', category, path, collectionId, license, tag, system].join('|')
+  const scopeKey = [search.trim(), chars.trim(), lang, filter, sort, sort === 'random' ? seed : '', category, path, collectionId, license, tag, system].join('|')
 
   const actions = useFontActions((clear) => {
     if (clear) setSel(new Map())
@@ -248,6 +250,7 @@ export function Library() {
   }, [])
   useEffect(() => {
     api.libraryCounts().then(setCounts, () => {})
+    api.languageCounts().then(setLangs, () => {})
     api.listFolders().then(setFolders, () => {})
   }, [libVersion, reload])
   useEffect(() => {
@@ -274,6 +277,7 @@ export function Library() {
   useEffect(() => {
     const args: ListFamiliesArgs = { search: search.trim() || undefined, filter: system ? 'system' : filter, sort }
     if (chars.trim()) args.chars = chars.trim()
+    if (lang) args.lang = lang
     if (path) args.path = path
     if (collectionId) args.collectionId = Number(collectionId)
     if (license) args.license = license
@@ -412,6 +416,14 @@ export function Library() {
           id="chars" type="search" className="input" style={{ flex: '0 1 130px' }} value={chars} onChange={(e) => setChars(e.target.value)}
           placeholder="Characters" title="Only fonts that have every one of these characters"
         />
+        <label htmlFor="lang" className="sr-only">Only fonts that cover this language</label>
+        <select
+          id="lang" className="select" value={lang} style={{ width: 'auto' }} onChange={(e) => setLang(e.target.value)}
+          title="Only fonts that have every letter of a language"
+        >
+          <option value="">Any language</option>
+          {langs.map((l) => <option key={l.id} value={l.id}>{l.name} ({num(l.families)})</option>)}
+        </select>
         <div className="input-group" style={{ flex: '2 1 260px' }}>
           <label htmlFor="sample" className="sr-only">Sample text</label>
           <input

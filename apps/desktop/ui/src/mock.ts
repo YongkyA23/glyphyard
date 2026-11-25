@@ -48,7 +48,7 @@ const UNI_BLOCKS: [string, number, number][] = [
 ]
 const COMMON = [...span(0x20, 0x7e), ...span(0xa0, 0xff).filter((c) => c !== 0xad), 0x2013, 0x2014, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2026, 0x20ac]
 const EXTRA: Record<string, number[]> = {
-  fraunces: [...span(0x100, 0x17f), ...span(0x1e00, 0x1eff)],
+  fraunces: [...span(0x100, 0x17f), 0x1a0, 0x1a1, 0x1af, 0x1b0, ...span(0x1e00, 0x1eff)],
   // Over 512 CJK codepoints so the Glyphs tab shows its "Show all" button.
   'ibm-plex-mono': [...span(0x100, 0x17f), ...span(0x391, 0x3a1), ...span(0x3a3, 0x3a9), ...span(0x3b1, 0x3c9), ...span(0x410, 0x44f), ...span(0x2190, 0x2199), ...span(0x2500, 0x257f), ...span(0x4e00, 0x50ff)],
   'space-grotesk': span(0x100, 0x17f), 'bricolage-grotesque': span(0x100, 0x17f), syne: [...span(0x100, 0x17f), ...span(0x410, 0x44f)],
@@ -58,6 +58,18 @@ const covers = (key: string, chars: string) => {
   const have = new Set(glyphsOf(key))
   return [...chars].every((c) => have.has(c.codePointAt(0)!))
 }
+// Shortened sets: the real list (crates/core/src/languages.rs) has every required letter.
+const LATIN = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+const LANGS: [id: string, name: string, chars: string][] = [
+  ['english', 'English', LATIN], ['indonesian', 'Indonesian', LATIN], ['malay', 'Malay', LATIN],
+  ['vietnamese', 'Vietnamese', `${LATIN}ĂÂĐÊÔƠƯăâđêôơưẠạẤấẦầẬậỆệỘộỢợỰự`], ['french', 'French', `${LATIN}ÀÂÇÉÈÊËÎÏÔÙÛÜàâçéèêëîïôùûü`],
+  ['german', 'German', `${LATIN}ÄÖÜäöüß`], ['spanish', 'Spanish', `${LATIN}ÁÉÍÓÚÜÑáéíóúüñ¿¡`], ['portuguese', 'Portuguese', `${LATIN}ÁÀÂÃÇÉÊÍÓÔÕÚáàâãçéêíóôõú`],
+  ['polish', 'Polish', `${LATIN}ĄĆĘŁŃÓŚŹŻąćęłńóśźż`], ['turkish', 'Turkish', `${LATIN}ÇĞİÖŞÜçğıöşü`],
+  ['russian', 'Russian', 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя'],
+  ['greek', 'Greek', 'ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩαβγδεζηθικλμνξοπρστυφχψω'], ['arabic', 'Arabic', 'ءآأإابتثجحخدذرزسشصضطظعغفقكلمنهوي'],
+  ['hebrew', 'Hebrew', 'אבגדהוזחטיכלמנסעפצקרשת'], ['thai', 'Thai', 'กขคงจฉชซญดตทนบปผฝพฟภมยรลวศษสหอฮ'], ['hindi', 'Hindi', 'अआइईउऊएऐओऔकखगघचछजझटठडढणतथदधनपफबभमयरलवशषसह'],
+  ['japanese', 'Japanese', 'あいうえおかきくけこアイウエオカキクケコ日本語人大中小'], ['korean', 'Korean', '가나다라마바사아자차카타파하한국어'], ['chinese', 'Chinese', '的一是不了人我在有他这中大来上国个到说们'],
+]
 
 let hashN = 0
 const nextHash = () => (++hashN).toString(16).padStart(8, '0') + 'b3a1c9e2'
@@ -303,6 +315,7 @@ function superMatch(f: Fam, search: string) {
       case 'category': ok = f.category === val; break
       case 'license': ok = f.license === val; break
       case 'char': case 'glyph': ok = covers(f.key, raw); break
+      case 'lang': case 'language': { const l = LANGS.find(([id]) => id === val); ok = !!l && covers(f.key, l[2]); break }
       case 'weight': {
         const r = /^([<>])?(\d+)(?:-(\d+))?$/.exec(val)
         ok = !!r && f.faces.some(({ weight: w }) => (r[1] === '>' ? w > +r[2] : r[1] === '<' ? w < +r[2] : r[3] ? w >= +r[2] && w <= +r[3] : w === +r[2]))
@@ -327,6 +340,7 @@ function listFamilies(a: ListFamiliesArgs): Family[] {
     if (a.category && f.category !== a.category) return false
     if (a.search?.trim() && !superMatch(f, a.search)) return false
     if (a.chars && !covers(f.key, a.chars)) return false
+    if (a.lang && !covers(f.key, LANGS.find(([id]) => id === a.lang)?.[2] ?? ' ')) return false
     switch (a.filter) {
       case 'active': if (f.activeState === 'none') return false; break
       case 'inactive': if (f.activeState !== 'none') return false; break
@@ -405,6 +419,10 @@ const handlers: Record<string, (a: Args) => unknown> = {
     const licenses: Record<string, number> = {}
     for (const f of all) licenses[f.license] = (licenses[f.license] ?? 0) + 1
     return { library: all.length, active: all.filter((f) => f.activeState !== 'none').length, system: 0, licenses }
+  },
+  language_counts: () => {
+    const all = listFamilies({})
+    return LANGS.map(([id, name, chars]) => ({ id, name, families: all.filter((f) => covers(f.key, chars)).length }))
   },
   get_faces: ({ hashes }) => families.flatMap((f) => f.faces).filter((x) => hashes.includes(x.hash)),
   folder_tree: () => folderTree(),
