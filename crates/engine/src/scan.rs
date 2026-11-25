@@ -282,7 +282,9 @@ impl Engine {
     /// Cheap check for a running app to poll: did an offline folder's drive come back? If so its fonts
     /// are rescanned and its active fonts registered again. Returns whether anything came back.
     pub fn reconnect_folders(&self) -> Result<bool> {
-        let back = folder_rows(&self.db())?.iter().any(|f| !f.online && f.path.is_dir());
+        // Rows first, so the DB lock is released before probing paths (an absent share can block for seconds).
+        let rows = folder_rows(&self.db())?;
+        let back = rows.iter().any(|f| !f.online && f.path.is_dir());
         if back {
             self.rescan()?;
         }
