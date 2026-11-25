@@ -646,6 +646,7 @@ async fn overview(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Value>>
             "failures": count_flag("failures"),
             "possible_duplicates": count_flag("possible_duplicate"),
             "stale": count_flag("stale"),
+            "requests": crate::requests::open_count(&db)?,
         },
         "top_fonts": top_fonts,
     })))

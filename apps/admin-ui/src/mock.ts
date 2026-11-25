@@ -1,5 +1,5 @@
 // Dev-only fixtures (?mock=1). Patches fetch for /api/admin so pages render without a server.
-import type { FontState, InstallDetail, InstallSummary, LibraryFile, Overview, Page, Settings } from './api'
+import type { FontRequest, FontState, InstallDetail, InstallSummary, LibraryFile, Overview, Page, Settings } from './api'
 
 const now = Date.now()
 const t = (mins: number) => new Date(now - mins * 60000).toISOString()
@@ -43,9 +43,14 @@ const overview: Overview = {
     { id: 2, install_id: installs[2].id, install_name: 'Rizky Pratama', kind: 'failure', text: 'Montserrat Bold failed to activate for Rizky Pratama (file missing)', by: 'system', at: t(60) },
     { id: 3, install_id: installs[1].id, install_name: 'Sari', kind: 'font', text: 'You turned on Space Grotesk for 12 users', by: 'admin', at: t(130) },
   ],
-  attention: { overrides: 4, failures: 3, possible_duplicates: 2, stale: 5 },
+  attention: { overrides: 4, failures: 3, possible_duplicates: 2, stale: 5, requests: 2 },
   top_fonts: [{ family: 'Space Grotesk', users: 41 }, { family: 'Fraunces', users: 33 }, { family: 'Syne', users: 19 }],
 }
+const fontRequests: FontRequest[] = [
+  { id: 3, install_id: installs[1].id, install_name: 'Sari Wulandari', font_name: 'Söhne Buch', note: 'For the Acme rebrand deck, due Friday.', at: t(40), done_at: null },
+  { id: 2, install_id: installs[0].id, install_name: 'Budi Santoso', font_name: 'GT America Condensed', note: null, at: t(2 * day), done_at: null },
+  { id: 1, install_id: installs[2].id, install_name: 'Rizky Pratama', font_name: 'Founders Grotesk', note: 'Client sent a PDF that uses it.', at: t(6 * day), done_at: t(5 * day) },
+]
 let settings: Settings = {
   name_change_days: 30, allow_connection_edit: true, deliver_library_to_new: true, activate_delivered: false,
   notify_admin_changes: true, timeline_retention_days: null, server_url: 'https://fonts.example.test/api', install_key: 'tsk_example_key_1234',
@@ -106,6 +111,17 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
     { case: 'junk', action: { op: 'quarantine', from: '__MACOSX/._Fraunces-Regular.otf', to: 'q' }, note: 'Moved to quarantine' },
   ] }
   if (p === '/library/organize/apply') return { applied: 2 }
+  if (p === '/requests') {
+    const state = sp.get('state') ?? 'all'
+    return paged(fontRequests.filter((r) => state === 'all' || (state === 'open') === !r.done_at), sp)
+  }
+  const req = m(/^\/requests\/(\d+)\/(done|reopen)$/)
+  if (req) {
+    const r = fontRequests.find((x) => x.id === Number(req[1]))!
+    r.done_at = req[2] === 'done' ? new Date().toISOString() : null
+    overview.attention.requests = fontRequests.filter((x) => !x.done_at).length
+    return undefined
+  }
   if (p === '/organize/reports') return paged([
     { install_id: installs[2].id, name: 'Rizky Pratama', duplicates: 41, version_conflicts: 6, name_clashes: 0, last_organized: null },
     { install_id: installs[1].id, name: 'Sari Wulandari', duplicates: 0, version_conflicts: 0, name_clashes: 0, last_organized: t(day) },

@@ -34,9 +34,12 @@ export type Overview = {
   installs: number; online: number; os: { windows: number; macos: number }
   name_changes_month: number; overrides_week: number; failures_week: number
   recent: Activity[]
-  attention: { overrides: number; failures: number; possible_duplicates: number; stale: number }
+  attention: { overrides: number; failures: number; possible_duplicates: number; stale: number; requests: number }
   top_fonts: { family: string; users: number }[]
 }
+/** "I need this font" from a desktop; `install_id`/`install_name` are the person it belongs to now. */
+export type FontRequest = { id: number; install_id: string; install_name: string; font_name: string; note: string | null; at: string; done_at: string | null }
+export type RequestState = 'open' | 'done' | 'all'
 export type Me = { email: string; role: string }
 export type Admin = { email: string; role: string; last_login: string | null }
 export type OrganizeReport = { install_id: string; name: string; duplicates: number; version_conflicts: number; name_clashes: number; last_organized: string | null }
@@ -127,6 +130,8 @@ export const api = {
     request<LibraryFile>('POST', `/library/${id(hash)}/deliver`, { target, activate }),
   organizePlan: () => request<{ changes: OrganizeChange[] }>('GET', '/library/organize'),
   applyOrganize: () => request<{ applied: number }>('POST', '/library/organize/apply'),
+  fontRequests: (state: RequestState = 'open', page = 1) => request<Page<FontRequest>>('GET', '/requests' + qs({ state, ...paging(page) })),
+  setRequestDone: (requestId: number, done: boolean) => request<void>('POST', `/requests/${requestId}/${done ? 'done' : 'reopen'}`),
   organizeReports: (page = 1) => request<Page<OrganizeReport>>('GET', '/organize/reports' + qs(paging(page))),
   settings: () => request<Settings>('GET', '/settings'),
   saveSettings: (s: Partial<Omit<Settings, 'install_key'>>) => request<Settings>('PUT', '/settings', s),

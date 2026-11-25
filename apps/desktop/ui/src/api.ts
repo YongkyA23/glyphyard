@@ -189,6 +189,7 @@ export const api = {
   usageStats: (period: 'month' | 'year') => call<UsageStats>('usage_stats', { period }),
   badges: () => call<Badge[]>('badges'),
   documentFonts: (path: string) => call<DocFonts>('document_fonts', { path }),
+  requestFont: (name: string, note: string | null) => call<void>('request_font', { name, note }),
 
   googleCatalog: (search: string | undefined, category: string | undefined, offset: number, limit: number) =>
     call<GooglePage>('google_catalog', { search, category, offset, limit }),

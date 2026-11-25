@@ -24,6 +24,7 @@ pub fn routes() -> Router<AppState> {
         .route("/admins", get(list_admins).post(create_admin))
         .merge(installs::routes())
         .merge(library::admin_routes())
+        .merge(crate::requests::routes())
 }
 
 #[derive(Deserialize)]

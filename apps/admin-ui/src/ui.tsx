@@ -135,14 +135,22 @@ function Sidebar() {
   const me = useLoad(() => api.me(), [])
   const counts = useLoad(async () => {
     const [o, lib] = await Promise.all([api.overview(), api.library('', 1, 1)])
-    return { users: o.installs, library: lib.total }
+    return { users: o.installs, library: lib.total, requests: o.attention.requests }
   }, [])
+  // The Requests page announces changes so the open count stays current.
+  const reloadCounts = counts.reload
+  useEffect(() => {
+    const on = () => void reloadCounts(true)
+    window.addEventListener('requests-changed', on)
+    return () => window.removeEventListener('requests-changed', on)
+  }, [reloadCounts])
   const nav: [string, string, number | undefined][] = [
     ['/', 'Overview', undefined],
     ['/users', 'Users', counts.data?.users],
     ['/names', 'Name history', undefined],
     ['/library', 'Shared library', counts.data?.library],
     ['/organize', 'Auto-organize', undefined],
+    ['/requests', 'Font requests', counts.data?.requests],
     ['/settings', 'Settings', undefined],
   ]
   const signOut = async () => {

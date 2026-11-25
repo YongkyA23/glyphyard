@@ -89,6 +89,7 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `badges` | → `{ id: "collector"\|"archaeologist"\|"quiet", name, description, earnedAt: string\|null }[]`; each is earned once |
 | `pdf_fonts` | `{ path }` → `{ psName, display, pages: number, status: "active"\|"inactive"\|"version"\|"missing", detail, hash: string\|null, google: boolean }[]` |
 | `document_fonts` | `{ path }` (a .pdf, .psd, .ai or .indd file) → `{ fonts: <same rows as pdf_fonts>, partial: string\|null }`. Design files have no page numbers (`pages` is 0) and never report "version"; `partial` says in plain words why only part of the file was read (size cap, name cap), else null |
+| `request_font` | `{ name, note: string\|null }` → void: asks the admin for a font (name 1–200 characters, note up to 1000); queued in the outbox, sent when connected. `invalid_request` when the text is empty or too long |
 | `google_catalog` | `{ search?, category? }` → `{ family, category, styles, variable, installed }[]` |
 | `google_install` / `google_remove` | `{ family }` → `{ family, installed }` |
 | `backup_create {path}` / `backup_restore {path}` | → `{ path, at }`; a backup holds collections, tags, pins, licenses, project sets and settings |

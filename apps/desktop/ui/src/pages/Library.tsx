@@ -12,6 +12,7 @@ import { useContextMenu, type MenuItem } from '../menu'
 import { PreselectBar } from '../PreselectBar'
 import { collapse, dur, easeOut, rise, spring, STAGGER_CAP, staggerDelay } from '../motion'
 import { useApp } from '../state'
+import { RequestFontButton } from '../RequestFont'
 import {
   ago, andList, Badge, CATEGORY_LABEL, Chip, errMsg, fmtWhen, keysBusy, LICENSE_LABEL, LicenseBadge, num, Pager, plural, Skel, Switch, useSeen,
 } from '../ui'
@@ -492,6 +493,7 @@ export function Library() {
             </button>
           ))}
         </div>
+        <RequestFontButton />
         <button
           type="button" className="btn small" aria-haspopup="menu"
           onClick={(e) => addMenu.show(e, [

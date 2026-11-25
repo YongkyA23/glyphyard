@@ -774,3 +774,70 @@ async fn admin_lists_are_paged() {
     assert_eq!(s.admin(Method::GET, "/installs/d/fonts?active=false", None).await.json()["total"], 0);
     assert_eq!(s.admin(Method::GET, "/installs/x/fonts", None).await.status, StatusCode::NOT_FOUND);
 }
+
+fn request(name: &str, note: Option<&str>) -> Value {
+    event(json!({ "kind": "font_requested", "name": name, "note": note }))
+}
+
+#[tokio::test]
+async fn font_requests_reach_the_admin() {
+    let s = Server::new().await;
+    let ana = s.register("a", "Ana").await;
+    let laptop = s.register("b", "Ana S.").await;
+    assert_eq!(s.send(Method::GET, "/api/admin/requests", &[], None).await.status, StatusCode::UNAUTHORIZED);
+
+    let r = s.desktop(Method::POST, "/me/events", &ana, Some(request("Söhne Buch", Some("<b>Acme</b> deck")))).await;
+    assert_eq!(r.status, StatusCode::NO_CONTENT);
+    // Asking again for the same font while it is open adds no second row.
+    s.desktop(Method::POST, "/me/events", &ana, Some(request("söhne buch", None))).await;
+    s.desktop(Method::POST, "/me/events", &laptop, Some(request("Inter", None))).await;
+    // Text is cut to the limits; an empty name is ignored.
+    s.desktop(Method::POST, "/me/events", &laptop, Some(request(&"x".repeat(500), Some(&"n".repeat(5000))))).await;
+    assert_eq!(s.desktop(Method::POST, "/me/events", &laptop, Some(request("  ", None))).await.status, StatusCode::NO_CONTENT);
+
+    let list = s.admin(Method::GET, "/requests", None).await.json();
+    assert_eq!(list["total"], 3);
+    let names: Vec<&str> = list["items"].as_array().unwrap().iter().map(|i| i["font_name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["x".repeat(200).as_str(), "Inter", "Söhne Buch"], "newest first");
+    assert_eq!(list["items"][0]["note"].as_str().unwrap().chars().count(), 1000);
+    let sohne = &list["items"][2];
+    assert_eq!((sohne["install_id"].as_str(), sohne["install_name"].as_str()), (Some("a"), Some("Ana")));
+    assert_eq!(sohne["note"], "<b>Acme</b> deck", "stored as typed; the UI renders it as text");
+    assert!(sohne["done_at"].is_null());
+    assert_eq!(s.admin(Method::GET, "/overview", None).await.json()["attention"]["requests"], 3);
+    let timeline = s.admin(Method::GET, "/installs/a/timeline", None).await.json();
+    let texts: Vec<&str> = timeline["items"].as_array().unwrap().iter().map(|i| i["text"].as_str().unwrap()).collect();
+    assert_eq!(texts[..2], ["Asked for söhne buch", "Asked for Söhne Buch"], "a repeat still reaches the timeline");
+
+    // After a merge the laptop's requests belong to the person.
+    let merged = s.admin(Method::POST, "/installs/merge", Some(json!({ "primary": "a", "secondary": "b", "keep_name": "primary" }))).await;
+    assert_eq!(merged.status, StatusCode::OK);
+    let list = s.admin(Method::GET, "/requests", None).await.json();
+    assert!(list["items"].as_array().unwrap().iter().all(|i| i["install_id"] == "a" && i["install_name"] == "Ana"));
+
+    let id = sohne["id"].as_i64().unwrap();
+    assert_eq!(s.admin(Method::POST, &format!("/requests/{id}/done"), None).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(s.admin(Method::GET, "/requests?state=open", None).await.json()["total"], 2);
+    let done = s.admin(Method::GET, "/requests?state=done", None).await.json();
+    assert_eq!(done["total"], 1);
+    assert!(done["items"][0]["done_at"].is_string());
+    assert_eq!(s.admin(Method::GET, "/overview", None).await.json()["attention"]["requests"], 2);
+    // Once done, asking again opens a new request.
+    s.desktop(Method::POST, "/me/events", &ana, Some(request("Söhne Buch", None))).await;
+    assert_eq!(s.admin(Method::GET, "/requests?state=open", None).await.json()["total"], 3);
+
+    assert_eq!(s.admin(Method::POST, &format!("/requests/{id}/reopen"), None).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(s.admin(Method::GET, "/requests?state=open&limit=2", None).await.json()["items"].as_array().unwrap().len(), 2);
+    assert_eq!(s.admin(Method::GET, "/requests?state=nope", None).await.status, StatusCode::BAD_REQUEST);
+    assert_eq!(s.admin(Method::POST, "/requests/9999/done", None).await.status, StatusCode::NOT_FOUND);
+    assert_eq!(s.send(Method::POST, &format!("/api/admin/requests/{id}/done"), &[], None).await.status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn font_requests_are_capped_per_person() {
+    let s = Server::new().await;
+    let token = s.register("a", "Ana").await;
+    let events: Vec<Value> = (0..60).map(|i| json!({ "kind": "font_requested", "name": format!("Font {i}"), "at": Utc::now() })).collect();
+    assert_eq!(s.desktop(Method::POST, "/me/events", &token, Some(json!({ "events": events }))).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(s.admin(Method::GET, "/requests", None).await.json()["total"], 50);
+}

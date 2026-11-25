@@ -7,6 +7,7 @@ pub mod desktop;
 pub mod hub;
 pub mod installs;
 pub mod library;
+pub mod requests;
 
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};

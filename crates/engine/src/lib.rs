@@ -11,6 +11,7 @@ mod google;
 mod library;
 mod organize;
 mod pdf;
+mod request;
 mod scan;
 mod search;
 mod settings;

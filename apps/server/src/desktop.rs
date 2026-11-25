@@ -189,6 +189,7 @@ fn record_event(c: &Connection, install_id: &str, at: &str, event: &Event) -> ru
         Event::RepairRan { removed, reregistered } => {
             ("system", "system", format!("Repair removed {removed} stale entries and re-registered {reregistered} fonts"))
         }
+        Event::FontRequested { name, note } => return crate::requests::record(c, install_id, name, note.as_deref(), at),
     };
     let payload = serde_json::to_string(event).expect("event serializes");
     db::insert_event(c, install_id, kind, by, &text, &payload, at)

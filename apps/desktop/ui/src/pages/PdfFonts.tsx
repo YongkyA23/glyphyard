@@ -6,6 +6,7 @@ import { api, inTauri, type Face, type PdfFont } from '../api'
 import { faceStyle } from '../fonts'
 import { cssStagger, dur, easeOut, rise } from '../motion'
 import { useApp } from '../state'
+import { RequestFontButton } from '../RequestFont'
 import { Badge, basename, errMsg, plural, Spinner, type Tone } from '../ui'
 
 const DOC_TYPES = ['pdf', 'psd', 'ai', 'indd']
@@ -125,6 +126,7 @@ export function PdfFonts() {
                       Search Google Fonts
                     </Link>
                   )}
+                  {r.status === 'missing' && <RequestFontButton name={r.display} />}
                 </span>
               </div>
             ))}

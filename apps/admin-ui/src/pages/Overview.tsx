@@ -45,7 +45,8 @@ function Body({ o }: { o: Data }) {
     { n: a.overrides, title: plural(a.overrides, 'user override'), detail: 'Fonts you turned on were turned off by users', to: '/users?filter=overrides', tone: 'admin' },
     { n: a.failures, title: plural(a.failures, 'activation failure'), detail: 'Fonts that couldn’t be turned on', to: '/users', tone: 'bad' },
     { n: a.possible_duplicates, title: plural(a.possible_duplicates, 'possible duplicate install'), detail: 'Same name on a new computer · merge?', to: '/users?filter=duplicates', tone: 'warn' },
-    { n: a.stale, title: `${plural(a.stale, 'install')} offline for 14+ days`, detail: 'Changes will wait until they reconnect', to: '/users?filter=stale', tone: 'user' },
+    { n: a.requests, title: plural(a.requests, 'open font request'), detail: 'Fonts people asked you for', to: '/requests', tone: 'ok' },
+    { n: a.stale, title:`${plural(a.stale, 'install')} offline for 14+ days`, detail: 'Changes will wait until they reconnect', to: '/users?filter=stale', tone: 'user' },
   ].filter((x) => x.n > 0)
   const max = Math.max(o.installs, ...o.top_fonts.map((t) => t.users), 1)
 

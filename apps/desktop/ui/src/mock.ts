@@ -609,6 +609,10 @@ const handlers: Record<string, (a: Args) => unknown> = {
     { id: 'archaeologist', name: 'Archaeologist', description: 'Turned on a font nobody had used for a year.', earnedAt: iso(-41 * day) },
     { id: 'quiet', name: 'Quiet', description: 'Turned every font off at once (at least 10).', earnedAt: null },
   ],
+  request_font: ({ name, note }) => {
+    if (!name.trim()) throw err('invalid_request', 'Type the name of the font you need.')
+    console.info('[mock] request_font', name, note)
+  },
   pdf_fonts: ({ path }) => {
     const h = (family: string, style: string) => fam(keyOf(family))?.faces.find((x) => x.style === style)?.hash ?? fam(keyOf(family))?.faces[0].hash ?? null
     const st = (family: string): PdfFont['status'] => (fam(keyOf(family))?.activeState === 'none' ? 'inactive' : 'active')

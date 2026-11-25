@@ -31,7 +31,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         list_tags, set_tags, set_license,
         list_project_sets, save_project_set, delete_project_set, toggle_project_set,
         organize_plan, organize_apply, list_history, undo_history,
-        health, repair_now, pdf_fonts, document_fonts,
+        health, repair_now, pdf_fonts, document_fonts, request_font,
         usage_stats, badges,
         google_catalog, google_install, google_remove,
         backup_create, backup_restore,
@@ -354,6 +354,11 @@ pub async fn usage_stats(ctx: St<'_>, period: UsagePeriod) -> R<UsageStats> {
 #[tauri::command]
 pub async fn badges(ctx: St<'_>) -> R<Vec<Badge>> {
     ctx.run(|e| e.badges(chrono::Utc::now())).await
+}
+
+#[tauri::command]
+pub async fn request_font(ctx: St<'_>, name: String, note: Option<String>) -> R<()> {
+    ctx.run(move |e| e.request_font(&name, note.as_deref())).await
 }
 
 // ---- Google Fonts, backup ----

@@ -8,7 +8,11 @@ use std::path::Path;
 use typeshelf_protocol::Policy;
 
 /// Applied in order; `PRAGMA user_version` records how many have run.
-const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_init.sql"), include_str!("../migrations/0002_command_fanout.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/0001_init.sql"),
+    include_str!("../migrations/0002_command_fanout.sql"),
+    include_str!("../migrations/0003_font_requests.sql"),
+];
 
 /// Opens (or creates) the database. `None` = in memory, for tests.
 pub fn open(path: Option<&Path>) -> rusqlite::Result<Connection> {
