@@ -265,7 +265,8 @@ const pickSkeleton = <div className="stack-10" style={{ padding: '8px 0' }}>{[60
 function DeliverDialog({ title, current, onClose, onSubmit }: {
   title: string; current?: LibraryFile['delivered_to']; onClose: () => void; onSubmit: (target: 'all' | string[], activate: boolean) => Promise<void>
 }) {
-  const [mode, setMode] = useState<'all' | 'pick' | undefined>(current === undefined ? undefined : Array.isArray(current) ? 'pick' : 'all')
+  // Delivered to nobody ('none') preselects nothing, like several files.
+  const [mode, setMode] = useState<'all' | 'pick' | undefined>(current === 'all' ? 'all' : Array.isArray(current) ? 'pick' : undefined)
   const [picked, setPicked] = useState<string[]>(Array.isArray(current) ? current : [])
   const [activate, setActivate] = useState(false)
   const [q, setQ] = useState('')
