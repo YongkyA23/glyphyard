@@ -14,8 +14,11 @@ use walkdir::WalkDir;
 pub(crate) const FONT_EXTS: [&str; 6] = ["ttf", "otf", "ttc", "otc", "woff", "woff2"];
 /// `folders.managed` for the OS font folders: read-only, always on, never organized.
 pub(crate) const SYSTEM: &str = "system";
-/// `folders.managed` for the app's "Imported fonts" folder (`import_paths`).
-const IMPORTED: &str = "imported";
+/// The app-managed folders as (`folders.managed` kind, directory name in the data folder), used by
+/// `managed_folder` and by `adopt_managed_folders`.
+pub(crate) const IMPORTED: (&str, &str) = ("imported", "Imported fonts");
+pub(crate) const GOOGLE: (&str, &str) = ("google", "Google Fonts");
+pub(crate) const SHARED: (&str, &str) = ("shared", "Shared library");
 
 /// Families are grouped by family name + foundry.
 pub(crate) fn family_key(family: &str, foundry: &str) -> String {
@@ -201,6 +204,18 @@ impl Engine {
         }
     }
 
+    /// Gives a row (and a watch) to managed folders that are already in the data folder but not in the
+    /// database, as after a reinstall that kept them. Absent ones stay lazy: `managed_folder` creates them.
+    fn adopt_managed_folders(&self) {
+        for (kind, name) in [IMPORTED, GOOGLE, SHARED] {
+            let path = self.data_dir.join(name);
+            let known: rusqlite::Result<bool> = self.db().query_row("SELECT EXISTS(SELECT 1 FROM folders WHERE managed = ?1)", [kind], |r| r.get(0));
+            if path.is_dir() && known == Ok(false) && self.insert_folder(&path, Some(kind)).is_ok() {
+                self.watch_folder(&path, true);
+            }
+        }
+    }
+
     pub fn add_folder(&self, path: impl AsRef<Path>) -> Result<Vec<Folder>> {
         let id = self.insert_folder(path.as_ref(), None)?;
         self.scan_folder(id)?;
@@ -267,6 +282,7 @@ impl Engine {
     /// Full rescan: re-checks which folders are online, then scans every online folder.
     pub fn rescan(&self) -> Result<Vec<Folder>> {
         self.ensure_system_folders();
+        self.adopt_managed_folders();
         self.refresh_folders()?;
         let ids: Vec<i64> = folder_rows(&self.db())?.into_iter().filter(|f| f.online).map(|f| f.id).collect();
         let mut changed = false;
@@ -518,7 +534,7 @@ impl Engine {
     /// into "Imported fonts", skipping files whose bytes are already in the library and never
     /// overwriting, then scans it.
     pub fn import_paths(&self, paths: &[String]) -> Result<ImportResult> {
-        let (id, root) = self.managed_folder(IMPORTED, "Imported fonts")?;
+        let (id, root) = self.managed_folder(IMPORTED.0, IMPORTED.1)?;
         let mut known: HashSet<String> =
             self.db().prepare("SELECT DISTINCT hash FROM files")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
         let mut res = ImportResult { imported: 0, skipped: 0, folder: root.to_string_lossy().into_owned() };

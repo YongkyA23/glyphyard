@@ -2,6 +2,7 @@
 //! Network code is the three small functions at the top; everything else is testable offline.
 
 use crate::library::set_license_row;
+use crate::scan::GOOGLE;
 use crate::{EngineError, Engine, GoogleFamily, GoogleInstall, GooglePage, License, Result};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -171,7 +172,7 @@ impl Engine {
     /// Downloads the family into the managed "Google Fonts" folder and labels it Licensed (OFL).
     pub fn google_install(&self, family: &str) -> Result<GoogleInstall> {
         let files = fetch_family(family)?;
-        let (id, root) = self.managed_folder("google", "Google Fonts")?;
+        let (id, root) = self.managed_folder(GOOGLE.0, GOOGLE.1)?;
         let dir = root.join(sanitize(family));
         std::fs::create_dir_all(&dir)?;
         let mut hashes = Vec::new();
@@ -213,7 +214,7 @@ impl Engine {
                 self.deactivate_hashes(&db, &active, Source::User)?;
             }
             std::fs::remove_dir_all(&dir)?;
-            let (id, _) = self.managed_folder("google", "Google Fonts")?;
+            let (id, _) = self.managed_folder(GOOGLE.0, GOOGLE.1)?;
             self.scan_folder(id)?;
             self.library_changed("scan");
         }

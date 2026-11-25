@@ -235,3 +235,47 @@ fn folder_paths_include_the_system_folders() {
     assert!(paths.contains(&fx.root) && paths.contains(&sys), "{paths:?}");
     assert_eq!(paths.len(), 2);
 }
+
+fn keep_in_imported(fx: &Fixture) -> Vec<u8> {
+    let bytes = system_font("arial.ttf").unwrap();
+    let dir = fx.data.join("Imported fonts");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("arial.ttf"), &bytes).unwrap();
+    bytes
+}
+
+fn managed_rows(fx: &Fixture, kinds: &str) -> i64 {
+    fx.engine.db().query_row(&format!("SELECT COUNT(*) FROM folders WHERE managed IN ({kinds})"), [], |r| r.get(0)).unwrap()
+}
+
+#[test]
+fn rescan_adopts_a_kept_managed_folder() {
+    let fx = fixture!();
+    keep_in_imported(&fx);
+    fx.engine.rescan().unwrap();
+    assert!(!fx.family("Arial").faces.is_empty());
+    assert_eq!(managed_rows(&fx, "'imported'"), 1);
+    fx.engine.rescan().unwrap();
+    assert_eq!(managed_rows(&fx, "'imported'"), 1, "a second rescan adds no second row");
+}
+
+#[test]
+fn importing_a_file_already_in_a_kept_folder_is_skipped() {
+    let fx = fixture!();
+    let bytes = keep_in_imported(&fx);
+    fx.engine.rescan().unwrap();
+    let src = fx.put("src/arial.ttf", &bytes);
+    let res = fx.engine.import_paths(&[src.to_string_lossy().into_owned()]).unwrap();
+    assert_eq!((res.imported, res.skipped), (0, 1));
+    assert_eq!(std::fs::read_dir(fx.data.join("Imported fonts")).unwrap().count(), 1);
+}
+
+#[test]
+fn rescan_creates_no_managed_folders() {
+    let fx = fixture!();
+    fx.engine.rescan().unwrap();
+    for name in ["Imported fonts", "Google Fonts", "Shared library"] {
+        assert!(!fx.data.join(name).exists(), "{name}");
+    }
+    assert_eq!(managed_rows(&fx, "'imported','google','shared'"), 0);
+}
