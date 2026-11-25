@@ -1044,6 +1044,24 @@ async fn bulk_library_actions_take_ids_or_the_filter() {
     assert_eq!(bulk(json!({ "action": "delete", "hashes": [one] })).await.json(), json!({ "changed": 0, "skipped": 1, "failed": 0 }), "blocked: skipped");
     assert_eq!(bulk(json!({ "action": "block" })).await.json()["error"], "no_selection");
     assert_eq!(bulk(json!({ "action": "deliver", "hashes": [one] })).await.json()["error"], "invalid_target");
+    bulk(json!({ "action": "deliver", "q": "", "target": "all", "activate": false })).await;
+    bulk(json!({ "action": "deliver", "q": " Alpha ", "target": [] })).await;
+
+    // The audit says which files and who received them; a bulk delete names every deleted file.
+    let details = |page: Value| page["items"].as_array().unwrap().iter().map(|e| e["detail"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!(details(s.audit("?action=bulk_block").await), [r#"q "alpha": 1 changed, 1 skipped, 0 failed"#, "1 picked: 1 changed, 0 skipped, 0 failed"]);
+    assert_eq!(
+        details(s.audit("?action=bulk_deliver").await),
+        [
+            r#"q "Alpha" to nobody: 0 changed, 1 skipped, 0 failed"#,
+            r#"q "" to all: 0 changed, 1 skipped, 0 failed"#,
+            r#"q "" to a, turned on: 2 changed, 1 skipped, 0 failed"#,
+        ]
+    );
+    assert_eq!(details(s.audit("?action=bulk_delete").await), ["1 picked: 0 changed, 1 skipped, 0 failed", "3 picked: 2 changed, 1 skipped, 0 failed"]);
+    let mut deleted = details(s.audit("?action=font_deleted").await);
+    deleted.sort();
+    assert_eq!(deleted, ["Alpha Two.ttf", "Beta.ttf"]);
 }
 
 #[tokio::test]

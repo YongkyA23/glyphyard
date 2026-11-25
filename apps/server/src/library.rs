@@ -392,6 +392,25 @@ struct BulkBody {
 /// rest go on (files already moved stay moved).
 async fn bulk(State(s): State<AppState>, admin: Admin, Json(body): Json<BulkBody>) -> ApiResult<Json<Value>> {
     let mut db = s.db();
+    // For the audit row: which files, and for deliver who gets them.
+    let mut what = match (&body.hashes, &body.q) {
+        (Some(h), _) => format!("{} picked", h.len()),
+        (None, q) => format!("q \"{}\"", q.as_deref().unwrap_or_default().trim()),
+    };
+    if let (BulkAction::Deliver, Some(t)) = (body.action, &body.target) {
+        let to = match t {
+            Target::Keyword(k) => k.clone(),
+            Target::Installs(ids) => ids.join(", "),
+        };
+        if to.is_empty() {
+            what.push_str(" to nobody");
+        } else {
+            what.push_str(&format!(" to {to}"));
+            if body.activate.unwrap_or(db::settings(&db)?.activate_delivered) {
+                what.push_str(", turned on");
+            }
+        }
+    }
     let hashes: Vec<String> = match (body.hashes, &body.q) {
         (Some(h), _) => h,
         (None, Some(q)) => {
@@ -422,7 +441,11 @@ async fn bulk(State(s): State<AppState>, admin: Admin, Json(body): Json<BulkBody
     if body.action == BulkAction::Delete {
         // No transaction: a moved file must not get its row back from a rollback.
         for h in &hashes {
-            count(remove_file(&s, &db, h).map(|_| true), true)?;
+            let r = remove_file(&s, &db, h).and_then(|name| {
+                audit::record(&db, &admin.email, "font_deleted", h, &name)?;
+                Ok(true)
+            });
+            count(r, true)?;
         }
     } else {
         let tx = db.transaction()?;
@@ -447,7 +470,7 @@ async fn bulk(State(s): State<AppState>, admin: Admin, Json(body): Json<BulkBody
         BulkAction::Unblock => "bulk_unblock",
         BulkAction::Delete => "bulk_delete",
     };
-    audit::record(&db, &admin.email, action, "", &format!("{changed} changed, {skipped} skipped, {failed} failed"))?;
+    audit::record(&db, &admin.email, action, "", &format!("{what}: {changed} changed, {skipped} skipped, {failed} failed"))?;
     Ok(Json(json!({ "changed": changed, "skipped": skipped, "failed": failed })))
 }
 
