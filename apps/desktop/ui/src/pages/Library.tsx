@@ -43,6 +43,13 @@ const FILTERS: [FamilyFilter, string][] = [
 const SORTS: [FamilySort, string][] = [['name', 'Name A–Z'], ['name_desc', 'Name Z–A'], ['date', 'Recently added'], ['foundry', 'Foundry'], ['random', 'Random']]
 const CATEGORIES = Object.entries(CATEGORY_LABEL) as [FontCategory, string][]
 const newSeed = () => Math.floor(Math.random() * 2 ** 31)
+/** A URL value if it is one of `list`'s keys, else null. */
+const known = <K extends string>(v: string | null, list: readonly (readonly [K, string])[]): K | null => list.find(([k]) => k === v)?.[0] ?? null
+/** A URL value as a positive whole number, else null (so `1e400`, `Infinity`, `-2` and `abc` don't reach the engine). */
+const posInt = (v: string | null) => {
+  const n = Number(v)
+  return Number.isSafeInteger(n) && n > 0 ? n : null
+}
 type View = 'list' | 'grid'
 const VIEW_KEY = 'typeshelf-library-view'
 function savedView(): View {
@@ -209,26 +216,35 @@ function FolderBar({ node, onDone }: { node: FolderNode; onDone: () => void }) {
 
 export function Library() {
   const { app, libVersion, activate, adminChange, dismissAdmin } = useApp()
-  const [params, setParams] = useSearchParams()  // Search, filters, sort, view and page start from the URL query and are written back to it (below), so Back from a
+  const [params, setParams] = useSearchParams()
+  // Search, filters, sort, view and page start from the URL query and are written back to it (below), so Back from a
   // family page returns to the same list at the same page. They stay as they are when the sidebar changes the scope.
+  // Values from the URL are checked: unknown ones fall back to the default.
   const [search, setSearch] = useState(() => params.get('q') ?? '')
   const [chars, setChars] = useState(() => params.get('chars') ?? '')
   const [lang, setLang] = useState(() => params.get('lang') ?? '')
   const [langs, setLangs] = useState<LanguageCount[]>([])
   // Counts are heavy and only change when the library does: load once, refresh when the list is opened.
-  const loadLangs = () => api.languageCounts().then(setLangs, () => {})
+  // A language the app doesn't know (an edited URL) is dropped once the list is in.
+  const loadLangs = () => api.languageCounts().then((ls) => {
+    setLangs(ls)
+    setLang((l) => (l && !ls.some((x) => x.id === l) ? '' : l))
+  }, () => {})
   const [presets, setPresets] = useState<string[]>([])
   const sampleBtn = useRef<HTMLButtonElement>(null)
   const navigate = useNavigate()
   const add = useAddFonts()
-  const [filter, setFilter] = useState<FamilyFilter>(() => (params.get('filter') as FamilyFilter | null) ?? 'all')
-  const [sort, setSort] = useState<FamilySort>(() => (params.get('sort') as FamilySort | null) ?? 'name')
-  const [seed, setSeed] = useState(() => Number(params.get('seed')) || newSeed())
-  const [category, setCategory] = useState<FontCategory | null>(() => params.get('category') as FontCategory | null)
+  const [filter, setFilter] = useState<FamilyFilter>(() => known(params.get('filter'), FILTERS) ?? 'all')
+  const [sort, setSort] = useState<FamilySort>(() => known(params.get('sort'), SORTS) ?? 'name')
+  const [seed, setSeed] = useState(() => posInt(params.get('seed')) ?? newSeed())
+  const [category, setCategory] = useState<FontCategory | null>(() => known(params.get('category'), CATEGORIES))
   const [view, setView] = useState<View>(() => (params.get('view') === 'grid' ? 'grid' : params.has('view') ? 'list' : savedView()))
   const [sel, setSel] = useState<Map<string, Family>>(new Map())
-  /** "Select all N results": bulk actions apply to every match of the query, not just the selected rows. */
-  const [all, setAll] = useState(false)
+  /**
+   * "Select all N results": bulk actions apply to every match of the query, not just the selected rows. It holds only
+   * for the results it was chosen on: a bulk action or a library change reloads them (`reload` / `libVersion`) and ends it.
+   */
+  const [allAt, setAllAt] = useState<string | null>(null)
   const anchor = useRef<number | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const [sample, setSample] = useState(DEFAULT_SAMPLE)
@@ -236,7 +252,7 @@ export function Library() {
   const [size, setSize] = useState(32)
   const nudgeSize = useCallback((d: number) => setSize((s) => Math.min(72, Math.max(16, s + d))), [])
   useBreathing()
-  const [page, setPage] = useState(() => Math.max(1, Math.floor(Number(params.get('page'))) || 1))
+  const [page, setPage] = useState(() => posInt(params.get('page')) ?? 1)
   const [data, setData] = useState<FamilyPage | null>(null)
   const [counts, setCounts] = useState<LibraryCounts | null>(null)
   const [folders, setFolders] = useState<Folder[]>([])
@@ -244,6 +260,8 @@ export function Library() {
   const [health, setHealth] = useState<Health | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [reload, setReload] = useState(0)
+  const resultsVersion = `${libVersion}|${reload}`
+  const all = allAt === resultsVersion
   const top = useRef<HTMLDivElement>(null)
   // Rows stagger in only on the first load; later pages and filters just appear.
   const firstLoad = useRef(true)
@@ -297,7 +315,7 @@ export function Library() {
   const actions = useFontActions((clear) => {
     if (clear) {
       setSel(new Map())
-      setAll(false)
+      setAllAt(null)
     }
     setReload((n) => n + 1)
   })
@@ -332,7 +350,7 @@ export function Library() {
     lastScope.current = scopeKey
     setPage(1)
     setSel(new Map())
-    setAll(false)
+    setAllAt(null)
     anchor.current = null
   }, [scopeKey])
   useEffect(() => {
@@ -351,7 +369,11 @@ export function Library() {
   }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const args = query()
-    const t = setTimeout(() => api.familyPage(args, (page - 1) * PAGE, PAGE).then(setData, () => setData({ items: [], total: 0 })), search || chars ? 150 : 0)
+    const t = setTimeout(() => api.familyPage(args, (page - 1) * PAGE, PAGE).then((d) => {
+      setData(d)
+      // A page past the end (an old or edited URL, or a shrunk list) moves to the last page; the URL follows.
+      if (page > 1 && (page - 1) * PAGE >= d.total) setPage(Math.max(1, Math.ceil(d.total / PAGE)))
+    }, () => setData({ items: [], total: 0 })), search || chars ? 150 : 0)
     return () => clearTimeout(t)
   }, [scopeKey, page, libVersion, reload]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -368,7 +390,7 @@ export function Library() {
   /** Click = select just this one, Ctrl/Cmd+click = add/remove, Shift+click = range from the last clicked. */
   function select(f: Family, i: number, ctrl: boolean, shift: boolean) {
     const rows = data?.items ?? []
-    setAll(false)
+    setAllAt(null)
     if (shift && anchor.current !== null) {
       const [a, b] = [anchor.current, i].sort((x, y) => x - y)
       setSel((cur) => {
@@ -410,7 +432,7 @@ export function Library() {
       show(e, actions.menuItems([f]))
     },
     // Dragging carries the rows on this page; in "all results" it falls back to the page selection, as the bar then says.
-    drag: (f, e) => dragStart(e, () => (setAll(false), live.current.sel.has(f.key) ? [...live.current.sel.values()] : [f])),
+    drag: (f, e) => dragStart(e, () => (setAllAt(null), live.current.sel.has(f.key) ? [...live.current.sel.values()] : [f])),
   }), [dragStart])
 
   // FontBase shortcuts. Ctrl+F works everywhere; the rest stay out of the way while typing or in a dialog/menu.
@@ -433,13 +455,13 @@ export function Library() {
         e.preventDefault()
         if (e.shiftKey) return void actions.setActive(targets, true)
         setSel(new Map(rows.map((f) => [f.key, f])))
-        setAll(false)
+        setAllAt(null)
       } else if (mod && e.shiftKey && !e.altKey && k === 'd') {
         e.preventDefault()
         actions.setActive(targets, false)
       } else if (k === 'escape' && sel.size) {
         setSel(new Map())
-        setAll(false)
+        setAllAt(null)
       }
     }
     addEventListener('keydown', onKey)
@@ -461,6 +483,11 @@ export function Library() {
   const rows = data?.items ?? null
   const first = firstLoad.current
   const total = data?.total ?? 0
+  /** Back from "all results" to the rows on screen, which is what stays highlighted. */
+  const justThisPage = () => {
+    setSel(new Map((rows ?? []).map((f) => [f.key, f])))
+    setAllAt(null)
+  }
   const offerAll = !all && !!rows?.length && total > rows.length && rows.every((f) => sel.has(f.key))
 
   return (
@@ -604,8 +631,8 @@ export function Library() {
           <motion.div key="selbar" className="select-bar" role="toolbar" aria-label="Selected fonts" {...collapse}>
             <div className="select-bar-inner">
               <span style={{ fontWeight: 500, marginRight: 4 }} role="status">{all ? `All ${num(total)} results selected` : `${num(sel.size)} selected`}</span>
-              {offerAll && <button type="button" className="btn small link" onClick={() => setAll(true)}>Select all {num(total)} results</button>}
-              {all && <button type="button" className="btn small link" onClick={() => setAll(false)}>Select just this page</button>}
+              {offerAll && <button type="button" className="btn small link" onClick={() => setAllAt(resultsVersion)}>Select all {num(total)} results</button>}
+              {all && <button type="button" className="btn small link" onClick={justThisPage}>Select just this page</button>}
               <button type="button" className="btn small" onClick={() => actions.setActive(targets, true)} title={`${mod}Shift+A`}>Activate</button>
               <button type="button" className="btn small" onClick={() => actions.setActive(targets, false)} title={`${mod}Shift+D`}>Deactivate</button>
               <button type="button" className="btn small" aria-haspopup="menu" onClick={(e) => show(e, actions.collectionItems(targets), true)}>Add to collection ▾</button>
@@ -616,7 +643,7 @@ export function Library() {
                   ? <button type="button" className="btn small" onClick={() => actions.setPinned(selList, false)}>Unpin</button>
                   : <button type="button" className="btn small" onClick={() => actions.setPinned(selList, true)}>Pin to top</button>}
               <button type="button" className="btn small" aria-haspopup="menu" onClick={(e) => show(e, actions.menuItems(targets), true)}>More ▾</button>
-              <button type="button" className="btn small link" style={{ marginLeft: 'auto' }} onClick={() => (setSel(new Map()), setAll(false))} title="Esc">Clear</button>
+              <button type="button" className="btn small link" style={{ marginLeft: 'auto' }} onClick={() => (setSel(new Map()), setAllAt(null))} title="Esc">Clear</button>
             </div>
           </motion.div>
         )}

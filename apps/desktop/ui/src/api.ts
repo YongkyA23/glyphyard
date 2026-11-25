@@ -190,6 +190,8 @@ export const api = {
 
   listTags: () => call<Tag[]>('list_tags'),
   setTags: (familyKey: string, tags: string[]) => call<string[]>('set_tags', { familyKey, tags }),
+  /** Adds and removes tags on many families at once (one transaction); resolves to how many changed. */
+  editTags: (familyKeys: string[], add: string[], remove: string[]) => call<number>('edit_tags', { familyKeys, add, remove }),
   setLicense: (familyKey: string, label: License, file?: string | null, note?: string) =>
     call<FamilyDetail['licenseInfo']>('set_license', { familyKey, label, file, note }),
 

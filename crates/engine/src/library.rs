@@ -340,6 +340,11 @@ fn file_status(r: &Row, rows: &[&Row], mixed: bool) -> FileStatus {
     }
 }
 
+/// Tag names as `set_tags` stores them: trimmed, blanks dropped, no duplicates.
+pub(crate) fn clean_tags(tags: &[String]) -> BTreeSet<String> {
+    tags.iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect()
+}
+
 impl Engine {
     pub fn list_families(&self, q: &FamilyQuery) -> Result<Vec<Family>> {
         let db = self.db();
@@ -858,7 +863,7 @@ impl Engine {
     }
 
     pub fn set_tags(&self, family_key: &str, tags: &[String]) -> Result<Vec<String>> {
-        let tags: BTreeSet<String> = tags.iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
+        let tags = clean_tags(tags);
         let mut db = self.db();
         let tx = db.transaction()?;
         tx.execute("DELETE FROM family_tags WHERE family_key = ?1", [family_key])?;

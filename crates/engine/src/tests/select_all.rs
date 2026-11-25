@@ -47,6 +47,33 @@ fn targets_are_every_match_of_the_query_in_list_order() {
 }
 
 #[test]
+fn tags_are_added_and_removed_across_all_targets_in_one_call() {
+    let fx = fixture!();
+    if !put_three(&fx) {
+        return eprintln!("georgia/verdana not found, skipping");
+    }
+    let (arial, georgia, verdana) = (fx.family("Arial").key, fx.family("Georgia").key, fx.family("Verdana").key);
+    fx.engine.set_tags(&arial, &["old".into(), "web".into()]).unwrap();
+    fx.engine.set_tags(&georgia, &["web".into()]).unwrap();
+    fx.engine.set_tags(&verdana, &["keep".into()]).unwrap();
+
+    let keys = fx.engine.query_targets(&FamilyQuery::default()).unwrap().keys;
+    // " web " trims to "web" (the set_tags rule), blank names are dropped; "old" goes wherever it is.
+    let changed = fx.engine.edit_tags(&keys, &[" web ".into(), "  ".into()], &["old".into()]).unwrap();
+    assert_eq!(changed, 2, "Georgia already had web and no old: unchanged");
+    let tags = |name: &str| fx.family(name).tags;
+    assert_eq!(tags("Arial"), vec!["web"]);
+    assert_eq!(tags("Georgia"), vec!["web"]);
+    assert_eq!(tags("Verdana"), vec!["keep", "web"]);
+    assert!(fx.engine.list_tags().unwrap().iter().all(|t| !t.name.trim().is_empty() && t.name != "old"));
+
+    // A tag both added and removed is removed; nothing changes for families outside the keys.
+    assert_eq!(fx.engine.edit_tags(std::slice::from_ref(&arial), &["web".into()], &["web".into()]).unwrap(), 1);
+    assert!(tags("Arial").is_empty());
+    assert_eq!(tags("Georgia"), vec!["web"]);
+}
+
+#[test]
 fn system_fonts_and_empty_queries_give_nothing_to_switch() {
     let fx = fixture!();
     let sys = fx.root.parent().unwrap().join("os-fonts");

@@ -117,14 +117,14 @@ export const Empty = ({ children }: { children: ReactNode }) => <p className="em
 
 export function Layout() {
   const outlet = useOutlet()
-  const { pathname } = useLocation()
+  const { pathname, key } = useLocation()
   return (
     <div className="shell">
       <Sidebar />
       <main className="main">
         {/* The exiting route keeps its own outlet element, so it renders the old page while fading out. */}
         <AnimatePresence mode="wait">
-          <motion.div key={pathname} {...page}><ErrorBoundary>{outlet}</ErrorBoundary></motion.div>
+          <motion.div key={pathname} {...page}><ErrorBoundary resetKey={key} sidebar>{outlet}</ErrorBoundary></motion.div>
         </AnimatePresence>
       </main>
     </div>

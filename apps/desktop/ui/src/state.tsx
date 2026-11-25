@@ -81,6 +81,7 @@ export function AppProvider({ main, children }: { main: boolean; children: React
     const onRejection = (e: PromiseRejectionEvent) => {
       const msg = errMsg(e.reason)
       if (seen.has(msg)) return
+      if (seen.size >= 50) seen.clear() // ponytail: forget old messages rather than grow forever
       seen.add(msg)
       toast(`Something didn’t work: ${msg}`)
     }

@@ -20,6 +20,8 @@ const allHashes = (fams: Family[]) => fams.flatMap((f) => f.faces.map((x) => x.h
 /** Family keys and switchable font hashes of the targets. */
 const resolve = (t: Targets) => (isAll(t) ? api.queryTargets(t.query) : Promise.resolve({ keys: t.map((f) => f.key), hashes: editable(t) }))
 export const famNames = (t: Targets) => (isAll(t) ? plural(t.count, 'family', 'families') : t.length === 1 ? t[0].family : plural(t.length, 'family', 'families'))
+/** Names for a toast after the action: for all results, the number the engine actually resolved. */
+const doneNames = (t: Targets, keys: string[]) => (isAll(t) ? plural(keys.length, 'family', 'families') : famNames(t))
 /** Why an action is off for all results: it makes no sense for thousands of families at once. */
 export const NOT_ALL = 'Not for all results'
 
@@ -28,7 +30,7 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
   const { app, activate, toast, bump, libVersion } = useApp()
   const navigate = useNavigate()
   const [collections, setCollections] = useState<Collection[]>([])
-  const [tagging, setTagging] = useState<Family[] | null>(null)
+  const [tagging, setTagging] = useState<Targets | null>(null)
   const [renaming, setRenaming] = useState<Family[] | null>(null)
   const [deleting, setDeleting] = useState<Family[] | null>(null)
   const [newColl, setNewColl] = useState<Targets | null>(null)
@@ -39,20 +41,24 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
 
   async function setActive(fams: Targets, on: boolean) {
     if (!isAll(fams) && !editable(fams).length) return
+    let keys: string[] = []
     const res = await activate(async () => {
-      const { hashes } = await resolve(fams)
-      return hashes.length ? api.setActive(hashes, on) : []
+      const t = await resolve(fams)
+      keys = t.keys
+      return t.hashes.length ? api.setActive(t.hashes, on) : []
     })
-    if (res?.some((r) => r.ok)) toast(`${on ? 'Turned on' : 'Turned off'} ${famNames(fams)}`)
+    if (res?.some((r) => r.ok)) toast(`${on ? 'Turned on' : 'Turned off'} ${doneNames(fams, keys)}`)
     onChanged(false)
   }
   async function setActiveFor(fams: Targets, until: Until) {
     if (!isAll(fams) && !editable(fams).length) return
+    let keys: string[] = []
     const res = await activate(async () => {
-      const { hashes } = await resolve(fams)
-      return hashes.length ? api.setActiveFor(hashes, until) : []
+      const t = await resolve(fams)
+      keys = t.keys
+      return t.hashes.length ? api.setActiveFor(t.hashes, until) : []
     })
-    if (res?.some((r) => r.ok)) toast(`Turned on ${famNames(fams)} ${until === 'restart' ? 'until you restart Typeshelf' : 'for 2 hours'}`)
+    if (res?.some((r) => r.ok)) toast(`Turned on ${doneNames(fams, keys)} ${until === 'restart' ? 'until you restart Typeshelf' : 'for 2 hours'}`)
     onChanged(false)
   }
   async function setPinned(fams: Family[], pinned: boolean) {
@@ -66,18 +72,13 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
   }
   async function addTo(c: { id: number; name: string }, fams: Targets) {
     try {
-      await api.addToCollection(c.id, (await resolve(fams)).keys)
-      toast(`Added ${famNames(fams)} to ${c.name}`)
+      const { keys } = await resolve(fams)
+      await api.addToCollection(c.id, keys)
+      toast(`Added ${doneNames(fams, keys)} to ${c.name}`)
       bump()
     } catch (e) {
       toast(errMsg(e))
     }
-  }
-  /** Tags need each family's current tags, so all results come over as families (one list call, no paging). */
-  // ponytail: saving then writes each family's tags one call at a time; add a bulk tag command if thousands feel slow.
-  function openTags(fams: Targets) {
-    if (isAll(fams)) api.listFamilies(fams.query).then(setTagging, (e) => toast(errMsg(e)))
-    else setTagging(fams)
   }
   async function createAndAdd(name: string, fams: Targets) {
     try {
@@ -120,7 +121,7 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
           ? { label: 'Unpin', onSelect: () => setPinned(fams, false) }
           : { label: 'Pin to top', onSelect: () => setPinned(fams, true) },
       { label: 'Add to collection', items: collectionItems(targets) },
-      { label: 'Tags…', onSelect: () => openTags(targets) },
+      { label: 'Tags…', onSelect: () => setTagging(targets) },
       { label: one ? 'Rename family…' : 'Show as one family…', disabled: all, hint: all ? NOT_ALL : undefined, onSelect: () => setRenaming(fams) },
       'sep',
       { label: 'Use as Playground font A', disabled: !one, onSelect: () => navigate(`/playground?a=${encodeURIComponent(fams[0].key)}`) },
@@ -186,7 +187,7 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
       </Dialog>
     </>
   )
-  return { menuItems, collectionItems, setActive, setPinned, addTo, openTags, collections, dialogs }
+  return { menuItems, collectionItems, setActive, setPinned, addTo, openTags: setTagging, collections, dialogs }
 }
 
 const FONT_FILES = [{ name: 'Fonts', extensions: ['ttf', 'otf', 'ttc', 'otc', 'woff', 'woff2'] }]
@@ -228,8 +229,12 @@ export function useAddFonts() {
   }
 }
 
-/** Tags for one or more families. Tags only some of them have show as mixed and stay as they are unless clicked. */
-function TagsDialog({ fams, onClose }: { fams: Family[] | null; onClose: () => void }) {
+/**
+ * Tags for one or more families. Tags only some of them have show as mixed and stay as they are unless clicked.
+ * For all results the dialog doesn't load every family: each tag starts as "leave as is" and a click adds or removes it.
+ * Saving is one engine call (`edit_tags`) either way.
+ */
+function TagsDialog({ fams, onClose }: { fams: Targets | null; onClose: () => void }) {
   const { toast, bump } = useApp()
   const [cur, setCur] = useState<Map<string, string[]> | null>(null)
   const [names, setNames] = useState<string[]>([])
@@ -237,17 +242,18 @@ function TagsDialog({ fams, onClose }: { fams: Family[] | null; onClose: () => v
   const [want, setWant] = useState<Record<string, boolean | null>>({})
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
+  const list = fams && !isAll(fams) ? fams : null
   useEffect(() => {
     if (!fams) return
     setCur(null)
     setDraft('')
-    Promise.all([tagsOf(fams.map((f) => f.key)), api.listTags()]).then(([m, all]) => {
-      const n = fams.length
+    Promise.all([list ? tagsOf(list.map((f) => f.key)) : new Map<string, string[]>(), api.listTags()]).then(([m, all]) => {
       setCur(m)
       setNames(all.map((t) => t.name))
       setWant(Object.fromEntries(all.map((t) => {
-        const has = fams.filter((f) => m.get(f.key)?.includes(t.name)).length
-        return [t.name, has === n ? true : has === 0 ? false : null]
+        if (!list) return [t.name, null]
+        const has = list.filter((f) => m.get(f.key)?.includes(t.name)).length
+        return [t.name, has === list.length ? true : has === 0 ? false : null]
       })))
     }, (e) => (toast(errMsg(e)), onClose()))
   }, [fams]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -263,12 +269,9 @@ function TagsDialog({ fams, onClose }: { fams: Family[] | null; onClose: () => v
     if (!fams || !cur) return
     setBusy(true)
     try {
-      await Promise.all(fams.map((f) => {
-        const had = cur.get(f.key) ?? []
-        const next = names.filter((t) => want[t] === true || (want[t] === null && had.includes(t)))
-        return next.join('\n') === [...had].sort().join('\n') ? null : api.setTags(f.key, next)
-      }))
-      toast(`Updated tags on ${famNames(fams)}`)
+      const { keys } = await resolve(fams)
+      const changed = await api.editTags(keys, names.filter((t) => want[t] === true), names.filter((t) => want[t] === false))
+      toast(changed ? `Updated tags on ${changed === 1 && list?.length === 1 ? list[0].family : plural(changed, 'family', 'families')}` : 'No tags changed')
       bump()
       onClose()
     } catch (e) {
@@ -278,7 +281,7 @@ function TagsDialog({ fams, onClose }: { fams: Family[] | null; onClose: () => v
     }
   }
 
-  const count = (t: string) => fams?.filter((f) => cur?.get(f.key)?.includes(t)).length ?? 0
+  const count = (t: string) => list?.filter((f) => cur?.get(f.key)?.includes(t)).length ?? 0
   return (
     <Dialog open={!!fams} onClose={onClose} title={fams ? `Tags for ${famNames(fams)}` : 'Tags'}>
       {!cur ? (
@@ -291,10 +294,12 @@ function TagsDialog({ fams, onClose }: { fams: Family[] | null; onClose: () => v
                 <label key={t} className="check-row">
                   <input
                     type="checkbox" checked={want[t] === true} ref={(el) => void (el && (el.indeterminate = want[t] === null))}
-                    onChange={() => setWant((w) => ({ ...w, [t]: w[t] !== true }))}
+                    // All results: add → remove → leave as is. Otherwise on / off (a mixed tag can't go back to mixed).
+                    onChange={() => setWant((w) => ({ ...w, [t]: list ? w[t] !== true : w[t] === null ? true : w[t] ? false : null }))}
                   />
                   <span style={{ flex: 1 }}>{t}</span>
-                  {want[t] === null && <span className="faint" style={{ fontSize: 12 }}>{count(t)} of {fams?.length}</span>}
+                  {want[t] === null && <span className="faint" style={{ fontSize: 12 }}>{list ? `${count(t)} of ${list.length}` : 'Left as is'}</span>}
+                  {!list && want[t] !== null && <span className="faint" style={{ fontSize: 12 }}>{want[t] ? 'Add to all' : 'Remove from all'}</span>}
                 </label>
               ))}
             </div>

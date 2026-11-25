@@ -574,6 +574,19 @@ const handlers: Record<string, (a: Args) => unknown> = {
     fam(familyKey)!.tags = clean
     return clean
   },
+  edit_tags: ({ familyKeys, add, remove }) => {
+    const clean = (ts: string[]) => ts.map((t) => t.trim()).filter(Boolean)
+    const rm = new Set(clean(remove)), ad = clean(add).filter((t) => !rm.has(t))
+    let changed = 0
+    for (const k of familyKeys as string[]) {
+      const f = fam(k)
+      if (!f) continue
+      const next = [...new Set([...f.tags.filter((t) => !rm.has(t)), ...ad])].sort()
+      if (next.join('\n') !== [...f.tags].sort().join('\n')) changed++
+      f.tags = next
+    }
+    return changed
+  },
   set_license: ({ familyKey, label, file, note }) => {
     const f = fam(familyKey)!
     f.license = label

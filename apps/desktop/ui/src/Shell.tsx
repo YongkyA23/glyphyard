@@ -485,7 +485,7 @@ function FileDrop() {
 
 export function Shell() {
   const outlet = useOutlet()
-  const { pathname } = useLocation()
+  const { pathname, key } = useLocation()
   const main = useRef<HTMLElement>(null)
   // The content column is the scroller now, so each page starts at its top.
   // (Block body: newer Chromium's scrollTo returns a Promise, which React would take as a cleanup.)
@@ -499,7 +499,7 @@ export function Shell() {
       </div>
       <main className="shell-main" ref={main}>
         <AnimatePresence mode="popLayout" initial={false}>
-          <motion.div key={pathname} className="route" {...route}><ErrorBoundary>{outlet}</ErrorBoundary></motion.div>
+          <motion.div key={pathname} className="route" {...route}><ErrorBoundary resetKey={key} sidebar>{outlet}</ErrorBoundary></motion.div>
         </AnimatePresence>
       </main>
       <FileDrop />
