@@ -8,7 +8,7 @@
  * @typedef {"connected" | "not_paired" | "offline"} Status
  * @typedef {(method: string, url: string, headers: Record<string, string>, body: string | undefined,
  *   timeoutMs: number) => Promise<{ status: number, body: string }>} Transport
- * @typedef {{ status(): Promise<Status>, pair(): Promise<boolean>,
+ * @typedef {{ status(): Promise<Status>, documentsOnBridge(): number | null, pair(): Promise<boolean>,
  *   sendDocument(document: string, action: "open" | "close", fonts: DocFont[]): Promise<any> }} Client
  * @typedef {{ id: string | number, name: string }} DocRef
  * @typedef {{
@@ -32,6 +32,9 @@ function typeshelfClient({ app, appVersion, transport, storage }) {
   const tokenKey = `typeshelf.${app}.token`;
   /** @type {number | null} */
   let port = null;
+  /** This app's documents the bridge had open at the last connected ping; null if it didn't say. */
+  /** @type {number | null} */
+  let documents = null;
 
   /** @type {Transport} */
   function fetchTransport(method, url, headers, body, timeoutMs) {
@@ -102,14 +105,22 @@ function typeshelfClient({ app, appVersion, transport, storage }) {
 
   return {
     async status() {
+      documents = null;
       try {
         const res = await call("GET", "/v1/ping");
-        if (res.json && res.json.paired) return "connected";
+        if (res.json && res.json.paired) {
+          if (typeof res.json.documents === "number") documents = res.json.documents;
+          return "connected";
+        }
         store.removeItem(tokenKey); // revoked or never paired
         return "not_paired";
       } catch (_) {
         return "offline";
       }
+    },
+
+    documentsOnBridge() {
+      return documents;
     },
 
     async pair() {
@@ -147,7 +158,9 @@ function typeshelfPanel(client, host) {
   let state = "offline";
   /** Documents the bridge has been told about: id -> name sent. */
   const tracked = new Map();
-  /** Set after losing Typeshelf: it may have restarted, so the next sync re-sends every open document. */
+  /** Ids of tracked documents whose fonts were sent with "open" (the bridge only knows these). */
+  const reported = new Set();
+  /** Set when Typeshelf may have forgotten our documents; the next sync re-sends every open document. */
   let reReport = false;
   /** The bridge closes an app's documents when it hasn't heard from it for 60 s. */
   const HEARTBEAT_MS = 15000;
@@ -166,9 +179,10 @@ function typeshelfPanel(client, host) {
 
   async function refresh() {
     state = await client.status();
-    // A restarted app has forgotten our documents; resend them all once connected again. `tracked` is kept so
-    // documents closed meanwhile still get their "close".
-    if (state !== "connected") reReport = true;
+    // A restarted Typeshelf has forgotten our documents, and one that didn't hear from us for 60 s (sleep, a
+    // throttled panel) closed them: resend them all. Seen as losing the connection, or as a connected bridge
+    // that has none of the documents we sent. `tracked` is kept so documents closed meanwhile get their "close".
+    if (state !== "connected" || (client.documentsOnBridge() === 0 && reported.size > 0)) reReport = true;
     statusEl.textContent = LABELS[state];
     pairBtn.style.display = state === "not_paired" ? "" : "none";
     checkBtn.disabled = state !== "connected";
@@ -189,11 +203,13 @@ function typeshelfPanel(client, host) {
     const fonts = await host.documentFonts(doc.id);
     if (!fonts.length) {
       tracked.set(doc.id, doc.name);
+      reported.delete(doc.id); // nothing sent, so the bridge may rightly have none of it
       return;
     }
     /** @type {DocResult} */
     const r = await client.sendDocument(doc.name, "open", fonts);
     tracked.set(doc.id, doc.name);
+    reported.add(doc.id);
     const parts = [];
     // restartNote: the app (InDesign) only sees fonts turned on while it runs after a restart.
     if (r.activated.length) parts.push(`turned on ${r.activated.join(", ")}${host.restartNote ? ` (${host.restartNote})` : ""}`);
@@ -210,6 +226,7 @@ function typeshelfPanel(client, host) {
       if (ids.has(id)) continue;
       await client.sendDocument(name, "close", []);
       tracked.delete(id); // only once sent, so a failed close is retried by the next sync
+      reported.delete(id);
     }
     // Re-opening a document the bridge still knows only adds to it, so re-sending is safe.
     for (const doc of docs) if (reReport || !tracked.has(doc.id)) await open(doc);
@@ -247,6 +264,11 @@ function typeshelfPanel(client, host) {
 
   host.onChange(scheduleSync);
   enqueue(sync); // documents that were already open
-  // Connected: an authenticated ping (heartbeat). Otherwise: pick up a Typeshelf that starts after the Adobe app.
-  setInterval(() => enqueue(state === "connected" ? refresh : sync), HEARTBEAT_MS);
+  async function heartbeat() {
+    // Not connected: pick up a Typeshelf that starts after the Adobe app.
+    if (state !== "connected") return sync();
+    // Connected: an authenticated ping, which also tells us whether the bridge forgot our documents.
+    if ((await refresh()) === "connected" && reReport) await sync();
+  }
+  setInterval(() => enqueue(heartbeat), HEARTBEAT_MS);
 }

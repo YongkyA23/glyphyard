@@ -272,8 +272,17 @@ fn bearer(headers: &HeaderMap) -> Option<&str> {
 }
 
 async fn ping(State(s): State<Arc<Shared>>, headers: HeaderMap) -> Json<serde_json::Value> {
-    let paired = bearer(&headers).and_then(|t| s.token_app(t)).is_some();
-    Json(json!({ "app": "typeshelf", "version": s.config.version, "paired": paired }))
+    let app = bearer(&headers).and_then(|t| s.token_app(t));
+    let mut body = json!({ "app": "typeshelf", "version": s.config.version, "paired": app.is_some() });
+    // How many of the caller's documents the bridge has open; 0 tells a plug-in that still tracks some that
+    // they were forgotten (restart, expiry) and must be re-sent.
+    // ponytail: skipped while a slow activate holds the lock; the plug-in just checks again on its next ping.
+    if let Some(app) = app {
+        if let Ok(docs) = tokio::time::timeout(Duration::from_millis(500), s.docs.lock()).await {
+            body["documents"] = docs.open.keys().filter(|(a, _)| *a == app).count().into();
+        }
+    }
+    Json(body)
 }
 
 async fn pair(State(s): State<Arc<Shared>>, Json(req): Json<PairRequest>) -> Response {

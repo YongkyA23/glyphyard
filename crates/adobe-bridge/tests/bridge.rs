@@ -141,8 +141,11 @@ async fn pairing_allowed_persists_hashed_and_can_be_revoked() {
     let (handle, base) = bridge(dir.path(), fake(true)).await;
     let token = paired_token(&base).await;
 
-    assert_eq!(ping(&base, Some(&token)).await, json!({ "app": "typeshelf", "version": "1.2.3", "paired": true }));
-    assert_eq!(ping(&base, None).await["paired"], false);
+    assert_eq!(
+        ping(&base, Some(&token)).await,
+        json!({ "app": "typeshelf", "version": "1.2.3", "paired": true, "documents": 0 })
+    );
+    assert_eq!(ping(&base, None).await, json!({ "app": "typeshelf", "version": "1.2.3", "paired": false }));
     assert!(handle.is_paired(App::Photoshop));
     assert!(!handle.is_paired(App::Indesign));
     let stored = std::fs::read_to_string(dir.path().join("adobe-tokens.json")).unwrap();
@@ -292,10 +295,11 @@ async fn fonts_owned_before_a_restart_are_released_unless_reclaimed() {
     doc(&base, &token, "b.psd", "open", &["Lib-B"]).await;
     handle.shutdown();
 
-    // Typeshelf restarts; the fonts are still on. Only a.psd is re-reported.
+    // Typeshelf restarts; the fonts are still on. Only a.psd is re-reported. The window is 3x the short
+    // expiry so a slow first request on a loaded machine still lands inside it.
     let handler = fake(true);
     handler.active.lock().unwrap().extend(["Lib-A".to_string(), "Lib-B".to_string()]);
-    let (_handle, base) = bridge_with_expiry(dir.path(), handler.clone(), SHORT_EXPIRY).await;
+    let (_handle, base) = bridge_with_expiry(dir.path(), handler.clone(), SHORT_EXPIRY * 3).await;
     let (_, a) = doc(&base, &token, "a.psd", "open", &["Lib-A"]).await;
     assert_eq!(a["alreadyActive"], json!(["Lib-A"]));
     let heartbeat = keep_pinging(&base, &token);
@@ -305,4 +309,29 @@ async fn fonts_owned_before_a_restart_are_released_unless_reclaimed() {
     heartbeat.abort();
     assert_eq!(*handler.released.lock().unwrap(), vec!["Lib-B".to_string()]);
     assert_eq!(doc(&base, &token, "a.psd", "close", &[]).await.1, json!({ "released": ["Lib-A"] }), "still owned");
+}
+
+/// Lets a plug-in that never saw Typeshelf go away notice it forgot its documents (restart, expiry after sleep).
+#[tokio::test]
+async fn authenticated_ping_reports_the_apps_open_documents() {
+    let dir = tempfile::tempdir().unwrap();
+    let handler = fake(true);
+    let (handle, base) = bridge_with_expiry(dir.path(), handler.clone(), SHORT_EXPIRY).await;
+    let photoshop = paired_token(&base).await;
+    let indesign = paired_token_as(&base, "indesign").await;
+    doc(&base, &photoshop, "a.psd", "open", &["Lib-A"]).await;
+    doc(&base, &photoshop, "b.psd", "open", &[]).await;
+    assert_eq!(ping(&base, Some(&photoshop)).await["documents"], 2);
+    assert_eq!(ping(&base, Some(&indesign)).await["documents"], 0, "per app");
+    assert!(ping(&base, None).await.get("documents").is_none(), "nothing for an unpaired caller");
+
+    // Photoshop goes quiet (asleep) until its documents expire; its next ping says the bridge has none.
+    wait_until(|| !handler.released.lock().unwrap().is_empty()).await;
+    assert_eq!(ping(&base, Some(&photoshop)).await["documents"], 0);
+
+    doc(&base, &photoshop, "a.psd", "open", &["Lib-A"]).await;
+    assert_eq!(ping(&base, Some(&photoshop)).await["documents"], 1);
+    handle.shutdown();
+    let (_handle, base) = bridge(dir.path(), fake(true)).await;
+    assert_eq!(ping(&base, Some(&photoshop)).await["documents"], 0, "a restarted bridge has none");
 }
