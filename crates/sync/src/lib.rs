@@ -232,8 +232,9 @@ impl SyncClient {
         if res.status() == StatusCode::NOT_FOUND {
             return Ok(None);
         }
-        let r: Release = check(res).await?.json().await.map_err(http_err)?;
-        Ok(Some((r.manifest, r.signature)))
+        // A server without the update routes answers with its admin UI (200 HTML): no release, not an error.
+        let body = check(res).await?.bytes().await.map_err(http_err)?;
+        Ok(serde_json::from_slice::<Release>(&body).ok().map(|r| (r.manifest, r.signature)))
     }
 
     /// Streams `GET /update/file` into `to`, giving up once more than `max` bytes arrive. On any error the

@@ -118,6 +118,8 @@ export type Settings = {
   /** "Playful extras": easter eggs and hidden games. */ playful: boolean
   /** Read-only. False when this build has no update key (the switch is hidden); updateReady: the version installed at quit. */
   canUpdate?: boolean; updateReady?: string | null
+  /** Read-only. Set when the last check refused the server's release (it was not installed). */
+  updateProblem?: string | null
 }
 export type AdobeApp = 'photoshop' | 'illustrator' | 'indesign'
 export type AdobeRow = { app: AdobeApp; label: string; versions: string[]; installed: boolean; paired: boolean }

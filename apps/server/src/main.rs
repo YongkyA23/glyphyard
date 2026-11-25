@@ -91,7 +91,12 @@ async fn main() -> anyhow::Result<()> {
         Cmd::InstallKey { data } => println!("{}", db::settings(&open_db(&data)?)?.install_key),
         Cmd::UpdateKeygen { out } => {
             let (private, public) = update::generate_key()?;
-            let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&out).with_context(|| format!("creating {}", out.display()))?;
+            let mut open = std::fs::OpenOptions::new();
+            open.write(true).create_new(true);
+            // Readable by its owner only.
+            #[cfg(unix)]
+            std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
+            let mut f = open.open(&out).with_context(|| format!("creating {}", out.display()))?;
             std::io::Write::write_all(&mut f, format!("{private}\n").as_bytes())?;
             println!("Private key written to {}. Keep it offline; anyone who has it can ship updates.", out.display());
             println!("Public key (pass to scripts/build-windows.ps1 -UpdateKey):\n{public}");

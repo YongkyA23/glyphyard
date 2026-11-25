@@ -17,6 +17,8 @@ use typeshelf_core::update::{check_file, Manifest};
 const FILE: &str = "setup.exe";
 const MANIFEST: &str = "manifest";
 const SIGNATURE: &str = "signature";
+/// The setup program is about 15 MB; this leaves room without inviting huge uploads.
+pub const MAX_UPLOAD: usize = 100 * 1024 * 1024;
 
 // One upload at a time, so the three files on disk always come from the same upload.
 static UPLOAD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -27,7 +29,7 @@ pub fn desktop_routes() -> Router<AppState> {
 
 // ponytail: guarded by `Admin`; make it owner-only once admin roles land.
 pub fn admin_routes() -> Router<AppState> {
-    Router::new().route("/update", get(current).post(upload).layer(DefaultBodyLimit::max(512 * 1024 * 1024)))
+    Router::new().route("/update", get(current).post(upload).layer(DefaultBodyLimit::max(MAX_UPLOAD)))
 }
 
 fn dir(s: &AppState) -> PathBuf {
@@ -74,7 +76,8 @@ async fn current(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Value>> 
 
 /// Multipart `file` (the setup program), `manifest` and `signature` (as written by `update-sign`).
 async fn upload(State(s): State<AppState>, _: Admin, mut form: Multipart) -> ApiResult<Json<Value>> {
-    let bad = |e: axum::extract::multipart::MultipartError| ApiError::bad_request("bad_upload", e.body_text());
+    // Keeps the status, so an upload over `MAX_UPLOAD` is a 413.
+    let bad = |e: axum::extract::multipart::MultipartError| ApiError::new(e.status(), "bad_upload", e.body_text());
     let (mut file, mut manifest, mut signature) = (None, None, None);
     while let Some(field) = form.next_field().await.map_err(bad)? {
         let slot = match field.name() {

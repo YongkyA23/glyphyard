@@ -386,3 +386,16 @@ async fn update_release_and_download() {
     let anonymous = SyncClient::new(config(&url, None, dir.path()));
     assert!(matches!(anonymous.update_release().await, Err(SyncError::Server { status: 401, .. })));
 }
+
+/// An old server without the update routes answers with the admin UI's HTML (200): that is "no release", not an error.
+#[tokio::test]
+async fn update_release_from_an_old_server_is_none() {
+    let html = || async { ([("content-type", "text/html")], "<!doctype html><title>Typeshelf</title>") };
+    let app = Router::new().route("/api/v1/update", get(html));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let dir = tempfile::tempdir().unwrap();
+    let client = SyncClient::new(config(&url, Some(TOKEN), &dir.path().join("outbox.jsonl")));
+    assert_eq!(client.update_release().await.unwrap(), None);
+}

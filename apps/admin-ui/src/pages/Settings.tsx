@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { api, errorText, type Admin, type Me, type Role, type Settings } from '../api'
+import { api, ApiError, errorText, type Admin, type Me, type Role, type Settings } from '../api'
 import { base, fadeRise, fast, row } from '../motion'
 import { ago, Empty, ErrorBox, Loaded, Skel, Spin, Swap, Toggle, useConfirm, useLoad } from '../ui'
 
@@ -322,7 +322,7 @@ function Updates() {
       setDone(`Version ${r.version} is now offered to every computer.`)
       formEl.reset()
     } catch (err) {
-      setError(errorText(err))
+      setError(err instanceof ApiError && err.status === 413 ? 'The upload is larger than 100 MB, the most the server accepts. Check that you chose the setup program.' : errorText(err))
     } finally {
       setBusy(false)
     }

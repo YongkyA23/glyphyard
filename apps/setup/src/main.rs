@@ -190,6 +190,8 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, Error> + Send
 }
 
 fn main() {
+    // For the whole run, before anything can close the app (the uninstall relaunch from %TEMP% takes it too).
+    process::hold_setup_mutex();
     let args = parse_args();
     let uninstall_dir = args.uninstall.then(|| find_install(&args));
     if let (Some(dir), None) = (&uninstall_dir, &args.from) {

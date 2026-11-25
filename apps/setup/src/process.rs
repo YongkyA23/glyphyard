@@ -21,6 +21,16 @@ pub fn hidden(program: impl AsRef<OsStr>) -> Command {
     cmd
 }
 
+/// Marks "a Typeshelf Setup or uninstall is running" for the app, which then does not start a pending update when
+/// it is closed (apps/desktop/src-tauri/src/update.rs, `SETUP_MUTEX`: same name). The handle is never closed;
+/// Windows releases it when this process exits.
+pub fn hold_setup_mutex() {
+    use windows::core::w;
+    use windows::Win32::System::Threading::CreateMutexW;
+    // SAFETY: no security attributes, a static name; the returned handle is intentionally kept open.
+    let _ = unsafe { CreateMutexW(None, false, w!("Local\\TypeshelfSetupRunning")) };
+}
+
 /// Any process named typeshelf.exe (it holds the files we are about to replace or delete).
 pub fn app_running() -> bool {
     unsafe {

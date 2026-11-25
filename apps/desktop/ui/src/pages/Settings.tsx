@@ -254,6 +254,7 @@ function AppSection() {
           <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span>{label}</span><span className="faint" style={{ fontSize: 12 }}>{hint}</span>
             {k === 'autoUpdate' && s?.autoUpdate && s.updateReady && <span style={{ fontSize: 12, color: 'var(--accent-ink)' }}>Version {s.updateReady} will be installed when you quit Typeshelf.</span>}
+            {k === 'autoUpdate' && s?.autoUpdate && s.updateProblem && <span role="alert" style={{ fontSize: 12, color: 'var(--bad)' }}>{s.updateProblem}</span>}
           </span>
           <Switch on={!!s?.[k]} label={label} onClick={() => flip(k)} disabled={!s} />
         </div>

@@ -9,6 +9,8 @@ Design: `docs/ui-canvas/Setup*.dc.html`, `docs/ui-canvas/Uninstall*.dc.html`.
 - Silent use for admins: `typeshelf-setup.exe --silent [--dir <path>] [--no-start-menu] [--desktop] [--no-start-at-login]`,
   `uninstall.exe --uninstall --silent [--wipe-data]`. Exit code 0 on success. Silent mode closes a running
   Typeshelf first (asks it to close, forces it after 5 s) instead of stopping with `app_running`.
+- Holds the named mutex `Local\TypeshelfSetupRunning` for its whole run (every mode). The app checks it at quit and
+  does not start a pending update while a Setup or uninstall is closing it.
 
 ## UI ↔ backend contract (`window.__TAURI__.core.invoke`, `window.__TAURI__.event.listen`)
 

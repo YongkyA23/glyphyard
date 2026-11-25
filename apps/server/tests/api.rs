@@ -1434,3 +1434,11 @@ async fn update_upload_refuses_a_file_that_does_not_match_its_manifest() {
     assert_eq!(s.desktop(Method::GET, "/update", &token, None).await.status, StatusCode::NOT_FOUND);
     assert_eq!(s.desktop(Method::GET, "/update/file", &token, None).await.status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn update_upload_over_the_cap_is_413() {
+    let s = Server::new().await;
+    let file = vec![0u8; typeshelf_server::update::MAX_UPLOAD + 1];
+    let r = s.upload_update(&[("file", &file), ("manifest", b"m"), ("signature", b"s")], &s.cookie).await;
+    assert_eq!((r.status, r.json()["error"].as_str()), (StatusCode::PAYLOAD_TOO_LARGE, Some("bad_upload")));
+}

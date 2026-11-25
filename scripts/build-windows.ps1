@@ -62,9 +62,13 @@ if ($signArgs) {
     Write-Host 'Unsigned build: no certificate given (-CertThumbprint or -CertFile), so Windows SmartScreen may warn about the installer.'
 }
 
+# Calls signtool directly (not through Run): $signArgs can hold the .pfx password, so no message or log line may
+# include the arguments. A failure names only the file and the exit code.
 function Sign([string]$file) {
     if (-not $signArgs) { return }
-    Run $root $signtool (@('sign', '/fd', 'SHA256', '/tr', $TimestampUrl, '/td', 'SHA256') + $signArgs + @($file))
+    $ErrorActionPreference = 'Continue'
+    & $signtool sign /fd SHA256 /tr $TimestampUrl /td SHA256 @signArgs $file
+    if ($LASTEXITCODE -ne 0) { throw "signtool could not sign $file (exit code $LASTEXITCODE)." }
 }
 
 # 1. The app: tauri.conf.json's beforeBuildCommand builds the UI and the plug-in packages (plugins/dist).

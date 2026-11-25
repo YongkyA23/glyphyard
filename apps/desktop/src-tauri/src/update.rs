@@ -36,9 +36,32 @@ pub struct Ready {
     pub manifest: Manifest,
 }
 
-/// Managed state: the release waiting for quit.
+/// Managed state: the release waiting for quit, and whether the last check refused a release.
 #[derive(Default)]
-pub struct Pending(Mutex<Option<Ready>>);
+pub struct Pending {
+    ready: Mutex<Option<Ready>>,
+    problem: Mutex<Option<String>>,
+}
+
+/// Shown in Settings when the server offered a release that failed verification.
+const PROBLEM: &str = "The update from your server could not be verified and was not installed. Tell your admin: the update may be signed with a different key than this app was built with.";
+
+/// Why a check stopped.
+#[derive(Debug)]
+pub enum CheckError {
+    /// The signature, manifest or downloaded file failed verification: shown in Settings.
+    Refused(String),
+    /// Offline, server or disk trouble: logged and retried.
+    Failed(String),
+}
+
+impl std::fmt::Display for CheckError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            CheckError::Refused(e) | CheckError::Failed(e) => f.write_str(e),
+        }
+    }
+}
 
 /// The settings response plus what the UI needs to know about updates.
 #[derive(Serialize)]
@@ -50,11 +73,15 @@ pub struct SettingsView {
     can_update: bool,
     /// The version that will be installed at quit.
     update_ready: Option<String>,
+    /// Set when the last check refused the server's release (bad signature or file).
+    update_problem: Option<String>,
 }
 
 pub fn view(app: &AppHandle, settings: AppSettings) -> SettingsView {
-    let update_ready = app.state::<Pending>().0.lock().unwrap().as_ref().map(|r| r.manifest.version.to_string());
-    SettingsView { settings, can_update: key().is_some(), update_ready }
+    let pending = app.state::<Pending>();
+    let update_ready = pending.ready.lock().unwrap().as_ref().map(|r| r.manifest.version.to_string());
+    let update_problem = pending.problem.lock().unwrap().clone();
+    SettingsView { settings, can_update: key().is_some(), update_ready, update_problem }
 }
 
 fn dir(data_dir: &Path) -> PathBuf {
@@ -78,17 +105,22 @@ pub async fn run(app: AppHandle) {
             continue;
         }
         let pending = app.state::<Pending>();
-        let have = pending.0.lock().unwrap().as_ref().map(|r| r.manifest.version);
+        let have = pending.ready.lock().unwrap().as_ref().map(|r| r.manifest.version);
         match check(&ctx.client(), Some(&key), &dir, CURRENT, have).await {
-            Ok(Some(ready)) => {
-                tracing::info!(version = %ready.manifest.version, "update downloaded and verified; it installs when Typeshelf quits");
-                if let Some(old) = pending.0.lock().unwrap().replace(ready) {
-                    let _ = std::fs::remove_file(old.path);
+            Ok(found) => {
+                *pending.problem.lock().unwrap() = None;
+                if let Some(ready) = found {
+                    tracing::info!(version = %ready.manifest.version, "update downloaded and verified; it installs when Typeshelf quits");
+                    if let Some(old) = pending.ready.lock().unwrap().replace(ready) {
+                        let _ = std::fs::remove_file(old.path);
+                    }
                 }
             }
-            Ok(None) => {}
             Err(e) => {
                 tracing::warn!("update check: {e}");
+                if matches!(e, CheckError::Refused(_)) {
+                    *pending.problem.lock().unwrap() = Some(PROBLEM.into());
+                }
                 wait = Duration::from_secs(60 * 60);
             }
         }
@@ -96,22 +128,23 @@ pub async fn run(app: AppHandle) {
 }
 
 /// One check. Does nothing without a key. `have` is the version already downloaded, if any.
-pub async fn check(client: &SyncClient, key: Option<&[u8; 32]>, dir: &Path, current: &str, have: Option<update::Version>) -> Result<Option<Ready>, String> {
+pub async fn check(client: &SyncClient, key: Option<&[u8; 32]>, dir: &Path, current: &str, have: Option<update::Version>) -> Result<Option<Ready>, CheckError> {
+    let failed = |e: String| CheckError::Failed(e);
     let Some(key) = key else { return Ok(None) };
-    let Some((text, signature)) = client.update_release().await.map_err(|e| e.to_string())? else { return Ok(None) };
-    let manifest = update::verify_manifest(key, text.as_bytes(), &signature).map_err(|e| format!("refused the release: {e}"))?;
-    if !manifest.is_newer_than(current) || have == Some(manifest.version) {
+    let Some((text, signature)) = client.update_release().await.map_err(|e| failed(e.to_string()))? else { return Ok(None) };
+    let manifest = update::verify_manifest(key, text.as_bytes(), &signature).map_err(|e| CheckError::Refused(format!("refused the release: {e}")))?;
+    if !wanted(&manifest, current, have) {
         return Ok(None);
     }
-    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(dir).map_err(|e| failed(e.to_string()))?;
     let part = dir.join("Typeshelf-Setup.part");
-    client.download_update(&part, manifest.size).await.map_err(|e| format!("downloading the update: {e}"))?;
+    client.download_update(&part, manifest.size).await.map_err(|e| failed(format!("downloading the update: {e}")))?;
     let dir = dir.to_path_buf();
-    tauri::async_runtime::spawn_blocking(move || finish(&part, manifest, &dir))
-        .await
-        .map_err(|e| e.to_string())?
-        .map(Some)
-        .map_err(|e| format!("refused the download: {e}"))
+    match tauri::async_runtime::spawn_blocking(move || finish(&part, manifest, &dir)).await.map_err(|e| failed(e.to_string()))? {
+        Ok(ready) => Ok(Some(ready)),
+        Err(UpdateError::Io(e)) => Err(failed(format!("checking the download: {e}"))),
+        Err(e) => Err(CheckError::Refused(format!("refused the download: {e}"))),
+    }
 }
 
 /// Checks a finished download against the verified manifest; deletes it on any mismatch.
@@ -126,25 +159,64 @@ pub fn finish(part: &Path, manifest: Manifest, dir: &Path) -> Result<Ready, Upda
     Ok(Ready { path, manifest })
 }
 
+/// A verified release is downloaded only when it is newer than this app and not the one already waiting.
+pub fn wanted(manifest: &Manifest, current: &str, have: Option<update::Version>) -> bool {
+    manifest.is_newer_than(current) && have != Some(manifest.version)
+}
+
+/// Typeshelf Setup and the uninstaller hold this mutex for their whole run (apps/setup/src/main.rs).
+pub const SETUP_MUTEX: &str = "Local\\TypeshelfSetupRunning";
+
+/// Whether to start the waiting release at quit. Not when a Setup or uninstall is the one closing the app.
+pub fn should_launch(has_key: bool, auto_update: bool, setup_running: bool) -> bool {
+    has_key && auto_update && !setup_running
+}
+
+/// True while a Typeshelf Setup or uninstall runs; also true when that cannot be told (refuse, don't guess).
+// ponytail: an older Setup without the mutex is not seen; it closes the app and the pending update starts too.
+#[cfg(windows)]
+pub fn setup_running() -> bool {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn OpenMutexW(access: u32, inherit: i32, name: *const u16) -> isize;
+        fn CloseHandle(handle: isize) -> i32;
+        fn GetLastError() -> u32;
+    }
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+    const ERROR_FILE_NOT_FOUND: u32 = 2;
+    let name: Vec<u16> = SETUP_MUTEX.encode_utf16().chain([0]).collect();
+    // SAFETY: `name` is a NUL-terminated UTF-16 string that outlives the call; the handle is closed once.
+    unsafe {
+        let handle = OpenMutexW(SYNCHRONIZE, 0, name.as_ptr());
+        if handle != 0 {
+            CloseHandle(handle);
+            return true;
+        }
+        GetLastError() != ERROR_FILE_NOT_FOUND
+    }
+}
+
+/// Setup is Windows-only.
+#[cfg(not(windows))]
+pub fn setup_running() -> bool {
+    false
+}
+
 fn io(e: std::io::Error) -> UpdateError {
     UpdateError::Io(e.to_string())
 }
 
-/// At quit, from `shutdown`: starts the waiting release when updates are still on.
+/// At quit, from `shutdown`: starts the waiting release when updates are still on and no Typeshelf Setup or
+/// uninstall is the one closing the app. Silent Setup updates the registered install folder in place.
 pub fn on_quit(app: &AppHandle) {
-    let Some(ready) = app.state::<Pending>().0.lock().unwrap().take() else { return };
-    let settings = app.state::<Ctx>().engine.get_settings();
-    if key().is_none() || !settings.as_ref().is_ok_and(|s| s.auto_update) {
+    let Some(ready) = app.state::<Pending>().ready.lock().unwrap().take() else { return };
+    let auto_update = app.state::<Ctx>().engine.get_settings().is_ok_and(|s| s.auto_update);
+    if !should_launch(key().is_some(), auto_update, setup_running()) {
+        tracing::info!(version = %ready.manifest.version, "not installing the waiting update (updates off, or Setup is running)");
         let _ = std::fs::remove_file(&ready.path);
         return;
     }
-    let Some(install_dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)) else { return };
-    // Silent Setup turns "start at login" on unless told otherwise, so pass the current choice along.
-    let mut args: Vec<OsString> = vec!["--silent".into(), "--dir".into(), install_dir.into()];
-    if !settings.is_ok_and(|s| s.start_at_login) {
-        args.push("--no-start-at-login".into());
-    }
-    match launch(&ready, &args) {
+    match launch(&ready, &["--silent".into()]) {
         Ok(()) => tracing::info!(version = %ready.manifest.version, "started the update"),
         Err(e) => tracing::warn!("not installing the update: {e}"),
     }
@@ -238,6 +310,49 @@ mod tests {
         let path = dir.join("Typeshelf-Setup-9.0.0.exe");
         std::fs::write(&path, &bytes).unwrap();
         launch(&Ready { path, manifest: manifest_for(&bytes) }, &["/?".into()]).unwrap();
+    }
+
+    #[test]
+    fn only_a_newer_release_than_this_app_is_wanted() {
+        let (private, public) = update::generate_key().unwrap();
+        let key = update::public_key(Some(&public)).unwrap();
+        let verified = |v: &str| {
+            let text = Manifest::for_bytes(Version::parse(v).unwrap(), b"file").to_text();
+            let (sig, _) = update::sign(&private, text.as_bytes()).unwrap();
+            update::verify_manifest(&key, text.as_bytes(), &sig).unwrap()
+        };
+        assert!(!wanted(&verified("0.1.1"), "0.1.2", None), "older");
+        assert!(!wanted(&verified("0.1.2"), "0.1.2", None), "same");
+        assert!(wanted(&verified("0.1.3"), "0.1.2", None), "newer");
+        assert!(wanted(&verified("0.10.0"), "0.9.9", None), "numeric");
+        let v = Version::parse("0.1.3").unwrap();
+        assert!(!wanted(&verified("0.1.3"), "0.1.2", Some(v)), "already downloaded");
+    }
+
+    #[test]
+    fn the_pending_update_starts_only_when_no_setup_is_closing_the_app() {
+        assert!(should_launch(true, true, false));
+        assert!(!should_launch(true, true, true), "a Setup or uninstall is running");
+        assert!(!should_launch(true, false, false), "updates turned off");
+        assert!(!should_launch(false, true, false), "no key");
+    }
+
+    /// The mutex Setup creates is seen; without it, nothing is running.
+    #[cfg(windows)]
+    #[test]
+    fn a_running_setup_is_detected_by_its_mutex() {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn CreateMutexW(attributes: *const std::ffi::c_void, owner: i32, name: *const u16) -> isize;
+            fn CloseHandle(handle: isize) -> i32;
+        }
+        assert!(!setup_running());
+        let name: Vec<u16> = SETUP_MUTEX.encode_utf16().chain([0]).collect();
+        let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
+        assert_ne!(handle, 0);
+        assert!(setup_running());
+        unsafe { CloseHandle(handle) };
+        assert!(!setup_running());
     }
 
     fn tempfile_dir(name: &str) -> PathBuf {

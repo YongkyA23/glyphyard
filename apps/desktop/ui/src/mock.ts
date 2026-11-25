@@ -186,7 +186,7 @@ let app: AppState = {
   onboarded: !!savedName, serverConfigured: !!connection.serverUrl, name: savedName, nextNameChange: null, nameChangeDays: 30, connection, platform: 'windows', appVersion: '1.0.0',
 }
 let settings: Settings = {
-  startAtLogin: true, startHidden: true, autoUpdate: true, deactivateOnQuit: false, canUpdate: true, updateReady: '1.1.0',
+  startAtLogin: true, startHidden: true, autoUpdate: true, deactivateOnQuit: false, canUpdate: true, updateReady: '1.1.0', updateProblem: null,
   quickShortcut: 'CmdOrCtrl+Alt+Space', theme: (localStorage.getItem('typeshelf.theme') as Settings['theme'] | null) ?? 'system', sampleText: 'Sphinx of black quartz, judge my vow',
   sampleTexts: [
     'Sphinx of black quartz, judge my vow', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz', '0123456789 !?&@#%(){}[]', 'Hamburgefonstiv',
