@@ -10,6 +10,7 @@ mod folders;
 mod google;
 mod library;
 mod organize;
+mod pairing;
 mod pdf;
 mod request;
 mod scan;
@@ -31,6 +32,7 @@ use typeshelf_protocol::{Event, TimedEvent};
 
 pub use docfonts::DocFonts;
 pub use activation::{OsFonts, SystemFonts};
+pub use pairing::AxisPreset;
 pub use stats::{Badge, FamilyUse, UnusedFamily, UsagePeriod, UsageStats};
 pub use temporary::Until;
 pub use types::*;

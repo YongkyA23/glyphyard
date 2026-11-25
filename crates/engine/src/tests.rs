@@ -1258,3 +1258,4 @@ mod docfonts;
 mod request;
 mod standalone;
 mod playful;
+mod pairing;

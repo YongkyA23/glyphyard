@@ -24,6 +24,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         list_families, family_page, library_counts, language_counts, get_faces, get_family, set_active, similar_families,
         set_active_for,
         set_family_name, delete_fonts, import_paths, face_glyphs, set_pinned,
+        pairing_suggestions, list_axis_presets, save_axis_preset, delete_axis_preset,
         folder_tree, set_folder_active, set_folder_auto, set_folder_hidden, delete_folder,
         list_folders, add_folder, remove_folder, locate_folder,
         list_collections, create_collection, rename_collection, delete_collection, add_to_collection, remove_from_collection,
@@ -151,6 +152,26 @@ pub async fn set_active_for(ctx: St<'_>, hashes: Vec<String>, until: Until) -> R
 #[tauri::command]
 pub async fn similar_families(ctx: St<'_>, key: String, limit: usize) -> R<Vec<Family>> {
     ctx.run(move |e| e.similar_families(&key, limit)).await
+}
+
+#[tauri::command]
+pub async fn pairing_suggestions(ctx: St<'_>, key: String) -> R<Vec<Family>> {
+    ctx.run(move |e| e.pairing_suggestions(&key)).await
+}
+
+#[tauri::command]
+pub async fn list_axis_presets(ctx: St<'_>, key: String) -> R<Vec<AxisPreset>> {
+    ctx.run(move |e| e.axis_presets(&key)).await
+}
+
+#[tauri::command]
+pub async fn save_axis_preset(ctx: St<'_>, key: String, name: String, values: std::collections::BTreeMap<String, f32>) -> R<Vec<AxisPreset>> {
+    ctx.run(move |e| e.save_axis_preset(&key, &name, &values)).await
+}
+
+#[tauri::command]
+pub async fn delete_axis_preset(ctx: St<'_>, key: String, name: String) -> R<Vec<AxisPreset>> {
+    ctx.run(move |e| e.delete_axis_preset(&key, &name)).await
 }
 
 #[tauri::command]

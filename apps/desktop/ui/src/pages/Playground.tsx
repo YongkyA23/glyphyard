@@ -6,9 +6,12 @@ import { AXIS_NAME, axisStep, familyStyle } from '../fonts'
 import { FamilyPicker } from '../ui'
 import { dur, easeOut } from '../motion'
 import { useApp } from '../state'
+import { PlaygroundCompare } from './PlaygroundCompare'
+import { PairingSuggestions } from './PairingSuggestions'
+import { AxisPresets } from './AxisPresets'
 
 /** A family's variable axes and the values the sliders set. */
-type AxisState = { key: string; axes: Axis[]; v: Record<string, number> }
+export type AxisState = { key: string; axes: Axis[]; v: Record<string, number> }
 const fvs = (s: AxisState | null) => (s?.axes.length ? s.axes.map((a) => `'${a.tag}' ${s.v[a.tag] ?? a.default}`).join(', ') : null)
 /** Light-theme ink, ink-2 and paper from tokens.css. */
 const DEFAULT_COLORS = { heading: '#1c1917', body: '#44403c', background: '#fffdf9' }
@@ -67,6 +70,7 @@ export function Playground() {
   const [base, setBase] = useState(17)
   const [ratio, setRatio] = useState(1.3)
   const [colors, setColors] = useState(DEFAULT_COLORS)
+  const [compare, setCompare] = useState(false)
   const [axA, setAxA] = useAxes(a, 600)
   const [axB, setAxB] = useAxes(b, 400)
 
@@ -140,12 +144,14 @@ export function Playground() {
           Scale · {ratio.toFixed(2)}
           <input type="range" min={1.1} max={1.6} step={0.05} value={ratio} onChange={(e) => setRatio(Number(e.target.value))} style={{ width: 120 }} />
         </label>
-        <button type="button" className="btn primary" style={{ marginLeft: 'auto', height: 38 }} onClick={copyCss} disabled={!fa || !fb}>Copy CSS</button>
+        <button type="button" className="btn" aria-pressed={compare} onClick={() => setCompare(!compare)} style={{ marginLeft: 'auto', height: 38 }}>Compare</button>
+        <button type="button" className="btn primary" style={{ height: 38 }} onClick={copyCss} disabled={!fa || !fb}>Copy CSS</button>
       </div>
+      <PairingSuggestions a={a} b={b} name={fa?.family} onPick={setB} />
       <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap' }}>
         <article className="paper" style={{ background: colors.background, transition: `background-color ${dur.base}s` }}>
           {/* Switching fonts cross-fades the specimen; size changes ease via .spec transitions. */}
-          <AnimatePresence mode="popLayout" initial={false}>
+          {compare ? <PlaygroundCompare fa={fa} fb={fb} styleA={quote} styleB={body} size={sizes.h1} color={colors.heading} /> : <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
             key={`${a}|${b}`} style={{ maxWidth: 680, display: 'flex', flexDirection: 'column', gap: 18 }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: dur.slow, ease: easeOut }}
@@ -164,7 +170,7 @@ export function Playground() {
             </blockquote>
             <p className="spec" style={{ ...body, opacity: 0.7, margin: 0, fontSize: sizes.small }}>Ellen Lupton</p>
           </motion.div>
-          </AnimatePresence>
+          </AnimatePresence>}
         </article>
         <aside aria-label="Element settings" className="aside">
           <h2 className="h-small">Elements</h2>
@@ -185,7 +191,9 @@ export function Playground() {
             <button type="button" className="btn small link" style={{ alignSelf: 'flex-start', paddingLeft: 0 }} onClick={() => setColors(DEFAULT_COLORS)}>Reset colors</button>
           )}
           <AxisSliders label={`${fa?.family ?? 'Font A'} axes`} s={axA} set={setAxA} />
+          <AxisPresets s={axA} set={setAxA} />
           <AxisSliders label={`${fb?.family ?? 'Font B'} axes`} s={axB} set={setAxB} />
+          <AxisPresets s={axB} set={setAxB} />
           <p className="faint" style={{ margin: '4px 0 0', fontSize: 12, lineHeight: 1.5 }}>
             Sizes follow the base size and scale. Copy CSS gives you the @font-face rules and these element styles, with colors and variable axis settings.
           </p>

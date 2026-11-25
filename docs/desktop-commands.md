@@ -23,7 +23,8 @@ type Axis = { tag: string; min: number; default: number; max: number };
 type FileRow = { path: string; version: string; status: "active" | "older_version" | "alternate" | "grouped" | "inactive" | "system" };
 type FamilyDetail = Family & { axes: Axis[]; features: string[]; glyphCount: number; designer: string;
   files: FileRow[]; licenseInfo: { label: License; file: string | null; note: string };
-  details: FontDetails };
+  details: FontDetails;
+  /** Representative face's stored x-height / unitsPerEm; 0 when the font does not say. */ xHeight: number };
 // Read from the representative face's file (upright, weight nearest 400) when the detail is opened;
 // all null / "" when no copy is readable. Blank name-table strings are null.
 type FontDetails = { copyright: string | null; trademark: string | null; manufacturer: string | null; designer: string | null;
@@ -56,6 +57,10 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `family_page` | `{ query, offset, limit }` (limit ≤ 200) → `{ items: Family[], total }` |
 | `library_counts` | → `{ library, active, system, licenses: { [License]: number } }` (hidden folders left out, like `list_families`) |
 | `similar_families` | `{ key, limit }` (limit ≤ 50) → `Family[]`, most similar first, without `key` itself; system fonts included. Distance over category, weight, italic, width class, x-height, cap height, average width and PANOSE serif/proportion/contrast |
+| `pairing_suggestions` | `{ key }` → `Family[]` (at most 8): families whose category is known and differs from `key`'s, nearest stored x-height first (those without one last); system fonts included. Rejects `{code:"not_found"}` |
+| `list_axis_presets` | `{ key }` → `AxisPreset[]` = `{ name, values: { [axisTag]: number } }[]`, the family's saved variable-axis settings in save order (settings store, `axis_presets:<key>`) |
+| `save_axis_preset` | `{ key, name, values }` → `AxisPreset[]`; a preset with the same (trimmed) name is replaced. Rejects `{code:"invalid"}` for an empty name |
+| `delete_axis_preset` | `{ key, name }` → `AxisPreset[]` |
 | `set_family_name` | `{ hashes, name: string \| null }` → void. FontBase "override family": these files are grouped and shown under `name` everywhere (lists, search, collections, project sets); `null` restores the real family. Survives rescans; never edits the font file. A family renamed as a whole keeps its collections, tags, license and project sets |
 | `delete_fonts` | `{ hashes }` → `DeleteResult`: turns them off, then moves every copy in the user's folders and the Imported/Google folders to the Recycle Bin / Trash (never OS font folders or the shared library) |
 | `import_paths` | `{ paths: string[] }` → `{ imported, skipped, folder }`: copies dropped font files / folders (recursive, font extensions only; a folder keeps its name as a subfolder) into the app-managed "Imported fonts" folder (shown in `folder_tree`), skipping files whose bytes are already in the library and never overwriting (`name (2).ttf`); then scans |

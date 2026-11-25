@@ -34,7 +34,11 @@ export type FamilyDetail = Family & {
   axes: Axis[]; features: string[]; glyphCount: number; designer: string
   files: FileRow[]; licenseInfo: { label: License; file: string | null; note: string }
   details: FontDetails
+  /** Representative face's stored x-height / unitsPerEm; 0 when the font does not say. */
+  xHeight: number
 }
+/** Saved variable-axis values (axis tag → value) for one family. */
+export type AxisPreset = { name: string; values: Record<string, number> }
 /** From the font's name/head/maxp tables. */
 export type FontDetails = {
   copyright: string | null; trademark: string | null; manufacturer: string | null; designer: string | null
@@ -226,6 +230,10 @@ export const api = {
   pickSaveFile: (defaultName: string, filters: FileFilter[]) => call<string | null>('pick_save_file', { defaultName, filters }),
 
   similarFamilies: (key: string, limit: number) => call<Family[]>('similar_families', { key, limit }),
+  pairingSuggestions: (key: string) => call<Family[]>('pairing_suggestions', { key }),
+  listAxisPresets: (key: string) => call<AxisPreset[]>('list_axis_presets', { key }),
+  saveAxisPreset: (key: string, name: string, values: Record<string, number>) => call<AxisPreset[]>('save_axis_preset', { key, name, values }),
+  deleteAxisPreset: (key: string, name: string) => call<AxisPreset[]>('delete_axis_preset', { key, name }),
   setCollectionActive: (id: number, active: boolean) =>
     call<ActivationResult[]>('set_collection_active', { id, active }),
   exportCollection: (id: number, dest: string) => call<{ files: number; path: string }>('export_collection', { id, dest }),

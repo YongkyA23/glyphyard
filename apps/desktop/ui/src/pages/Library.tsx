@@ -93,6 +93,7 @@ const itemEvents = (f: Family, i: number, h: ItemHandlers) => ({
   onClick: (e: ReactMouseEvent) => h.pick(f, i, e),
   onContextMenu: (e: ReactMouseEvent) => h.menu(f, e),
   onPointerDown: (e: ReactPointerEvent) => h.drag(f, e),
+  'data-drop-family': f.key, // drop another family here to pair the two in the Playground
 })
 
 const ItemSwitch = ({ f, h }: { f: Family; h: ItemHandlers }) => (
@@ -259,7 +260,8 @@ export function Library() {
   const tokensMenu = useContextMenu('Search tokens')
   const samplesMenu = useContextMenu('Sample texts')
   const addMenu = useContextMenu('Add fonts')
-  const drag = useFamilyDrag((c, fams) => actions.addTo(c, fams))
+  const drag = useFamilyDrag((c, fams) => actions.addTo(c, fams), (target, dragged) =>
+    navigate(`/playground?a=${encodeURIComponent(target)}&b=${encodeURIComponent(dragged.key)}`))
 
   useEffect(() => {
     api.getSettings().then((s) => {

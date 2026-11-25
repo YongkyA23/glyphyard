@@ -243,10 +243,10 @@ fn term_matches(t: &Term, f: &Family, rows: &[&Row]) -> bool {
 }
 
 /// The shape of a family's representative face, for [`distance`].
-struct Shape {
+pub(crate) struct Shape {
     weight: f32,
     italic: bool,
-    metrics: Metrics,
+    pub(crate) metrics: Metrics,
 }
 
 /// Weighted L1 distance between two families. Every term is about 0-1 over the usual range; a
@@ -505,30 +505,39 @@ impl Engine {
 
     /// Families that look most like `key`, nearest first (system fonts included). See [`distance`].
     pub fn similar_families(&self, key: &str, limit: usize) -> Result<Vec<Family>> {
-        let shapes: HashMap<String, Shape> = {
-            let db = self.db();
-            let mut stmt = db.prepare(
-                "SELECT family_key, weight, italic, metrics_json FROM faces f WHERE EXISTS (SELECT 1 FROM files WHERE hash = f.hash)",
-            )?;
-            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, f32>(1)?, r.get::<_, bool>(2)?, r.get::<_, String>(3)?)))?;
-            let mut best: HashMap<String, (f32, bool, String)> = HashMap::new();
-            for row in rows {
-                let (k, weight, italic, json) = row?;
-                if best.get(&k).is_none_or(|b| rep_rank(weight, italic) < rep_rank(b.0, b.1)) {
-                    best.insert(k, (weight, italic, json));
-                }
-            }
-            best.into_iter()
-                .map(|(k, (weight, italic, json))| (k, Shape { weight, italic, metrics: serde_json::from_str(&json).unwrap_or_default() }))
-                .collect()
-        };
+        let shapes = self.family_shapes()?;
         let me = shapes.get(key).ok_or_else(|| not_found("family"))?;
         let mut ranked: Vec<(f32, &String)> = shapes.iter().filter(|(k, _)| *k != key).map(|(k, s)| (distance(me, s), k)).collect();
         ranked.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(b.1)));
         let keys: Vec<String> = ranked.into_iter().take(limit.min(50)).map(|(_, k)| k.clone()).collect();
+        self.families_in_order(keys)
+    }
+
+    /// `keys`' families in that order (missing ones left out).
+    pub(crate) fn families_in_order(&self, keys: Vec<String>) -> Result<Vec<Family>> {
         let mut families = self.list_families(&FamilyQuery { keys: Some(keys.clone()), ..Default::default() })?;
         families.sort_by_key(|f| keys.iter().position(|k| *k == f.key));
         Ok(families)
+    }
+
+    /// The stored shape of every family's representative face (families with a file on disk).
+    pub(crate) fn family_shapes(&self) -> Result<HashMap<String, Shape>> {
+        let db = self.db();
+        let mut stmt = db.prepare(
+            "SELECT family_key, weight, italic, metrics_json FROM faces f WHERE EXISTS (SELECT 1 FROM files WHERE hash = f.hash)",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, f32>(1)?, r.get::<_, bool>(2)?, r.get::<_, String>(3)?)))?;
+        let mut best: HashMap<String, (f32, bool, String)> = HashMap::new();
+        for row in rows {
+            let (k, weight, italic, json) = row?;
+            if best.get(&k).is_none_or(|b| rep_rank(weight, italic) < rep_rank(b.0, b.1)) {
+                best.insert(k, (weight, italic, json));
+            }
+        }
+        Ok(best
+            .into_iter()
+            .map(|(k, (weight, italic, json))| (k, Shape { weight, italic, metrics: serde_json::from_str(&json).unwrap_or_default() }))
+            .collect())
     }
 
     /// Faces by file hash (for previews of fonts found elsewhere, e.g. in a PDF).
@@ -551,6 +560,10 @@ impl Engine {
         let mut family = build_family(key, &rows, info.label);
         family.tags = tags_of(&db)?.remove(key).unwrap_or_default();
         family.pinned = pins(&db)?.contains(key);
+        let x_height = match rep(&rows) {
+            Some(r) => crate::pairing::x_height(&db, &r.hash, r.idx)?,
+            None => 0.0,
+        };
         let details = rep(&rows)
             .and_then(|r| {
                 rows.iter()
@@ -581,6 +594,7 @@ impl Engine {
             files,
             license_info: info,
             details,
+            x_height,
             family,
         })
     }

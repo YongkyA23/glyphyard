@@ -293,12 +293,13 @@ function TagsDialog({ fams, onClose }: { fams: Family[] | null; onClose: () => v
 /**
  * Drag families onto a sidebar collection (`[data-drop-collection]`). Pointer events rather than HTML5 drag and drop:
  * Tauri's native file drop (used for importing) disables HTML5 drag and drop inside the window on Windows.
+ * With `onPair`, one family dropped on another family's row (`[data-drop-family]`) calls it with (target key, dragged).
  */
-export function useFamilyDrag(onDrop: (collection: { id: number; name: string }, fams: Family[]) => void) {
+export function useFamilyDrag(onDrop: (collection: { id: number; name: string }, fams: Family[]) => void, onPair?: (targetKey: string, dragged: Family) => void) {
   const [label, setLabel] = useState<string | null>(null)
   const x = useMotionValue(0), y = useMotionValue(0)
-  const drop = useRef(onDrop)
-  drop.current = onDrop
+  const cb = useRef({ onDrop, onPair })
+  cb.current = { onDrop, onPair }
 
   const start = useCallback((e: ReactPointerEvent, getFams: () => Family[]) => {
     if (e.button !== 0 || e.pointerType === 'touch' || (e.target as Element).closest('button, input, select, textarea, label')) return
@@ -321,7 +322,9 @@ export function useFamilyDrag(onDrop: (collection: { id: number; name: string },
       }
       x.set(ev.clientX + 14)
       y.set(ev.clientY + 10)
-      setOver(document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>('[data-drop-collection]') ?? null)
+      const el = document.elementFromPoint(ev.clientX, ev.clientY)
+      const row = cb.current.onPair && fams.length === 1 ? el?.closest<HTMLElement>('[data-drop-family]') : null
+      setOver(el?.closest<HTMLElement>('[data-drop-collection]') ?? (row && row.dataset.dropFamily !== fams[0].key ? row : null))
     }
     const end = (ev: Event) => {
       removeEventListener('pointermove', move)
@@ -337,7 +340,8 @@ export function useFamilyDrag(onDrop: (collection: { id: number; name: string },
       const stop = (c: Event) => (c.preventDefault(), c.stopPropagation())
       addEventListener('click', stop, true)
       setTimeout(() => removeEventListener('click', stop, true), 0)
-      if (target) drop.current({ id: Number(target.dataset.dropCollection), name: target.dataset.dropName ?? '' }, fams)
+      if (target?.dataset.dropFamily) cb.current.onPair?.(target.dataset.dropFamily, fams[0])
+      else if (target) cb.current.onDrop({ id: Number(target.dataset.dropCollection), name: target.dataset.dropName ?? '' }, fams)
     }
     const esc = (k: KeyboardEvent) => {
       if (k.key !== 'Escape' || !fams) return

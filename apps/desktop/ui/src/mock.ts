@@ -1,7 +1,7 @@
 // In-memory backend used when the UI runs in a normal browser (no Tauri). Sample data comes from the design mockups.
 // Dev helpers on window.typeshelfMock: emit(event, payload), setOffline(bool).
 import type {
-  ActivationResult, AdobeRow, AppState, Collection, Connection, Face, Family, FamilyDetail, FileRow, Folder, FolderNode, FontCategory,
+  ActivationResult, AdobeRow, AppState, AxisPreset, Collection, Connection, Face, Family, FamilyDetail, FileRow, Folder, FolderNode, FontCategory,
   GlyphBlock, GoogleFont, HistoryEntry, License, ListFamiliesArgs, OrganizeChange, PdfFont, ProjectSet, Settings,
 } from './api'
 
@@ -108,6 +108,7 @@ const families: Fam[] = SEEDS.map((s) => {
       note: s.license === 'licensed' ? 'Free for commercial use, including logos.' : '',
     },
     addedAt: Date.now() - s.addedDaysAgo * day, tags: s.category === 'display' ? ['headline'] : [], original: s.family, pinned: false,
+    xHeight: { serif: 0.44, sans: 0.52, display: 0.66, handwriting: 0.38, mono: 0.5 }[s.category] + (s.family.length % 5) / 100,
     details: {
       copyright: `Copyright 2026 The ${s.family} Project Authors`,
       trademark: s.license === 'licensed' ? null : `${s.family} is a trademark of ${s.foundry}.`,
@@ -137,7 +138,7 @@ const refreshState = (f: Fam) => {
   })
 }
 const toFamily = (f: Fam): Family => {
-  const { axes: _a, features: _f, glyphCount: _g, designer: _d, files: _fi, licenseInfo: _l, addedAt: _ad, original: _o, details: _de, ...rest } = f
+  const { axes: _a, features: _f, glyphCount: _g, designer: _d, files: _fi, licenseInfo: _l, addedAt: _ad, original: _o, details: _de, xHeight: _x, ...rest } = f
   return clone(rest)
 }
 
@@ -167,6 +168,9 @@ let sets: ProjectSet[] = [
   { id: 2, name: 'Café Lumen menu', note: 'Client', familyKeys: ['fraunces', 'instrument-serif', 'space-grotesk'], on: false, lastUsed: iso(-4 * day) },
   { id: 3, name: 'Wedding invitations', note: 'Personal', familyKeys: ['instrument-serif', 'bebas-neue'], on: false, lastUsed: iso(-21 * day) },
 ]
+const axisPresets: Record<string, AxisPreset[]> = {
+  fraunces: [{ name: 'Soft display', values: { wght: 700, opsz: 144, SOFT: 100, WONK: 1 } }],
+}
 
 // `?server=none` starts like the standalone build (no server set up); `?server=offline` with a server that doesn't answer.
 const serverMode = new URLSearchParams(location.search).get('server')
@@ -462,6 +466,22 @@ const handlers: Record<string, (a: Args) => unknown> = {
     const score = (f: Fam) => (f.category === me.category ? 2 : 0) + (f.isVariable === me.isVariable ? 1 : 0)
     return families.filter((f) => f.key !== key).sort((x, y) => score(y) - score(x) || x.family.localeCompare(y.family)).slice(0, limit).map(toFamily)
   },
+  pairing_suggestions: ({ key }) => {
+    const me = fam(key)
+    if (!me) throw err('not_found', 'This font family is no longer in your library.')
+    const gap = (f: Fam) => Math.abs(f.xHeight - me.xHeight)
+    return families.filter((f) => f.category && f.category !== me.category).sort((x, y) => gap(x) - gap(y) || x.key.localeCompare(y.key)).slice(0, 8).map(toFamily)
+  },
+  list_axis_presets: ({ key }) => axisPresets[key] ?? [],
+  save_axis_preset: ({ key, name, values }) => {
+    const n = String(name).trim()
+    if (!n) throw err('invalid', 'name is empty')
+    const list = (axisPresets[key] ??= [])
+    const i = list.findIndex((p) => p.name === n)
+    if (i < 0) list.push({ name: n, values }); else list[i] = { name: n, values }
+    return list
+  },
+  delete_axis_preset: ({ key, name }) => (axisPresets[key] = (axisPresets[key] ?? []).filter((p) => p.name !== name)),
   set_collection_active: ({ id, active }) => {
     const ids: number[] = [id], keys = new Set<string>()
     for (let i = 0; i < ids.length; i++) collections.filter((c) => c.parentId === ids[i]).forEach((c) => ids.push(c.id))

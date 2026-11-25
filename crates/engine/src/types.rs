@@ -177,6 +177,8 @@ pub struct FamilyDetail {
     pub license_info: LicenseInfo,
     /// Name table and file facts of the representative face, read from the file.
     pub details: FontDetails,
+    /// The representative face's stored x-height divided by its units per em; 0 when the font does not say.
+    pub x_height: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
