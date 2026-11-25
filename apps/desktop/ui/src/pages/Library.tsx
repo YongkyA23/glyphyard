@@ -199,6 +199,8 @@ export function Library() {
   const [chars, setChars] = useState('')
   const [lang, setLang] = useState('')
   const [langs, setLangs] = useState<LanguageCount[]>([])
+  // Counts are heavy and only change when the library does: load once, refresh when the list is opened.
+  const loadLangs = () => api.languageCounts().then(setLangs, () => {})
   const [presets, setPresets] = useState<string[]>([])
   const sampleBtn = useRef<HTMLButtonElement>(null)
   const navigate = useNavigate()
@@ -247,10 +249,10 @@ export function Library() {
       setPresets(s.sampleTexts ?? [])
     }, () => {})
     api.health().then(setHealth, () => {})
+    loadLangs()
   }, [])
   useEffect(() => {
     api.libraryCounts().then(setCounts, () => {})
-    api.languageCounts().then(setLangs, () => {})
     api.listFolders().then(setFolders, () => {})
   }, [libVersion, reload])
   useEffect(() => {
@@ -418,7 +420,7 @@ export function Library() {
         />
         <label htmlFor="lang" className="sr-only">Only fonts that cover this language</label>
         <select
-          id="lang" className="select" value={lang} style={{ width: 'auto' }} onChange={(e) => setLang(e.target.value)}
+          id="lang" className="select" value={lang} style={{ width: 'auto' }} onChange={(e) => setLang(e.target.value)} onFocus={loadLangs}
           title="Only fonts that have every letter of a language"
         >
           <option value="">Any language</option>

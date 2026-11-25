@@ -472,19 +472,26 @@ impl Engine {
     // cache; fine for thousands of families, store per-language flags per face if it gets slow.
     pub fn language_counts(&self) -> Result<Vec<LanguageCount>> {
         let keys: HashSet<String> = self.list_families(&FamilyQuery::default())?.into_iter().map(|f| f.key).collect();
-        let db = self.db();
-        let rows = load_rows(&db, None)?;
-        let mut groups: HashMap<&str, Vec<&Row>> = HashMap::new();
-        for r in rows.iter().filter(|r| keys.contains(&r.family_key)) {
-            groups.entry(&r.family_key).or_default().push(r);
-        }
+        // The guard is held only to copy each family's representative coverage text out.
+        let json: Vec<String> = {
+            let db = self.db();
+            let mut stmt = db.prepare_cached(
+                "SELECT family_key, weight, italic, coverage_json FROM faces f WHERE EXISTS (SELECT 1 FROM files WHERE hash = f.hash)
+                 ORDER BY weight, italic, style, hash, idx",
+            )?;
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, f32>(1)?, r.get::<_, bool>(2)?, r.get::<_, String>(3)?)))?;
+            let mut best: HashMap<String, (f32, bool, String)> = HashMap::new();
+            for row in rows {
+                let (k, weight, italic, json) = row?;
+                if keys.contains(&k) && best.get(&k).is_none_or(|b| rep_rank(weight, italic) < rep_rank(b.0, b.1)) {
+                    best.insert(k, (weight, italic, json));
+                }
+            }
+            best.into_values().map(|b| b.2).collect()
+        };
         let mut counts = vec![0; LANGUAGES.len()];
-        for rows in groups.values() {
-            let Some(r) = rep(rows) else { continue };
-            let json: String = db
-                .prepare_cached("SELECT coverage_json FROM faces WHERE hash = ?1 AND idx = ?2")?
-                .query_row(params![r.hash, r.idx], |r| r.get(0))?;
-            let cov: Coverage = serde_json::from_str(&json).unwrap_or_default();
+        for j in &json {
+            let cov: Coverage = serde_json::from_str(j).unwrap_or_default();
             for (n, l) in counts.iter_mut().zip(LANGUAGES) {
                 *n += usize::from(l.covered_by(&cov));
             }

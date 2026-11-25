@@ -51,9 +51,13 @@ pub const LANGUAGES: &[Language] = &[
     Language { id: "hebrew", name: "Hebrew", ranges: &[(0x5D0, 0x5EA)], extra: "" },
     // Consonants, vowels and tone marks; Thai digits left out.
     Language { id: "thai", name: "Thai", ranges: &[(0xE01, 0xE3A), (0xE40, 0xE4E)], extra: "" },
-    // Vowels, consonants, vowel signs and virama; digits and the extended consonants left out.
-    Language { id: "hindi", name: "Hindi", ranges: &[(0x905, 0x939), (0x93E, 0x94D)], extra: "" },
-    Language { id: "japanese", name: "Japanese", ranges: &[(0x3041, 0x3096), (0x30A1, 0x30FA)], extra: "日本語人大中小年月水火木金土" },
+    // Chandrabindu to visarga, vowels, consonants, nukta, vowel signs, virama and danda; digits and the
+    // Dravidian-only short e/o and extra consonants (U+090E, 0912, 0929, 0931, 0934, 0946, 094A) left out.
+    Language { id: "hindi", name: "Hindi", ranges: &[
+        (0x901, 0x903), (0x905, 0x90D), (0x90F, 0x911), (0x913, 0x928), (0x92A, 0x930), (0x932, 0x933), (0x935, 0x939), (0x93C, 0x93C),
+        (0x93E, 0x945), (0x947, 0x949), (0x94B, 0x94D), (0x964, 0x964),
+    ], extra: "" },
+    Language { id: "japanese", name: "Japanese", ranges: &[(0x3001, 0x3002), (0x3041, 0x3093), (0x30A1, 0x30F6), (0x30FC, 0x30FC)], extra: "日本語人大中小年月水火木金土" },
     Language { id: "korean", name: "Korean", ranges: &[], extra: "가나다라마바사아자차카타파하한국어" },
     Language { id: "chinese", name: "Chinese", ranges: &[], extra: "的一是不了人我在有他这中大来上国个到说们为子和你地出道也时年得就那" },
 ];
@@ -93,6 +97,23 @@ mod tests {
         assert_eq!(n("turkish"), 52 + 12);
         assert_eq!(n("russian"), 66);
         assert_eq!(n("hebrew"), 27);
+    }
+
+    #[test]
+    fn hindi_and_japanese_pin_specific_codepoints() {
+        let has = |id: &str, c: u32| language(id).unwrap().chars().any(|x| x == c);
+        for c in [0x901, 0x902, 0x903, 0x93C, 0x964] {
+            assert!(has("hindi", c), "Hindi requires U+{c:04X}");
+        }
+        for c in [0x90E, 0x912, 0x929, 0x931, 0x934, 0x946, 0x94A] {
+            assert!(!has("hindi", c), "Dravidian-only U+{c:04X} is not required");
+        }
+        for c in [0x3001, 0x3002, 0x30FC, 0x3093, 0x30F6] {
+            assert!(has("japanese", c), "Japanese requires U+{c:04X}");
+        }
+        for c in [0x3094, 0x3095, 0x3096, 0x30F7, 0x30FA] {
+            assert!(!has("japanese", c), "rare U+{c:04X} is not required");
+        }
     }
 
     #[test]
