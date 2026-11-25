@@ -75,7 +75,7 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `export_collections` | `{ dest }` → `{ collections }`: a JSON file `{ version: 1, collections: [{ name, families: [{ key, family }], children: [...] }] }` with every collection except Recent (Favorites included), nested; `collections` counts the nested ones too |
 | `import_collections` | `{ path }` → `{ collections, families, missing }`: merges such a file — a collection with the same name (any case) under the same parent is reused, otherwise created; each family entry matches by key, then by family name (any case); `missing` counts entries with no match. Rejects `{code:"invalid"}` for a file that is not one |
 | `list_tags` | → `{ name, count }[]`; `set_tags {familyKey, tags}` → `string[]` |
-| `set_license` | `{ familyKey, label, file?, note? }` → `FamilyDetail["licenseInfo"]` |
+| `set_license` | `{ familyKey, label, file?, note? }` → `FamilyDetail["licenseInfo"]`. Omitted or null `file` / `note` keep the stored value, so a license file cannot be detached through this command |
 | `list_project_sets` / `save_project_set {id?, name, note, familyKeys}` / `delete_project_set {id}` | → `ProjectSet[]` |
 | `toggle_project_set` | `{ id, on }` → `ActivationResult[]` (same unknown-license rejection) |
 | `organize_plan` | `{ tidy }` → `{ changes: OrganizeChange[], scanned: number, scannedAt: string }` |

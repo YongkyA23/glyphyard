@@ -46,7 +46,7 @@ function LibraryPlan() {
   const changes = state.data?.changes ?? []
 
   const apply = async () => {
-    if (!(await confirm(`Apply ${plural(changes.length, 'change')} to the shared library?`, 'Apply'))) return
+    if (!(await confirm(`Apply ${plural(changes.length, 'change')} to the shared library? Files that are removed leave the library and are kept in the server’s quarantine folder.`, 'Apply', true))) return
     setBusy(true)
     setError('')
     try {
@@ -118,7 +118,7 @@ function LibraryPlan() {
             )}
           </>
         )}</Loaded>
-      <span className="meta">Users receive the cleaned-up files on their next sync. Renamed fonts keep their internal names.</span>
+      <span className="meta">Removed files leave the shared library and are kept in the server’s quarantine folder; they are not sent to users. Renamed fonts keep their internal names.</span>
       {confirmDialog}
     </section>
   )

@@ -12,7 +12,7 @@ Everything except registration also carries `Authorization: Bearer <install toke
 | Method | Path | Body → Response |
 |---|---|---|
 | GET | `/health` | → 204 when the install key is right (used by "Test connection"; no Bearer needed) |
-| POST | `/installs` | `RegisterRequest` → `RegisterResponse`. First name is recorded as `by: "first"`. Re-registering an existing `install_id` returns 409 `already_registered`. |
+| POST | `/installs` | `RegisterRequest` → `RegisterResponse`. First name is recorded as `by: "first"`. Re-registering an existing `install_id` that has never made an authenticated request (its first response was lost) returns 200 with a new token and the old token stops working; once the install has used its token it returns 409 `already_registered`. |
 | GET | `/me` | → `{ name, next_name_change, policy }` (also updates `last_seen`) |
 | PUT | `/me/name` | `NameChange` → 200 `NameStatus`, or 409 `{ error: "name_locked", next_name_change }` |
 | POST | `/me/events` | `EventBatch` → 204. Stored in the timeline; `FontActivated/FontDeactivated` also update `font_states`. |
@@ -22,7 +22,7 @@ Everything except registration also carries `Authorization: Bearer <install toke
 | GET | `/me/ws` | WebSocket. Server sends `ServerMessage`, client sends `ClientMessage`. Token may also be passed as `?token=` and key as `?key=`. While connected the install counts as online. |
 | GET | `/library/files/{hash}` | → font bytes, only if delivered to this install (or to all) and not blocked; else 404. |
 
-## Admin API — `/api/admin` (session cookie `ts_session`, HttpOnly, SameSite=Lax)
+## Admin API — `/api/admin` (session cookie `ts_session`, HttpOnly, SameSite=Lax, plus Secure when the request arrived over https or the public URL is https)
 
 Shapes (TypeScript notation):
 ```ts
@@ -56,15 +56,15 @@ Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–20
 
 | Method | Path | Body → Response |
 |---|---|---|
-| POST | `/login` | `{ email, password }` → 204 + cookie; 401 `bad_credentials` |
+| POST | `/login` | `{ email, password }` → 204 + cookie; 401 `bad_credentials`; 429 `too_many_attempts` after 5 failed sign-ins for the same email within 15 minutes |
 | POST | `/logout` | → 204 |
 | GET | `/me` | → `{ email, role }` or 401 |
 | GET | `/overview` | → `{ installs, online, os: {windows, macos}, name_changes_month, overrides_week, failures_week, recent: Activity[], attention: { overrides, failures, possible_duplicates, stale }, top_fonts: { family, users }[] }` |
 | GET | `/installs?q=&filter=all\|online\|overrides\|duplicates\|stale&offset=&limit=` | → `Page<InstallSummary>` sorted by name (q matches current name, old names, install id) |
 | GET | `/installs/{id}` | → `InstallDetail` (fonts are paged separately) |
-| GET | `/installs/{id}/fonts?q=&active=true\|false&offset=&limit=` | → `Page<FontState>` active first, then family (q matches family, style, PostScript name) |
+| GET | `/installs/{id}/fonts?q=&active=true\|false&offset=&limit=` | → `Page<FontState>` active first, then family (q matches family, style, PostScript name). Covers the install and every install merged into it: one row per font, `active` if on in any of them |
 | GET | `/installs/{id}/timeline?kind=all\|names\|fonts\|overrides\|failures&offset=&limit=` | → `Page<TimelineEvent>` newest first (limit default 100, max 500) |
-| POST | `/installs/{id}/fonts` | `{ hash, active }` → `{ command_id }` (queues Activate/Deactivate, pushes over WS) |
+| POST | `/installs/{id}/fonts` | `{ hash, active }` → `{ command_id }` (queues Activate/Deactivate for the install and every install merged into it, pushes over WS; `command_id` is the one for `{id}`) |
 | POST | `/installs/{id}/reset-name-limit` | → 204 |
 | POST | `/installs/{id}/organize-request` | → `{ command_id }` |
 | POST | `/installs/merge` | `{ primary, secondary, keep_name: "primary" \| "secondary" }` → `InstallDetail` of primary |
@@ -77,10 +77,10 @@ Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–20
 | POST | `/library/{hash}/block` | `{ blocked }` → `LibraryFile` (pushes Block/Unblock to every install) |
 | POST | `/library/{hash}/deliver` | `{ target: "all" \| string[], activate }` → `LibraryFile` |
 | GET | `/library/organize` | → `{ changes: OrganizeChange[] }` |
-| POST | `/library/organize/apply` | → `{ applied }` |
+| POST | `/library/organize/apply` | → `{ applied }`. Removals move the stored file to `<data>/quarantine/` (nothing is deleted); a file that cannot be moved keeps its row and is not counted |
 | GET | `/organize/reports?offset=&limit=` | → `Page<{ install_id, name, duplicates, version_conflicts, name_clashes, last_organized: string \| null }>` by name |
 | GET | `/settings` | → `Settings` |
-| PUT | `/settings` | `Partial<Settings>` without `install_key` → `Settings` (pushes `PolicyChanged`) |
+| PUT | `/settings` | `Partial<Settings>` without `install_key` → `Settings` (pushes `PolicyChanged`). 400 `invalid_setting` unless `name_change_days` is 1–3650 and `timeline_retention_days` is null or 1–3650 |
 | POST | `/settings/install-key` | → `{ install_key }` (regenerates) |
 | GET | `/admins` | → `{ email, role, last_login }[]` |
 | POST | `/admins` | `{ email, password }` → 201 |

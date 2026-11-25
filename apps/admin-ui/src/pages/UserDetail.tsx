@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import { api, errorText, type FontState, type InstallDetail, type TimelineEvent, type TimelineFilter } from '../api'
@@ -47,7 +47,6 @@ export function UserDetail() {
   )
 }
 
-type SetFonts = (f: (fonts: FontState[]) => FontState[]) => void
 
 function Detail({ u, reload }: { u: InstallDetail; reload: () => void }) {
   const [busy, setBusy] = useState<'' | 'reset' | 'organize'>('')
@@ -157,25 +156,36 @@ function Timeline({ id }: { id: string }) {
   )
 }
 
-/** Sends the font command optimistically; rolls back on error. */
-function useFontToggle(installId: string, setFonts: SetFonts = () => {}) {
+/** A font toggle is only a request: the desktop applies it later. `pending` holds the requested state per font until a poll confirms it or PENDING_MS passes. */
+const PENDING_MS = 120_000
+
+function useFontToggle(installId: string) {
   const [error, setError] = useState('')
   const [sent, setSent] = useState<Record<string, boolean>>({})
   const [shakes, setShakes] = useState<Record<string, number>>({})
+  const [pending, setPending] = useState<Record<string, boolean>>({})
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const drop = useCallback((hash: string) => {
+    clearTimeout(timers.current.get(hash))
+    timers.current.delete(hash)
+    setPending((p) => { if (!(hash in p)) return p; const { [hash]: _, ...rest } = p; return rest })
+  }, [])
+  useEffect(() => { const t = timers.current; return () => { t.forEach(clearTimeout); t.clear() } }, [])
   const set = async (hash: string, active: boolean) => {
+    if (timers.current.has(hash)) return
     setError('')
-    const apply = (on: boolean) => setFonts((fs) => fs.map((f) => (f.hash === hash ? { ...f, active: on } : f)))
-    apply(active)
+    setPending((p) => ({ ...p, [hash]: active }))
+    timers.current.set(hash, setTimeout(() => drop(hash), PENDING_MS))
     try {
       await api.setFont(installId, hash, active)
       setSent((s) => ({ ...s, [hash]: true }))
     } catch (e) {
-      apply(!active)
+      drop(hash)
       setShakes((s) => ({ ...s, [hash]: (s[hash] ?? 0) + 1 }))
       setError(errorText(e))
     }
   }
-  return { set, error, sent, shakes }
+  return { set, error, sent, shakes, pending, drop }
 }
 
 function Overrides({ u, who }: { u: InstallDetail; who: string }) {
@@ -216,7 +226,11 @@ function Fonts({ u, who }: { u: InstallDetail; who: string }) {
   const query = useDebounced(q.trim(), 150)
   const [page, setPage] = usePage(query)
   const state = useLoad(() => api.fonts(u.id, query, page), [u.id, query, page], 10_000)
-  const { set, error, shakes } = useFontToggle(u.id, (f) => state.setData((p) => ({ ...p, items: f(p.items) })))
+  const { set, error, shakes, pending, drop } = useFontToggle(u.id)
+  // A poll that reports the requested state ends the wait.
+  useEffect(() => {
+    state.data?.items.forEach((f) => { if (pending[f.hash] === f.active) drop(f.hash) })
+  }, [state.data, pending, drop])
   return (
     <motion.section aria-labelledby="af" className="card pad-18 stack-10" variants={fadeRise}>
       <div className="row-between">
@@ -228,7 +242,7 @@ function Fonts({ u, who }: { u: InstallDetail; who: string }) {
       {error && <span role="alert" className="form-error">{error}</span>}
       <Loaded state={state} skeleton={fontsSkeleton}>{({ items, total }) => {
         // Active first, like the server; toggling re-sorts this page so rows glide to their new place.
-        const shown = [...items].sort((a, b) => Number(b.active) - Number(a.active))
+        const shown = items.map((f) => (f.hash in pending ? { ...f, active: pending[f.hash] } : f)).sort((a, b) => Number(b.active) - Number(a.active))
         return <>
       {total === 0 && <Empty>{query ? 'No fonts match.' : 'No fonts reported by this computer yet.'}</Empty>}
       <AnimatePresence>
@@ -238,9 +252,9 @@ function Fonts({ u, who }: { u: InstallDetail; who: string }) {
           <motion.div key={f.hash} className="font-row" {...row(i, shown.length)}>
             <span className="font-info">
               <span className="font-name ellipsis" style={{ fontFamily: `'${f.family}', var(--font-ui)` }}>{name}</span>
-              <span className="meta">{sourceText(f, who)}</span>
+              <span className="meta">{f.hash in pending ? 'Waiting for this computer' : sourceText(f, who)}</span>
             </span>
-            <Toggle on={f.active} label={`${f.active ? 'Turn off' : 'Turn on'} ${name} for ${who}`} onChange={() => set(f.hash, !f.active)}
+            <Toggle on={f.active} label={`${f.active ? 'Turn off' : 'Turn on'} ${name} for ${who}`} onChange={() => set(f.hash, !f.active)} disabled={f.hash in pending}
               shakeKey={shakes[f.hash]} />
           </motion.div>
         )

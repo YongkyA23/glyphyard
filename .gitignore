@@ -14,3 +14,6 @@ apps/setup/gen/
 
 # Local research notes, not part of the repo
 docs/research/
+
+# Real server addresses and host names, not part of the repo
+docs/deploy.local.md

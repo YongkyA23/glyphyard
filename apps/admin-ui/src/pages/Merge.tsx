@@ -73,7 +73,7 @@ function Form({ older, newer }: { older: InstallDetail; newer: InstallDetail }) 
     `One person named “${keepName}” with both computers listed`,
     `Name history combined: ${plural(older.name_history.length + newer.name_history.length, 'entry', 'entries')}, nothing deleted`,
     `Name limit carries over: ${older.next_name_change ? `next change allowed ${fmtDate(older.next_name_change)}` : 'name can be changed any time'}`,
-    'Admin-delivered fonts are sent to the new computer too',
+    'Fonts you deliver to this person from now on reach both computers',
   ]
 
   return (
