@@ -357,6 +357,12 @@ fn remove_file(s: &AppState, c: &Connection, hash: &str) -> ApiResult<String> {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()), // NotFound: the stored file is already gone
         _ => {}
     }
+    // Unsent Delivers would only reach a 404 download and a failure on the timeline.
+    c.execute(
+        "UPDATE commands SET acked_at = ?1, ok = 0, error = 'cancelled'
+         WHERE acked_at IS NULL AND kind = 'deliver' AND json_extract(payload_json, '$.file.hash') = ?2",
+        params![db::now(), hash],
+    )?;
     c.execute("DELETE FROM library_files WHERE hash = ?1", [hash])?;
     Ok(file.filename)
 }

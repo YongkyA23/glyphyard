@@ -1464,3 +1464,15 @@ async fn update_upload_over_the_cap_is_413() {
     let r = s.upload_update(&[("file", &file), ("manifest", b"m"), ("signature", b"s")], &s.cookie).await;
     assert_eq!((r.status, r.json()["error"].as_str()), (StatusCode::PAYLOAD_TOO_LARGE, Some("bad_upload")));
 }
+
+#[tokio::test]
+async fn deleting_a_library_file_cancels_its_queued_deliveries() {
+    let s = Server::new().await;
+    let a = s.register("a", "Ana").await;
+    let hash = s.seed_file("Gone.ttf", b"bytes of gone");
+    s.admin(Method::POST, &format!("/library/{hash}/deliver"), Some(json!({ "target": "all" }))).await;
+    assert_eq!(s.admin(Method::DELETE, &format!("/library/{hash}"), None).await.status, StatusCode::NO_CONTENT);
+    assert!(s.commands(&a).await.is_empty(), "a was offline: it no longer gets a Deliver for a file that is gone");
+    let cancelled: i64 = s.state.db().query_row("SELECT COUNT(*) FROM commands WHERE install_id = 'a' AND error = 'cancelled'", [], |r| r.get(0)).unwrap();
+    assert_eq!(cancelled, 1);
+}
