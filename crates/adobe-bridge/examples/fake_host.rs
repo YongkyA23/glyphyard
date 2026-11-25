@@ -43,7 +43,7 @@ async fn main() -> std::io::Result<()> {
     let data_dir = std::env::args().nth(1).unwrap_or_else(|| "target/fake-host".into());
     let library = std::env::var("TYPESHELF_FAKE_LIBRARY").unwrap_or_default();
     let host = FakeHost(library.split(',').filter(|s| !s.is_empty()).map(String::from).collect());
-    let config = Config { data_dir: data_dir.into(), port: DEFAULT_PORT, version: "dev".into() };
+    let config = Config { data_dir: data_dir.into(), port: DEFAULT_PORT, version: "dev".into(), expiry: EXPIRY };
     let bridge = start(config, Arc::new(host)).await?;
     println!("listening on http://{}", bridge.addr());
     std::future::pending::<()>().await;

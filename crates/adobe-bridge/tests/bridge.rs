@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
@@ -51,7 +52,11 @@ fn fake(allow: bool) -> Arc<Fake> {
 }
 
 async fn bridge(dir: &Path, handler: Arc<Fake>) -> (BridgeHandle, String) {
-    let config = Config { data_dir: dir.to_path_buf(), port: 0, version: "1.2.3".into() };
+    bridge_with_expiry(dir, handler, EXPIRY).await
+}
+
+async fn bridge_with_expiry(dir: &Path, handler: Arc<Fake>, expiry: Duration) -> (BridgeHandle, String) {
+    let config = Config { data_dir: dir.to_path_buf(), port: 0, version: "1.2.3".into(), expiry };
     let handle = start(config, handler).await.unwrap();
     let base = format!("http://{}", handle.addr());
     (handle, base)
@@ -62,10 +67,14 @@ fn client() -> Client {
 }
 
 async fn pair(base: &str) -> reqwest::Response {
+    pair_as(base, "photoshop").await
+}
+
+async fn pair_as(base: &str, app: &str) -> reqwest::Response {
     client()
         .post(format!("{base}/v1/pair"))
         .header("X-Typeshelf-Client", "test")
-        .json(&json!({ "app": "photoshop", "appVersion": "27.0", "clientId": "c1" }))
+        .json(&json!({ "app": app, "appVersion": "27.0", "clientId": "c1" }))
         .send()
         .await
         .unwrap()
@@ -95,10 +104,36 @@ async fn doc(base: &str, token: &str, document: &str, action: &str, fonts: &[&st
 }
 
 async fn paired_token(base: &str) -> String {
-    let res = pair(base).await;
+    paired_token_as(base, "photoshop").await
+}
+
+async fn paired_token_as(base: &str, app: &str) -> String {
+    let res = pair_as(base, app).await;
     assert_eq!(res.status(), StatusCode::OK);
     res.json::<Value>().await.unwrap()["token"].as_str().unwrap().to_string()
 }
+
+/// The plug-in's heartbeat, at 1/5 of the test expiry.
+fn keep_pinging(base: &str, token: &str) -> tokio::task::JoinHandle<()> {
+    let (base, token) = (base.to_string(), token.to_string());
+    tokio::spawn(async move {
+        loop {
+            ping(&base, Some(&token)).await;
+            tokio::time::sleep(SHORT_EXPIRY / 5).await;
+        }
+    })
+}
+
+/// Polls until `cond` holds, failing after 10 short expiries.
+async fn wait_until(cond: impl Fn() -> bool) {
+    let deadline = tokio::time::Instant::now() + SHORT_EXPIRY * 10;
+    while !cond() {
+        assert!(tokio::time::Instant::now() < deadline, "timed out");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+const SHORT_EXPIRY: Duration = Duration::from_secs(1);
 
 #[tokio::test]
 async fn pairing_allowed_persists_hashed_and_can_be_revoked() {
@@ -203,7 +238,7 @@ async fn binds_loopback_falls_back_to_next_port_and_writes_discovery_file() {
     let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = taken.local_addr().unwrap().port();
     let dir = tempfile::tempdir().unwrap();
-    let config = Config { data_dir: dir.path().to_path_buf(), port, version: "1".into() };
+    let config = Config { data_dir: dir.path().to_path_buf(), port, version: "1".into(), expiry: EXPIRY };
     let Ok(handle) = start(config, fake(true)).await else {
         return; // the next ports happened to be taken too
     };
@@ -213,4 +248,61 @@ async fn binds_loopback_falls_back_to_next_port_and_writes_discovery_file() {
     let discovery: Value =
         serde_json::from_slice(&std::fs::read(dir.path().join(DISCOVERY_FILE)).unwrap()).unwrap();
     assert_eq!(discovery["port"], addr.port());
+}
+
+#[tokio::test]
+async fn silent_app_has_its_documents_closed_after_the_expiry() {
+    let dir = tempfile::tempdir().unwrap();
+    let handler = fake(true);
+    let (_handle, base) = bridge_with_expiry(dir.path(), handler.clone(), SHORT_EXPIRY).await;
+    let photoshop = paired_token(&base).await;
+    let indesign = paired_token_as(&base, "indesign").await;
+    doc(&base, &photoshop, "a.psd", "open", &["Lib-A", "Lib-B"]).await;
+    doc(&base, &indesign, "b.indd", "open", &["Lib-A"]).await;
+    let heartbeat = keep_pinging(&base, &indesign);
+
+    // Photoshop goes quiet (quit or crashed); InDesign keeps pinging and still needs Lib-A.
+    wait_until(|| !handler.released.lock().unwrap().is_empty()).await;
+    tokio::time::sleep(SHORT_EXPIRY * 2).await;
+    heartbeat.abort();
+    assert_eq!(*handler.released.lock().unwrap(), vec!["Lib-B".to_string()]);
+    assert_eq!(doc(&base, &indesign, "b.indd", "close", &[]).await.1, json!({ "released": ["Lib-A"] }));
+}
+
+#[tokio::test]
+async fn pinging_app_keeps_its_fonts() {
+    let dir = tempfile::tempdir().unwrap();
+    let handler = fake(true);
+    let (_handle, base) = bridge_with_expiry(dir.path(), handler.clone(), SHORT_EXPIRY).await;
+    let token = paired_token(&base).await;
+    doc(&base, &token, "a.psd", "open", &["Lib-A"]).await;
+    let heartbeat = keep_pinging(&base, &token);
+    tokio::time::sleep(SHORT_EXPIRY * 3).await;
+    heartbeat.abort();
+    assert!(handler.released.lock().unwrap().is_empty());
+    assert_eq!(doc(&base, &token, "a.psd", "close", &[]).await.1, json!({ "released": ["Lib-A"] }));
+}
+
+#[tokio::test]
+async fn fonts_owned_before_a_restart_are_released_unless_reclaimed() {
+    let dir = tempfile::tempdir().unwrap();
+    let (handle, base) = bridge(dir.path(), fake(true)).await;
+    let token = paired_token(&base).await;
+    doc(&base, &token, "a.psd", "open", &["Lib-A"]).await;
+    doc(&base, &token, "b.psd", "open", &["Lib-B"]).await;
+    handle.shutdown();
+
+    // Typeshelf restarts; the fonts are still on. Only a.psd is re-reported.
+    let handler = fake(true);
+    handler.active.lock().unwrap().extend(["Lib-A".to_string(), "Lib-B".to_string()]);
+    let (_handle, base) = bridge_with_expiry(dir.path(), handler.clone(), SHORT_EXPIRY).await;
+    let (_, a) = doc(&base, &token, "a.psd", "open", &["Lib-A"]).await;
+    assert_eq!(a["alreadyActive"], json!(["Lib-A"]));
+    let heartbeat = keep_pinging(&base, &token);
+
+    wait_until(|| !handler.released.lock().unwrap().is_empty()).await;
+    tokio::time::sleep(SHORT_EXPIRY * 2).await;
+    heartbeat.abort();
+    assert_eq!(*handler.released.lock().unwrap(), vec!["Lib-B".to_string()]);
+    assert_eq!(doc(&base, &token, "a.psd", "close", &[]).await.1, json!({ "released": ["Lib-A"] }), "still owned");
 }

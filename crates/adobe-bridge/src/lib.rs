@@ -13,7 +13,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use axum::extract::{ConnectInfo, Request, State};
@@ -36,6 +36,8 @@ pub const DISCOVERY_FILE: &str = "adobe-bridge.json";
 const TOKENS_FILE: &str = "adobe-tokens.json";
 const CLIENT_HEADER: &str = "x-typeshelf-client";
 const PAIR_TIMEOUT: Duration = Duration::from_secs(60);
+/// An app not heard from for this long (plug-ins ping every 15 s) has its documents treated as closed.
+pub const EXPIRY: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -52,6 +54,8 @@ pub struct Config {
     pub port: u16,
     /// Typeshelf version reported by `/v1/ping`.
     pub version: String,
+    /// `EXPIRY`; tests shorten it. Also the window after start for re-claiming fonts owned by the last run.
+    pub expiry: Duration,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -138,16 +142,18 @@ pub async fn start(config: Config, handler: Arc<dyn BridgeHandler>) -> io::Resul
     std::fs::create_dir_all(&config.data_dir)?;
     let listener = bind(config.port).await?;
     let addr = listener.local_addr()?;
-    std::fs::write(
-        config.data_dir.join(DISCOVERY_FILE),
-        json!({ "port": addr.port() }).to_string(),
-    )?;
+    // Fonts the last run turned on; released by `expire` unless a document re-claims them in time.
+    let owned = load_state(&config.data_dir).owned;
+    save_state(&config.data_dir, addr.port(), &owned)?;
     let shared = Arc::new(Shared {
         tokens: Mutex::new(load_tokens(&config.data_dir)),
         config,
+        port: addr.port(),
         handler,
-        docs: tokio::sync::Mutex::default(),
+        docs: tokio::sync::Mutex::new(Docs { open: HashMap::new(), owned }),
         pairing: AtomicBool::new(false),
+        heard: Mutex::default(),
+        started: Instant::now(),
     });
     let router = Router::new()
         .route("/v1/ping", get(ping))
@@ -155,10 +161,44 @@ pub async fn start(config: Config, handler: Arc<dyn BridgeHandler>) -> io::Resul
         .route("/v1/document", post(document))
         .layer(middleware::from_fn(guard))
         .with_state(shared.clone());
+    let sweeper = shared.clone();
+    // One task, so `shutdown` stops the expiry checks along with the server.
     let task = tokio::spawn(async move {
-        axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>()).await
+        tokio::select! {
+            res = axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>()) => res,
+            () = expire_loop(sweeper) => Ok(()),
+        }
     });
     Ok(BridgeHandle { addr, shared, task })
+}
+
+async fn expire_loop(s: Arc<Shared>) {
+    let mut tick = tokio::time::interval(s.config.expiry / 4);
+    loop {
+        tick.tick().await;
+        expire(&s).await;
+    }
+}
+
+/// Closes the documents of apps not heard from within `expiry`, and after the start-up window releases
+/// fonts owned by the last run that no open document re-claimed.
+async fn expire(s: &Shared) {
+    let expiry = s.config.expiry;
+    let mut docs = s.docs.lock().await;
+    let silent: Vec<(App, String)> = {
+        let heard = s.heard.lock().unwrap();
+        docs.open
+            .keys()
+            .filter(|(app, _)| heard.get(app).is_none_or(|t| t.elapsed() > expiry))
+            .cloned()
+            .collect()
+    };
+    let mut released: Vec<String> = silent.iter().flat_map(|key| docs.close(key)).collect();
+    if s.started.elapsed() > expiry {
+        released.extend(docs.orphans());
+    }
+    released.sort();
+    s.release(&docs, &released).await;
 }
 
 async fn bind(port: u16) -> io::Result<TcpListener> {
@@ -180,13 +220,33 @@ struct Shared {
     // can't interleave with an activate/release in flight. Fine at a few documents per minute.
     docs: tokio::sync::Mutex<Docs>,
     pairing: AtomicBool,
+    /// Bound port, rewritten into the discovery file with `owned`.
+    port: u16,
+    /// When each paired app last made an authenticated request.
+    heard: Mutex<HashMap<App, Instant>>,
+    started: Instant,
 }
 
 impl Shared {
+    /// The app the token belongs to; also records that this app was just heard from.
     fn token_app(&self, token: &str) -> Option<App> {
         let hash = sha256_hex(token);
-        let tokens = self.tokens.lock().unwrap();
-        tokens.iter().find(|t| t.hash == hash).map(|t| t.app)
+        let app = self.tokens.lock().unwrap().iter().find(|t| t.hash == hash).map(|t| t.app)?;
+        self.heard.lock().unwrap().insert(app, Instant::now());
+        Some(app)
+    }
+
+    fn save(&self, docs: &Docs) {
+        // ponytail: a failed write only costs the restart clean-up of these fonts; no logger in this crate.
+        let _ = save_state(&self.config.data_dir, self.port, &docs.owned);
+    }
+
+    /// Turns off fonts `docs` just dropped from `owned` (a close, an expiry, or the start-up clean-up).
+    async fn release(&self, docs: &Docs, names: &[String]) {
+        if !names.is_empty() {
+            self.handler.release(names.to_vec()).await;
+            self.save(docs);
+        }
     }
 }
 
@@ -276,13 +336,14 @@ async fn document(State(s): State<Arc<Shared>>, headers: HeaderMap, Json(body): 
             let req = DocRequest { app, document: body.document, fonts: body.fonts };
             let result = s.handler.activate(req).await;
             docs.open(key, names, &result.activated);
+            if !result.activated.is_empty() {
+                s.save(&docs);
+            }
             Json(result).into_response()
         }
         DocAction::Close => {
             let released = docs.close(&key);
-            if !released.is_empty() {
-                s.handler.release(released.clone()).await;
-            }
+            s.release(&docs, &released).await;
             Json(json!({ "released": released })).into_response()
         }
     }
@@ -317,6 +378,39 @@ impl Docs {
         }
         release
     }
+
+    /// Owned fonts no open document uses. Only fonts loaded from the last run can be in this state, since
+    /// `close` drops a font from `owned` together with its last document.
+    fn orphans(&mut self) -> Vec<String> {
+        let open = &self.open;
+        let (orphans, kept) = self.owned.drain().partition(|f| !open.values().any(|fonts| fonts.contains(f)));
+        self.owned = kept;
+        orphans.into_iter().collect()
+    }
+}
+
+/// The discovery file, which also holds the fonts the bridge turned on so a restart can release them.
+#[derive(Default, Deserialize)]
+struct Saved {
+    #[serde(default)]
+    owned: HashSet<String>,
+}
+
+/// A missing or unreadable file means the bridge owns nothing.
+fn load_state(dir: &Path) -> Saved {
+    std::fs::read(dir.join(DISCOVERY_FILE))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+fn save_state(dir: &Path, port: u16, owned: &HashSet<String>) -> io::Result<()> {
+    let mut owned: Vec<&String> = owned.iter().collect();
+    owned.sort();
+    let path = dir.join(DISCOVERY_FILE);
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, json!({ "port": port, "owned": owned }).to_string())?;
+    std::fs::rename(tmp, path)
 }
 
 #[derive(Serialize, Deserialize)]

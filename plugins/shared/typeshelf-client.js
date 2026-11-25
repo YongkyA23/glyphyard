@@ -147,6 +147,10 @@ function typeshelfPanel(client, host) {
   let state = "offline";
   /** Documents the bridge has been told about: id -> name sent. */
   const tracked = new Map();
+  /** Set after losing Typeshelf: it may have restarted, so the next sync re-sends every open document. */
+  let reReport = false;
+  /** The bridge closes an app's documents when it hasn't heard from it for 60 s. */
+  const HEARTBEAT_MS = 15000;
   /** @type {Promise<unknown>} */
   let queue = Promise.resolve();
   /** @type {ReturnType<typeof setTimeout> | undefined} */
@@ -162,8 +166,9 @@ function typeshelfPanel(client, host) {
 
   async function refresh() {
     state = await client.status();
-    // A restarted app has forgotten our documents; resend them all once connected again.
-    if (state !== "connected") tracked.clear();
+    // A restarted app has forgotten our documents; resend them all once connected again. `tracked` is kept so
+    // documents closed meanwhile still get their "close".
+    if (state !== "connected") reReport = true;
     statusEl.textContent = LABELS[state];
     pairBtn.style.display = state === "not_paired" ? "" : "none";
     checkBtn.disabled = state !== "connected";
@@ -203,10 +208,12 @@ function typeshelfPanel(client, host) {
     const ids = new Set(docs.map((d) => d.id));
     for (const [id, name] of [...tracked]) {
       if (ids.has(id)) continue;
-      tracked.delete(id);
       await client.sendDocument(name, "close", []);
+      tracked.delete(id); // only once sent, so a failed close is retried by the next sync
     }
-    for (const doc of docs) if (!tracked.has(doc.id)) await open(doc);
+    // Re-opening a document the bridge still knows only adds to it, so re-sending is safe.
+    for (const doc of docs) if (reReport || !tracked.has(doc.id)) await open(doc);
+    reReport = false;
   }
 
   const scheduleSync = () => {
@@ -240,8 +247,6 @@ function typeshelfPanel(client, host) {
 
   host.onChange(scheduleSync);
   enqueue(sync); // documents that were already open
-  // Pick up a Typeshelf that starts after the Adobe app.
-  setInterval(() => {
-    if (state !== "connected") enqueue(sync);
-  }, 15000);
+  // Connected: an authenticated ping (heartbeat). Otherwise: pick up a Typeshelf that starts after the Adobe app.
+  setInterval(() => enqueue(state === "connected" ? refresh : sync), HEARTBEAT_MS);
 }

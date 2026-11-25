@@ -19,6 +19,7 @@ pub async fn start(app: AppHandle) {
         data_dir: app.state::<Ctx>().data_dir.clone(),
         port: typeshelf_adobe_bridge::DEFAULT_PORT,
         version: env!("CARGO_PKG_VERSION").into(),
+        expiry: typeshelf_adobe_bridge::EXPIRY,
     };
     match typeshelf_adobe_bridge::start(config, Arc::new(Bridge(app.clone()))).await {
         Ok(handle) => {
