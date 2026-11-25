@@ -43,6 +43,7 @@ struct Row {
     /// The copy lives in an OS font folder, so the OS has it on regardless of the ledger.
     system: bool,
     category: Option<Category>,
+    temporary_until: Option<String>,
 }
 
 impl Row {
@@ -56,7 +57,8 @@ fn load_rows(conn: &Connection, key: Option<&str>) -> rusqlite::Result<Vec<Row>>
         "SELECT f.hash, f.idx, f.family_key, f.ps_name, f.family, f.style, COALESCE(d.display_name, f.full_name),
                 f.version, f.foundry, f.designer, f.weight, f.italic, f.is_variable, f.glyph_count, f.axes_json,
                 f.features_json, fo.path, fi.rel_path, fi.folder_id, fi.added_at, a.source, a.path,
-                fo.managed IS 'system', f.category
+                fo.managed IS 'system', f.category,
+                (SELECT json_extract(value, '$.\"' || f.hash || '\"') FROM settings WHERE key = 'temporary')
          FROM faces f
          JOIN files fi ON fi.hash = f.hash
          JOIN folders fo ON fo.id = fi.folder_id
@@ -90,6 +92,7 @@ fn load_rows(conn: &Connection, key: Option<&str>) -> rusqlite::Result<Vec<Row>>
             active_path: r.get(21)?,
             system: r.get(22)?,
             category: r.get::<_, Option<String>>(23)?.as_deref().and_then(Category::parse),
+            temporary_until: r.get(24)?,
         })
     })?;
     rows.collect()
@@ -153,6 +156,7 @@ fn face(row: &Row, path: &str) -> Face {
         italic: row.italic,
         is_variable: row.is_variable,
         system: row.system,
+        temporary_until: row.temporary_until.clone(),
     }
 }
 

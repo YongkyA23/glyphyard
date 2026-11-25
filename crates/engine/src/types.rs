@@ -104,6 +104,8 @@ pub struct Face {
     pub is_variable: bool,
     /// Installed in an OS font folder: always on, cannot be turned off here.
     pub system: bool,
+    /// On temporarily: `"restart"` (until Typeshelf restarts) or the RFC 3339 time it turns off.
+    pub temporary_until: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

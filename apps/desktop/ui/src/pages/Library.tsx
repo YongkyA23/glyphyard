@@ -7,6 +7,7 @@ import {
 } from '../api'
 import { familyStyle } from '../fonts'
 import { useAddFonts, useFamilyDrag, useFontActions } from '../fontActions'
+import { clockMark, turnsOff } from '../temporary'
 import { useContextMenu, type MenuItem } from '../menu'
 import { collapse, dur, easeOut, rise, spring, STAGGER_CAP, staggerDelay } from '../motion'
 import { useApp } from '../state'
@@ -90,8 +91,8 @@ const itemEvents = (f: Family, i: number, h: ItemHandlers) => ({
 
 const ItemSwitch = ({ f, h }: { f: Family; h: ItemHandlers }) => (
   <Switch
-    on={f.activeState !== 'none'} mixed={f.activeState === 'some'} disabled={f.system} onClick={() => h.toggle(f)}
-    label={f.system ? `${f.family} is a system font, always on` : `${f.activeState === 'all' ? 'Deactivate' : 'Activate'} ${f.family}`}
+    on={f.activeState !== 'none'} mixed={f.activeState === 'some'} disabled={f.system} onClick={() => h.toggle(f)} title={turnsOff(f) ?? undefined}
+    label={f.system ? `${f.family} is a system font, always on` : `${f.activeState === 'all' ? 'Deactivate' : 'Activate'} ${f.family}${turnsOff(f) ? `. ${turnsOff(f)}` : ''}`}
   />
 )
 const ItemCheck = ({ f, i, selected, h }: { f: Family; i: number; selected: boolean; h: ItemHandlers }) => (
@@ -111,6 +112,7 @@ const FamilyRow = memo(function FamilyRow({ f, i, first, sample, size, error, se
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           <Link to={familyLink(f)} className="plain-link ellipsis" style={{ fontWeight: 500 }} draggable={false}>{f.family}</Link>
           {f.pinned && <PinMark />}
+          {clockMark(f)}
         </span>
         <span className="faint" style={{ fontSize: 12 }}>
           {plural(f.styles, 'style')} · {f.foundry}{f.isVariable && ' · variable'}{f.category && ` · ${CATEGORY_LABEL[f.category]}`}
@@ -143,6 +145,7 @@ const FamilyCard = memo(function FamilyCard({ f, i, first, sample, size, error, 
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           <Link to={familyLink(f)} className="plain-link ellipsis" style={{ fontWeight: 500 }} draggable={false}>{f.family}</Link>
           {f.pinned && <PinMark />}
+          {clockMark(f)}
         </span>
         <span className="faint ellipsis" style={{ fontSize: 12 }}>
           {plural(f.styles, 'style')}{f.category && ` · ${CATEGORY_LABEL[f.category]}`}{f.isVariable && ' · variable'}

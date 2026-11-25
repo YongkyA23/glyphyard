@@ -10,7 +10,8 @@ type License = "licensed" | "personal" | "client" | "unknown";
 type Source = "user" | "admin" | "project_set" | "library";
 type Face = { hash: string; psName: string; family: string; style: string; fullName: string; version: string;
   path: string; active: boolean; source: Source | null; weight: number; italic: boolean; isVariable: boolean;
-  system: boolean };  // in an OS font folder: always on, read-only
+  system: boolean;  // in an OS font folder: always on, read-only
+  temporaryUntil: string | null };  // on temporarily (set_active_for): "restart" or the ISO time it turns off
 type FontCategory = "serif" | "sans" | "display" | "handwriting" | "mono";
 type Family = { key: string; family: string; foundry: string; styles: number; isVariable: boolean; license: License;
   activeState: "all" | "some" | "none"; adminSet: boolean; hasDuplicates: boolean; system: boolean;
@@ -68,6 +69,7 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `set_folder_auto` | `{ path, on }` → `ActivationResult[]`; on: turns on what is there now and every font that lands in the folder later |
 | `get_family` | `{ key }` → `FamilyDetail` |
 | `set_active` | `{ hashes, active }` → `ActivationResult[]`. No license confirmation: fonts without a license label turn on like any other |
+| `set_active_for` | `{ hashes, until }` (`until` = `"restart"` or `{ minutes }`) → `ActivationResult[]`: turns on like `set_active`, then off again by itself at the next start or after the minutes (checked every minute). Turning the font on or off any other way cancels that; a font an admin, a library push or an active project set also wants stays on |
 | `list_folders` / `add_folder {path}` / `remove_folder {id}` / `locate_folder {id, path}` | → `Folder[]` |
 | `list_collections` / `create_collection {name, parentId?}` / `rename_collection {id, name}` / `delete_collection {id}` | → `Collection[]` |
 | `add_to_collection` / `remove_from_collection` | `{ id, familyKeys }` → `Collection[]` |

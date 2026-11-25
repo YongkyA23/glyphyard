@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
 import { AnimatePresence, motion, useMotionValue } from 'motion/react'
-import { api, tagsOf, type Collection, type Family } from './api'
+import { api, tagsOf, type Collection, type Family, type Until } from './api'
 import type { MenuItem } from './menu'
 import { spring } from './motion'
 import { useApp } from './state'
@@ -33,6 +33,13 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
     if (!hashes.length) return
     const res = await activate(() => api.setActive(hashes, on))
     if (res?.some((r) => r.ok)) toast(`${on ? 'Turned on' : 'Turned off'} ${famNames(fams)}`)
+    onChanged(false)
+  }
+  async function setActiveFor(fams: Family[], until: Until) {
+    const hashes = editable(fams)
+    if (!hashes.length) return
+    const res = await activate(() => api.setActiveFor(hashes, until))
+    if (res?.some((r) => r.ok)) toast(`Turned on ${famNames(fams)} ${until === 'restart' ? 'until you restart Typeshelf' : 'for 2 hours'}`)
     onChanged(false)
   }
   async function setPinned(fams: Family[], pinned: boolean) {
@@ -77,6 +84,12 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
     return [
       { label: 'Activate', hint: `${mod}Shift+A`, disabled: locked || fams.every((f) => f.activeState === 'all'), onSelect: () => setActive(fams, true) },
       { label: 'Deactivate', hint: `${mod}Shift+D`, disabled: locked || fams.every((f) => f.activeState === 'none'), onSelect: () => setActive(fams, false) },
+      {
+        label: 'Turn on for…', disabled: locked, items: [
+          { label: '2 hours', onSelect: () => setActiveFor(fams, { minutes: 120 }) },
+          { label: 'Until I restart Typeshelf', onSelect: () => setActiveFor(fams, 'restart') },
+        ],
+      },
       { label: 'Show in folder', disabled: !fams[0]?.faces[0], onSelect: () => api.showInFolder(fams[0].faces[0].path).catch((e) => toast(errMsg(e))) },
       'sep',
       fams.every((f) => f.pinned)

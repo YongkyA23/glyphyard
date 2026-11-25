@@ -11,7 +11,11 @@ export type Face = {
   path: string; active: boolean; source: Source | null; weight: number; italic: boolean; isVariable: boolean
   /** Installed in an OS font folder: always on. */
   system: boolean
+  /** On temporarily: 'restart' or the ISO time it turns off. */
+  temporaryUntil?: string | null
 }
+/** How long `setActiveFor` keeps fonts on. */
+export type Until = 'restart' | { minutes: number }
 export type FontCategory = 'serif' | 'sans' | 'display' | 'handwriting' | 'mono'
 export type Family = {
   key: string; family: string; foundry: string; styles: number; isVariable: boolean; license: License
@@ -140,6 +144,8 @@ export const api = {
   getFamily: (key: string) => call<FamilyDetail>('get_family', { key }),
   setActive: (hashes: string[], active: boolean) =>
     call<ActivationResult[]>('set_active', { hashes, active }),
+  setActiveFor: (hashes: string[], until: Until) =>
+    call<ActivationResult[]>('set_active_for', { hashes, until }),
 
   listFolders: () => call<Folder[]>('list_folders'),
   addFolder: (path: string) => call<Folder[]>('add_folder', { path }),

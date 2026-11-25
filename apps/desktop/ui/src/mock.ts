@@ -270,6 +270,7 @@ function activate(hashes: string[], active: boolean): ActivationResult[] {
       return { hash, ok: false, error: 'file_missing', message: `${face.fullName}: the file is on ${folder.path}, which is offline.` }
     face.active = active
     face.source = active ? 'user' : null
+    face.temporaryUntil = null
     refreshState(f)
     return { hash, ok: true, error: null, message: null }
   })
@@ -492,6 +493,19 @@ const handlers: Record<string, (a: Args) => unknown> = {
     return rest
   },
   set_active: ({ hashes, active }) => activate(hashes, active),
+  set_active_for: ({ hashes, until }) => {
+    const results = activate(hashes, true)
+    const at = until === 'restart' ? 'restart' : new Date(Date.now() + until.minutes * 60_000).toISOString()
+    const faces = families.flatMap((f) => f.faces).filter((x) => results.some((r) => r.ok && r.hash === x.hash))
+    for (const x of faces) x.temporaryUntil = at
+    // Like the engine's minute sweep; "restart" ones go when the page reloads, since the mock starts fresh.
+    if (at !== 'restart') setTimeout(() => {
+      const due = faces.filter((x) => x.temporaryUntil === at).map((x) => x.hash)
+      if (due.length) activate(due, false)
+    }, until.minutes * 60_000)
+    emit('library-changed', { reason: 'activation' })
+    return results
+  },
   list_folders: () => folders,
   add_folder: ({ path }) => {
     folders = [...folders, { id: Math.max(0, ...folders.map((f) => f.id)) + 1, path, status: 'scanning', fontCount: 0, offlineSince: null }]

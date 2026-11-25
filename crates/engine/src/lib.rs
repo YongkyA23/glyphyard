@@ -14,6 +14,7 @@ mod scan;
 mod search;
 mod settings;
 mod store;
+mod temporary;
 mod types;
 mod watch;
 
@@ -26,6 +27,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock, RwLock};
 use typeshelf_protocol::{Event, TimedEvent};
 
 pub use activation::{OsFonts, SystemFonts};
+pub use temporary::Until;
 pub use types::*;
 pub use typeshelf_activation::{ActivationError, LedgerEntry, ReconcileReport};
 

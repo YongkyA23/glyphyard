@@ -22,6 +22,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
     tauri::generate_handler![
         get_app_state, complete_onboarding, change_name,
         list_families, family_page, library_counts, language_counts, get_faces, get_family, set_active, similar_families,
+        set_active_for,
         set_family_name, delete_fonts, import_paths, face_glyphs, set_pinned,
         folder_tree, set_folder_active, set_folder_auto, set_folder_hidden, delete_folder,
         list_folders, add_folder, remove_folder, locate_folder,
@@ -124,6 +125,11 @@ pub async fn get_family(ctx: St<'_>, key: String) -> R<FamilyDetail> {
 #[tauri::command]
 pub async fn set_active(ctx: St<'_>, hashes: Vec<String>, active: bool) -> R<Vec<ActivationResult>> {
     ctx.run(move |e| e.set_active(&hashes, active)).await
+}
+
+#[tauri::command]
+pub async fn set_active_for(ctx: St<'_>, hashes: Vec<String>, until: Until) -> R<Vec<ActivationResult>> {
+    ctx.run(move |e| e.set_active_for(&hashes, until)).await
 }
 
 #[tauri::command]

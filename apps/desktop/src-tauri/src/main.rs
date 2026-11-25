@@ -210,9 +210,17 @@ async fn startup(app: AppHandle) {
         tracing::error!("startup scan: {e}");
     }
     let repaired = engine.clone();
-    tauri::async_runtime::spawn_blocking(move || match repaired.repair_now() {
-        Ok(h) => tracing::info!(active = h.active, removed = h.removed, reregistered = h.reregistered, "repair"),
-        Err(e) => tracing::error!("startup repair: {e}"),
+    tauri::async_runtime::spawn_blocking(move || {
+        // Before repair on the same thread, so repair never brings back a font this just turned off.
+        match repaired.expire_temporary(chrono::Utc::now(), true) {
+            Ok(n) if n > 0 => tracing::info!("turned off {n} temporary fonts"),
+            Ok(_) => {}
+            Err(e) => tracing::error!("temporary fonts at start-up: {e}"),
+        }
+        match repaired.repair_now() {
+            Ok(h) => tracing::info!(active = h.active, removed = h.removed, reregistered = h.reregistered, "repair"),
+            Err(e) => tracing::error!("startup repair: {e}"),
+        }
     });
     let watched = engine.clone();
     match tauri::async_runtime::spawn_blocking(move || watched.start_watching()).await {
@@ -222,6 +230,7 @@ async fn startup(app: AppHandle) {
     }
     let _ = app.emit("library-changed", serde_json::json!({ "reason": "scan" }));
     tauri::async_runtime::spawn(reconnect_loop(engine.clone()));
+    tauri::async_runtime::spawn(expiry_loop(engine.clone()));
     if let Err(e) = sync::restart(&app).await {
         tracing::error!("starting sync: {e}");
     }
@@ -235,6 +244,19 @@ async fn reconnect_loop(engine: Arc<Engine>) {
             Ok(true) => tracing::info!("a folder came back online"),
             Ok(false) => {}
             Err(e) => tracing::warn!("checking for returning folders: {e}"),
+        }
+    }
+}
+
+/// Every minute: turns off temporary fonts whose time is up. Runs alongside the start-up sweep safely: each
+/// sweep takes its due records in one database step, so no font is picked twice.
+async fn expiry_loop(engine: Arc<Engine>) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        match blocking(&engine, |e| e.expire_temporary(chrono::Utc::now(), false)).await {
+            Ok(0) => {}
+            Ok(n) => tracing::info!("turned off {n} temporary fonts"),
+            Err(e) => tracing::warn!("turning off temporary fonts: {e}"),
         }
     }
 }

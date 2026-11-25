@@ -60,9 +60,9 @@ export function andList(items: string[]) {
   return items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
 }
 
-export function Switch({ on, mixed, label, onClick, disabled }: { on: boolean; mixed?: boolean; label: string; onClick: () => void; disabled?: boolean }) {
+export function Switch({ on, mixed, label, onClick, disabled, title }: { on: boolean; mixed?: boolean; label: string; onClick: () => void; disabled?: boolean; title?: string }) {
   return (
-    <button type="button" className="switch" aria-pressed={mixed ? 'mixed' : on} aria-label={label} onClick={onClick} disabled={disabled}>
+    <button type="button" className="switch" aria-pressed={mixed ? 'mixed' : on} aria-label={label} onClick={onClick} disabled={disabled} title={title}>
       <motion.span initial={false} animate={{ x: mixed ? 9 : on ? 18 : 0 }} transition={spring.pop} />
     </button>
   )

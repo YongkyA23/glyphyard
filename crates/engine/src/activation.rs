@@ -255,6 +255,7 @@ impl Engine {
 
     /// [`Engine::activate_hashes`] without the OS broadcast; also says whether the OS font list changed.
     fn activate_batch(&self, conn: &Connection, hashes: &[String], source: Source) -> Result<(Vec<ActivationResult>, bool)> {
+        crate::temporary::forget(conn, hashes)?;
         let mut results = Vec::new();
         let mut by_ps: BTreeMap<String, Vec<FontFile>> = BTreeMap::new();
         let mut seen = HashSet::new();
@@ -373,6 +374,7 @@ impl Engine {
                 continue;
             }
             conn.execute("DELETE FROM activations WHERE hash = ?1", [&row.hash])?;
+            crate::temporary::forget(conn, std::slice::from_ref(&row.hash))?;
             let was_admin = row.source == Source::Admin && source != Source::Admin;
             self.emit(Event::FontDeactivated { font: font_ref(conn, &row.hash), source, was_admin });
             results.push(ok(&row.hash, None));
@@ -458,6 +460,7 @@ impl Engine {
     /// ledger rows written now so the UI shows the fonts as on. Returns what still has to be registered.
     fn claim_activations(&self, conn: &Connection, hashes: &[String], source: Source) -> Result<(Vec<ActivationResult>, Vec<Queued>, bool)> {
         let batch = Batch::begin(conn)?;
+        crate::temporary::forget(conn, hashes)?;
         let mut results = Vec::new();
         let mut by_ps: BTreeMap<String, Vec<FontFile>> = BTreeMap::new();
         let mut seen = HashSet::new();
@@ -536,6 +539,7 @@ impl Engine {
                     Err(e) => {
                         if wanted {
                             let _ = db.execute("DELETE FROM activations WHERE hash = ?1 AND path = ?2", params![q.font.hash, path]);
+                            let _ = crate::temporary::forget(&db, std::slice::from_ref(&q.font.hash));
                         }
                         self.activation_failed(&db, &q.font.hash, &e);
                         if failed.len() < 20 {
@@ -614,6 +618,7 @@ impl Engine {
                 continue;
             }
             db.execute("DELETE FROM activations WHERE hash = ?1 AND path = ?2", params![row.hash, row.path])?;
+            crate::temporary::forget(&db, std::slice::from_ref(&row.hash))?;
             let was_admin = row.source == Source::Admin && source != Source::Admin;
             self.emit(Event::FontDeactivated { font: font_ref(&db, &row.hash), source, was_admin });
             results.push(ok(&row.hash, None));
