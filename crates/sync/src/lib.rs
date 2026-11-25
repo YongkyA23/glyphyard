@@ -245,7 +245,19 @@ impl SyncClient {
             let n = lines.len().min(BATCH);
             // A line that doesn't parse would block the outbox forever, so it is dropped with its batch.
             let events = lines[..n].iter().filter_map(|l| serde_json::from_str(l).ok()).collect();
-            self.send(self.request(Method::POST, "/me/events").json(&EventBatch { events })).await?;
+            let batch = EventBatch { events };
+            match self.send(self.request(Method::POST, "/me/events").json(&batch)).await {
+                Ok(_) => {}
+                // A client error that retrying cannot fix (unknown event kind, payload too large) would
+                // block every later batch, so the batch is dropped. Auth, timeout and rate-limit statuses recover.
+                // ponytail: logged to stderr; the crate has no logging dependency.
+                Err(SyncError::Server { status, .. })
+                    if (400..500).contains(&status) && ![401, 403, 408, 429].contains(&status) =>
+                {
+                    eprintln!("typeshelf-sync: server rejected a batch of {} events with status {status}; dropping it", batch.events.len());
+                }
+                Err(e) => return Err(e),
+            }
 
             // Only appends happened meanwhile (we hold FLUSHING), so the first n lines are still ours.
             let _file = OUTBOX_FILE.lock().await;

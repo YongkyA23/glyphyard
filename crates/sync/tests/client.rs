@@ -68,6 +68,14 @@ async fn events(State(m): S, h: HeaderMap, Json(batch): Json<EventBatch>) -> Sta
     if let Err(s) = auth(&h, true) {
         return s;
     }
+    // Events with changes 400 / 500 make the mock refuse the whole batch with that status.
+    for e in &batch.events {
+        match e.event {
+            Event::OrganizeApplied { changes: 400 } => return StatusCode::BAD_REQUEST,
+            Event::OrganizeApplied { changes: 500 } => return StatusCode::INTERNAL_SERVER_ERROR,
+            _ => {}
+        }
+    }
     m.events.lock().unwrap().extend(batch.events);
     StatusCode::NO_CONTENT
 }
@@ -224,6 +232,39 @@ async fn outbox_survives_restart_and_flushes_on_connect() {
 
     cancel.cancel();
     task.await.unwrap();
+}
+
+#[tokio::test]
+async fn rejected_batch_is_dropped_and_later_events_are_delivered() {
+    let mock = Arc::new(Mock::default());
+    let url = serve(mock.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let outbox = dir.path().join("outbox.jsonl");
+    let client = SyncClient::new(config(&url, Some(TOKEN), &outbox));
+
+    // A full first batch (200) the server answers with 400, then one valid event behind it.
+    let mut events = vec![event(400); 200];
+    events.push(event(7));
+    client.queue_events(events).await.unwrap();
+    client.flush().await.unwrap();
+
+    let sent: Vec<_> = mock.events.lock().unwrap().iter().map(|e| e.event.clone()).collect();
+    assert_eq!(sent, [Event::OrganizeApplied { changes: 7 }]);
+    assert!(std::fs::read_to_string(&outbox).unwrap().trim().is_empty());
+}
+
+#[tokio::test]
+async fn server_error_keeps_the_batch_in_the_outbox() {
+    let mock = Arc::new(Mock::default());
+    let url = serve(mock.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let outbox = dir.path().join("outbox.jsonl");
+    let client = SyncClient::new(config(&url, Some(TOKEN), &outbox));
+
+    client.queue_events(vec![event(500)]).await.unwrap();
+    assert!(matches!(client.flush().await, Err(SyncError::Server { status: 500, .. })));
+    assert_eq!(std::fs::read_to_string(&outbox).unwrap().lines().count(), 1);
+    assert!(mock.events.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
