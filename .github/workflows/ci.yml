@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('apps/desktop/ui/bun.lock', 'apps/admin-ui/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      # The desktop and setup crates embed these folders at compile time.
+      - name: Create empty build folders
+        shell: bash
+        run: mkdir -p apps/desktop/ui/dist plugins/dist
+
+      - name: Rust tests
+        run: cargo test --workspace
+      - name: Rust clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Desktop UI
+        shell: bash
+        working-directory: apps/desktop/ui
+        run: |
+          bun install --frozen-lockfile
+          bunx tsc --noEmit -p tsconfig.app.json
+          bunx oxlint
+      - name: Admin UI
+        shell: bash
+        working-directory: apps/admin-ui
+        run: |
+          bun install --frozen-lockfile
+          bunx tsc --noEmit -p tsconfig.app.json
+          bunx oxlint
