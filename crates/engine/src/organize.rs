@@ -169,11 +169,14 @@ impl Engine {
                     Err(_) => {}
                 }
             }
-            if applied == 0 {
-                db.execute("DELETE FROM history WHERE id = ?1", [history_id])?;
-            }
             self.os.notify_font_change();
-            history_id
+            if applied == 0 {
+                // No entry, and no id: a later entry may reuse the deleted row's id.
+                db.execute("DELETE FROM history WHERE id = ?1", [history_id])?;
+                0
+            } else {
+                history_id
+            }
         };
         self.emit(Event::OrganizeApplied { changes: applied });
         self.rescan()?;

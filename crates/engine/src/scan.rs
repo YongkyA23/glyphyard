@@ -1,6 +1,7 @@
 //! Folders (identity, offline/online, relocation) and incremental scanning.
 
 use crate::organize::to_trash;
+use crate::reconcile::ToReconcile;
 use crate::{not_found, store, DeleteResult, Engine, EngineError, Folder, FolderStatus, ImportResult, Result, UiEvent};
 use notify_debouncer_full::file_id::{get_file_id, FileId};
 use rayon::prelude::*;
@@ -300,10 +301,7 @@ impl Engine {
         self.adopt_managed_folders();
         self.refresh_folders()?;
         let ids: Vec<i64> = folder_rows(&self.db())?.into_iter().filter(|f| f.online).map(|f| f.id).collect();
-        let mut changed = false;
-        for id in ids {
-            changed |= self.scan_folder(id)?;
-        }
+        let changed = self.scan_folders(&ids)?;
         if changed {
             self.library_changed("scan");
         }
@@ -411,9 +409,14 @@ impl Engine {
         Ok(())
     }
 
-    /// Incremental scan: only files whose size or mtime changed are read, hashed and parsed (in
-    /// parallel). Returns whether anything changed.
+    /// Scans one folder and reconciles the ledger after it (see `scan_folders`). Returns whether anything changed.
     pub(crate) fn scan_folder(&self, id: i64) -> Result<bool> {
+        self.scan_folders(&[id])
+    }
+
+    /// Incremental scan: only files whose size or mtime changed are read, hashed and parsed (in
+    /// parallel). Returns whether anything changed, and what the ledger reconciliation needs (`None`: offline).
+    pub(crate) fn scan_files(&self, id: i64) -> Result<(bool, Option<ToReconcile>)> {
         let (folder, existing) = {
             let db = self.db();
             let folder = folder_row(&db, id)?;
@@ -430,7 +433,7 @@ impl Engine {
         let root = &folder.path;
         if !root.is_dir() {
             self.set_folder_online(id, false)?;
-            return Ok(false);
+            return Ok((false, None));
         }
 
         let mut seen = HashSet::new();
@@ -476,7 +479,7 @@ impl Engine {
         if !root.is_dir() {
             // The volume went away mid-scan: keep what we know.
             self.set_folder_online(id, false)?;
-            return Ok(false);
+            return Ok((false, None));
         }
 
         let scanned: Vec<Scanned> = todo
@@ -522,11 +525,7 @@ impl Engine {
             folder_dto(&db, &row, None)?
         };
         self.ui(UiEvent::FolderStatus(dto));
-        // Before pruning faces, so a font turned off here is still reported by name.
-        let changed = self.reconcile_ledger(id, root, &unread)? || changed;
-        if !removed.is_empty() {
-            prune_faces(&self.db())?;
-        }
+        let pending = ToReconcile { id, root: root.clone(), unread, removed: !removed.is_empty() };
         // Bytes this folder already had did not arrive: a re-read (touched, re-parsed after an upgrade),
         // a rename, or a move inside the folder.
         let known: HashSet<&str> = existing.values().map(|e| e.2.as_str()).collect();
@@ -538,7 +537,7 @@ impl Engine {
         if !arrived.is_empty() {
             self.auto_activate(&arrived)?;
         }
-        Ok(changed)
+        Ok((changed, Some(pending)))
     }
 
     /// Folder ids containing any of `paths`.

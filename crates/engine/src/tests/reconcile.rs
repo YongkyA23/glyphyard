@@ -88,8 +88,44 @@ fn an_apply_that_changes_nothing_leaves_no_history() {
     fx.engine.organize_plan(false).unwrap();
     std::fs::remove_file(&kept).unwrap();
     std::fs::remove_file(fx.root.join("a/arial.ttf")).unwrap();
-    assert_eq!(fx.engine.organize_apply(false, &[]).unwrap().applied, 0);
+    let result = fx.engine.organize_apply(false, &[]).unwrap();
+    assert_eq!((result.applied, result.history_id), (0, 0), "no id that a later entry could reuse");
     assert!(fx.engine.list_history().unwrap().is_empty());
+}
+
+#[test]
+fn a_font_moved_to_a_later_added_folder_stays_active() {
+    let fx = fixture!();
+    let old = fx.put("one/arial.ttf", &system_font("arial.ttf").unwrap());
+    fx.put("two/keep.txt", b"x");
+    fx.engine.add_folder(fx.root.join("one")).unwrap();
+    fx.engine.add_folder(fx.root.join("two")).unwrap();
+    fx.engine.set_active(&fx.hashes("Arial"), true).unwrap();
+    let new = fx.root.join("two").join("arial.ttf");
+    std::fs::rename(&old, &new).unwrap();
+    fx.engine.rescan().unwrap(); // folder "one" (lower id) is scanned first
+    assert_eq!(fx.os.registered(), HashSet::from([new.clone()]));
+    assert_eq!(ledger_paths(&fx), vec![new]);
+}
+
+#[test]
+fn following_twice_from_a_stale_decision_keeps_the_font_registered() {
+    let fx = fixture!();
+    let (old, hash) = arial_on(&fx, "a/arial.ttf");
+    let row = crate::activation::LedgerRow {
+        hash,
+        path: ledger_paths(&fx)[0].to_string_lossy().into_owned(), // as stored (separators as scanned)
+        full_name: fx.family("Arial").faces[0].full_name.clone(),
+        source: Source::User,
+    };
+    let new = fx.root.join("b").join("arial.ttf");
+    std::fs::create_dir_all(new.parent().unwrap()).unwrap();
+    std::fs::rename(&old, &new).unwrap();
+    // Two reconciliations that both decided "follow" before either applied it.
+    fx.engine.follow(&row, new.clone()).unwrap();
+    fx.engine.follow(&row, new.clone()).unwrap();
+    assert_eq!(fx.os.registered(), HashSet::from([new.clone()]));
+    assert_eq!(ledger_paths(&fx), vec![new]);
 }
 
 #[test]

@@ -89,10 +89,10 @@ export function Organize() {
       setApplyState('done')
       setTimeout(() => setApplyState('idle'), 1600)
       if (failed.length) toast(`${plural(failed.length, 'change')} couldn’t be done, e.g. ${failed[0]}`)
-      toast(`Applied ${plural(applied, 'change')}`, {
+      toast(`Applied ${plural(applied, 'change')}`, historyId ? {
         label: 'Undo',
         run: () => api.undoHistory(historyId).then(() => (toast('Auto-organize undone'), bump(), scan(tidy)), (e) => toast(errMsg(e))),
-      })
+      } : undefined)
       setExcluded(new Set())
       bump()
       scan(tidy)
