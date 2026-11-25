@@ -18,7 +18,7 @@ Design: `docs/ui-canvas/Setup*.dc.html`, `docs/ui-canvas/Uninstall*.dc.html`.
 | `install` | `{ dir, startMenu, desktop, startAtLogin }` → `void`; rejects `{ code: "app_running" \| "io" \| "invalid_dir", message }` |
 | `close_app` | → `void` once Typeshelf has exited (asks nicely, forces after 5 s) |
 | `launch_app` | → `void` (starts Typeshelf, then Setup exits) |
-| `uninstall` | `{ wipeData }` → `{ fontsTurnedOff, leftoverEntries }`; rejects like `install` |
+| `uninstall` | `{ wipeData }` → `{ fontsTurnedOff, leftoverEntries, fontsKeptIn: string \| null }` (wiping data keeps the font folders that hold files); rejects like `install` |
 | `quit` | → `void` |
 
 Event `progress` → `{ pct: number (0–100), step: "copy" \| "webview2" \| "plugins" \| "shortcuts" \| "fonts" \| "files" \| "registry" }`

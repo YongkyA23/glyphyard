@@ -217,9 +217,11 @@ async function runUninstall() {
   const left = $('#rm-left');
   left.textContent = r.leftoverEntries;
   left.className = 'w600 num ' + (r.leftoverEntries ? 'bad' : 'ok');
-  $('#rm-note').textContent = wipeData
-    ? 'Your library data was deleted too, so a reinstall starts fresh.'
-    : 'Your library data was kept, so reinstalling picks up where you left off.';
+  $('#rm-note').textContent = !wipeData
+    ? 'Your library data was kept, so reinstalling picks up where you left off.'
+    : r.fontsKeptIn
+      ? `Your library data was deleted. Fonts you imported into Typeshelf were kept in ${r.fontsKeptIn}.`
+      : 'Your library data was deleted too, so a reinstall starts fresh.';
   setTimeout(() => show('removed'), 500);
 }
 
@@ -275,11 +277,12 @@ function mockTauri() {
       if (takeFail('invalid_dir')) throw { code: 'invalid_dir', message: 'Setup can’t write to that folder. Pick one inside your user folder.' };
       await run([['copy', 45], ['webview2', 62], ['plugins', 84], ['shortcuts', 101]]);
     },
-    uninstall: async () => {
+    uninstall: async ({ wipeData }) => {
       await wait(200);
       if (takeFail('app_running')) throw { code: 'app_running', message: 'Typeshelf is running' };
       await run([['fonts', 50], ['files', 85], ['registry', 101]]);
-      return { fontsTurnedOff: fonts ?? 0, leftoverEntries: 0 };
+      const fontsKeptIn = wipeData ? 'C:\\Users\\budi\\AppData\\Roaming\\app.typeshelf.desktop' : null;
+      return { fontsTurnedOff: fonts ?? 0, leftoverEntries: 0, fontsKeptIn };
     },
     close_app: () => wait(800),
     launch_app: () => {},

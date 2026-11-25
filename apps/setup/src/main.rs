@@ -14,7 +14,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::{exit, Command};
+use std::process::{exit, Child, Command};
 use std::sync::Mutex;
 
 use serde::Serialize;
@@ -195,7 +195,9 @@ fn main() {
     if let (Some(dir), None) = (&uninstall_dir, &args.from) {
         if running_inside(dir) {
             match relaunch_from_temp(&args, dir) {
-                Ok(()) => exit(0),
+                // --silent callers read the exit code, so wait for the copy that does the work.
+                Ok(mut child) if args.silent => exit(child.wait().ok().and_then(|s| s.code()).unwrap_or(1)),
+                Ok(_) => exit(0),
                 Err(e) => log(format!("couldn't relaunch from %TEMP%, uninstall.exe will stay behind: {e}")),
             }
         }
@@ -210,6 +212,11 @@ fn main() {
 
 fn silent(args: &Args, uninstall_dir: Option<PathBuf>) -> i32 {
     let progress = |pct: u32, step: &str| log(format!("{step} {pct}%"));
+    // Same as the GUI's "Close Typeshelf" button (asks nicely, forces after 5 s).
+    if process::app_running() {
+        log("closing Typeshelf");
+        process::close_app();
+    }
     let result = match uninstall_dir {
         Some(dir) => uninstall::uninstall(&dir, args.wipe_data, &progress).map(drop),
         None => {
@@ -296,11 +303,11 @@ fn running_inside(dir: &Path) -> bool {
 }
 
 /// A running exe can't delete its own folder, so uninstall from a copy in %TEMP%.
-fn relaunch_from_temp(args: &Args, dir: &Path) -> io::Result<()> {
+fn relaunch_from_temp(args: &Args, dir: &Path) -> io::Result<Child> {
     let copy = std::env::temp_dir().join(format!("typeshelf-uninstall-{}.exe", std::process::id()));
     fs::copy(std::env::current_exe()?, &copy)?;
-    Command::new(&copy).args(&args.raw).arg("--from").arg(dir).spawn()?;
-    Ok(())
+    // Not inside `dir`: a working directory there would keep the folder from being deleted.
+    Command::new(&copy).args(&args.raw).arg("--from").arg(dir).current_dir(std::env::temp_dir()).spawn()
 }
 
 fn webview_dir() -> PathBuf {
