@@ -30,6 +30,11 @@ impl Hub {
         }
     }
 
+    /// Closes the install's live socket: dropping its sender ends the socket loop.
+    pub fn kick(&self, install_id: &str) {
+        self.lock().remove(install_id);
+    }
+
     pub fn is_connected(&self, install_id: &str) -> bool {
         self.lock().contains_key(install_id)
     }
@@ -51,7 +56,7 @@ impl Hub {
 pub fn queue(c: &Connection, hub: &Hub, install_id: &str, kind: CommandKind) -> rusqlite::Result<i64> {
     let payload = serde_json::to_value(&kind).expect("command serializes");
     let kind_name = payload["kind"].as_str().unwrap_or_default().to_string();
-    let mut stmt = c.prepare("SELECT id FROM installs WHERE merged_into = ?1")?;
+    let mut stmt = c.prepare("SELECT id FROM installs WHERE merged_into = ?1 AND revoked_at IS NULL")?;
     let merged: Vec<String> = stmt.query_map([install_id], |r| r.get(0))?.collect::<Result<_, _>>()?;
     let mut first = None;
     for target in std::iter::once(install_id).chain(merged.iter().map(String::as_str)) {

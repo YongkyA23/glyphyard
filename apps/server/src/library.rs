@@ -1,7 +1,7 @@
 //! Shared library: font files stored under `<data>/library/<hash>`, delivered to installs by the admin.
 
 use crate::auth::{Admin, Install};
-use crate::{db, hub, hub::Hub, ApiError, ApiResult, AppState, Page, Paging};
+use crate::{db, hub, hub::Hub, installs, ApiError, ApiResult, AppState, Page, Paging};
 use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::{header, StatusCode};
@@ -24,7 +24,8 @@ pub fn admin_routes() -> Router<AppState> {
         .route("/library", get(list).post(upload).layer(DefaultBodyLimit::max(512 * 1024 * 1024)))
         .route("/library/organize", get(organize_plan))
         .route("/library/organize/apply", post(organize_apply))
-        .route("/library/{hash}", put(set_license))
+        .route("/library/bulk", post(bulk))
+        .route("/library/{hash}", put(set_license).delete(remove))
         .route("/library/{hash}/block", post(block))
         .route("/library/{hash}/deliver", post(deliver))
 }
@@ -108,12 +109,15 @@ struct ListQuery {
     q: Option<String>,
 }
 
+/// The list's search: `?1` (trimmed, lowercased) in family, style, PostScript name or file name.
+const SEARCH: &str = "instr(lower(family || ' ' || style || ' ' || ps_name || ' ' || filename), ?1) > 0";
+
 /// `q` matches family, style, PostScript name or file name.
 async fn list(State(s): State<AppState>, _: Admin, Query(q): Query<ListQuery>, Query(paging): Query<Paging>) -> ApiResult<Json<Page<LibraryFile>>> {
     let db = s.db();
     let (offset, limit) = paging.window(Paging::DEFAULT, Paging::MAX);
     let needle = q.q.unwrap_or_default().trim().to_lowercase();
-    let filter = "instr(lower(family || ' ' || style || ' ' || ps_name || ' ' || filename), ?1) > 0";
+    let filter = SEARCH;
     let total: i64 = db.query_row(&format!("SELECT COUNT(*) FROM library_files WHERE {filter}"), [&needle], |r| r.get(0))?;
     let mut stmt = db.prepare(&format!(
         "SELECT {COLUMNS} FROM library_files WHERE {filter} ORDER BY family COLLATE NOCASE, style, hash LIMIT ?2 OFFSET ?3"
@@ -211,30 +215,35 @@ struct BlockBody {
 async fn block(State(s): State<AppState>, _: Admin, Path(hash): Path<String>, Json(body): Json<BlockBody>) -> ApiResult<Json<LibraryFile>> {
     let mut db = s.db();
     let tx = db.transaction()?;
-    let file = load(&tx, &hash)?;
-    tx.execute("UPDATE library_files SET blocked = ?1 WHERE hash = ?2", params![body.blocked, hash])?;
+    let file = set_blocked(&tx, &s.hub, &hash, body.blocked)?;
+    tx.commit()?;
+    Ok(Json(file))
+}
+
+/// Sets `blocked` and pushes Block/Unblock to every install.
+fn set_blocked(c: &Connection, hub: &Hub, hash: &str, blocked: bool) -> ApiResult<LibraryFile> {
+    let file = load(c, hash)?;
+    c.execute("UPDATE library_files SET blocked = ?1 WHERE hash = ?2", params![blocked, hash])?;
     // Desktops unblock by name, which also clears other files with that name: block those again after it.
-    let namesakes: Vec<String> = if body.blocked {
+    let namesakes: Vec<String> = if blocked {
         Vec::new()
     } else {
-        let mut stmt = tx.prepare("SELECT hash FROM library_files WHERE blocked = 1 AND ps_name = ?1 COLLATE NOCASE ORDER BY hash")?;
+        let mut stmt = c.prepare("SELECT hash FROM library_files WHERE blocked = 1 AND ps_name = ?1 COLLATE NOCASE ORDER BY hash")?;
         let hashes = stmt.query_map([&file.ps_name], |r| r.get(0))?.collect::<Result<_, _>>()?;
         hashes
     };
-    for id in db::active_install_ids(&tx)? {
-        let kind = if body.blocked {
-            CommandKind::Block { ps_name: file.ps_name.clone(), hash: Some(hash.clone()) }
+    for id in db::active_install_ids(c)? {
+        let kind = if blocked {
+            CommandKind::Block { ps_name: file.ps_name.clone(), hash: Some(hash.to_string()) }
         } else {
             CommandKind::Unblock { ps_name: file.ps_name.clone() }
         };
-        hub::queue(&tx, &s.hub, &id, kind)?;
+        hub::queue(c, hub, &id, kind)?;
         for h in &namesakes {
-            hub::queue(&tx, &s.hub, &id, CommandKind::Block { ps_name: file.ps_name.clone(), hash: Some(h.clone()) })?;
+            hub::queue(c, hub, &id, CommandKind::Block { ps_name: file.ps_name.clone(), hash: Some(h.clone()) })?;
         }
     }
-    let file = load(&tx, &hash)?;
-    tx.commit()?;
-    Ok(Json(file))
+    load(c, hash)
 }
 
 #[derive(Deserialize)]
@@ -254,34 +263,136 @@ struct DeliverBody {
 async fn deliver(State(s): State<AppState>, _: Admin, Path(hash): Path<String>, Json(body): Json<DeliverBody>) -> ApiResult<Json<LibraryFile>> {
     let mut db = s.db();
     let tx = db.transaction()?;
-    let file = load(&tx, &hash)?;
+    let file = set_delivery(&tx, &s.hub, &hash, &body.target, body.activate)?;
+    tx.commit()?;
+    Ok(Json(file))
+}
+
+/// `(delivery targets, installs to send it to)`; unknown or revoked installs are 404.
+fn resolve_target(c: &Connection, target: &Target) -> ApiResult<(Vec<String>, Vec<String>)> {
+    match target {
+        Target::Keyword(k) if k == "all" => Ok((vec!["all".to_string()], db::active_install_ids(c)?)),
+        Target::Keyword(_) => Err(ApiError::bad_request("invalid_target", "target must be \"all\" or a list of install ids")),
+        Target::Installs(ids) => {
+            for id in ids {
+                installs::exists(c, id)?;
+            }
+            Ok((ids.clone(), ids.clone()))
+        }
+    }
+}
+
+/// Replaces the file's targets with `target` and sends it to every recipient. Targets left out no longer get it
+/// (new installs, downloads, their library list); computers that already have the file keep it.
+fn set_delivery(c: &Connection, hub: &Hub, hash: &str, target: &Target, activate: Option<bool>) -> ApiResult<LibraryFile> {
+    let file = load(c, hash)?;
     if file.blocked {
         return Err(ApiError::new(StatusCode::CONFLICT, "blocked", "a blocked font cannot be delivered"));
     }
-    let activate = body.activate.unwrap_or(db::settings(&tx)?.activate_delivered);
-    let (targets, recipients) = match body.target {
-        Target::Keyword(k) if k == "all" => (vec!["all".to_string()], db::active_install_ids(&tx)?),
-        Target::Keyword(_) => return Err(ApiError::bad_request("invalid_target", "target must be \"all\" or a list of install ids")),
-        Target::Installs(ids) => {
-            for id in &ids {
-                db::install_name(&tx, id)?.ok_or_else(|| ApiError::not_found(format!("no install {id}")))?;
-            }
-            (ids.clone(), ids)
-        }
-    };
+    let activate = activate.unwrap_or(db::settings(c)?.activate_delivered);
+    let (targets, recipients) = resolve_target(c, target)?;
+    c.execute("DELETE FROM deliveries WHERE hash = ?1", [hash])?;
     for t in &targets {
-        tx.execute(
+        c.execute(
             "INSERT INTO deliveries (hash, target, activate) VALUES (?1, ?2, ?3)
              ON CONFLICT(hash, target) DO UPDATE SET activate = excluded.activate",
             params![hash, t, activate],
         )?;
     }
     for id in recipients {
-        hub::queue(&tx, &s.hub, &id, CommandKind::Deliver { file: wire(&file), activate })?;
+        hub::queue(c, hub, &id, CommandKind::Deliver { file: wire(&file), activate })?;
     }
-    let file = load(&tx, &hash)?;
-    tx.commit()?;
-    Ok(Json(file))
+    load(c, hash)
+}
+
+async fn remove(State(s): State<AppState>, _: Admin, Path(hash): Path<String>) -> ApiResult<StatusCode> {
+    remove_file(&s, &s.db(), &hash)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Takes a file out of the library: the stored file moves to the quarantine folder (as organize does) and its
+/// deliveries go with the row. Desktops keep the copies they have.
+fn remove_file(s: &AppState, c: &Connection, hash: &str) -> ApiResult<()> {
+    let file = load(c, hash)?;
+    // ponytail: the move runs under the DB lock, like organize_apply; a same-disk rename is quick.
+    match quarantine_file(s, hash, &file.filename) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()), // NotFound: the stored file is already gone
+        _ => {}
+    }
+    c.execute("DELETE FROM library_files WHERE hash = ?1", [hash])?;
+    Ok(())
+}
+
+#[derive(Deserialize, Clone, Copy, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum BulkAction {
+    Deliver,
+    Block,
+    Unblock,
+    Delete,
+}
+
+#[derive(Deserialize)]
+struct BulkBody {
+    action: BulkAction,
+    /// The selected files; without it, every file the list's search `q` matches ("" = the whole library).
+    hashes: Option<Vec<String>>,
+    q: Option<String>,
+    /// For `deliver`, as in the single-file endpoint.
+    target: Option<Target>,
+    activate: Option<bool>,
+}
+
+/// One action over many files. Unknown files, files already blocked/unblocked, and blocked files asked to be
+/// delivered are skipped and counted.
+async fn bulk(State(s): State<AppState>, _: Admin, Json(body): Json<BulkBody>) -> ApiResult<Json<Value>> {
+    let mut db = s.db();
+    let hashes: Vec<String> = match (body.hashes, &body.q) {
+        (Some(h), _) => h,
+        (None, Some(q)) => {
+            let mut stmt = db.prepare(&format!("SELECT hash FROM library_files WHERE {SEARCH}"))?;
+            let h = stmt.query_map([q.trim().to_lowercase()], |r| r.get(0))?.collect::<Result<_, _>>()?;
+            h
+        }
+        (None, None) => return Err(ApiError::bad_request("no_selection", "send the files' `hashes` or the list filter `q`")),
+    };
+    let target = match (body.action, body.target) {
+        (BulkAction::Deliver, None) => return Err(ApiError::bad_request("invalid_target", "deliver needs a target")),
+        (_, t) => t,
+    };
+    let (mut changed, mut skipped) = (0, 0);
+    let mut count = |r: ApiResult<bool>| -> ApiResult<()> {
+        match r {
+            Ok(true) => changed += 1,
+            Ok(false) => skipped += 1,
+            Err(e) if e.code == "not_found" || e.code == "blocked" => skipped += 1,
+            Err(e) => return Err(e),
+        }
+        Ok(())
+    };
+    if body.action == BulkAction::Delete {
+        // No transaction: a moved file must not get its row back from a rollback.
+        for h in &hashes {
+            count(remove_file(&s, &db, h).map(|()| true))?;
+        }
+    } else {
+        let tx = db.transaction()?;
+        if let Some(t) = &target {
+            resolve_target(&tx, t)?; // a bad target fails the whole request, not file by file
+        }
+        for h in &hashes {
+            let r = match (body.action, &target) {
+                (BulkAction::Deliver, Some(t)) => set_delivery(&tx, &s.hub, h, t, body.activate).map(|_| true),
+                (action, _) => {
+                    let want = action == BulkAction::Block;
+                    load(&tx, h).and_then(|f| if f.blocked == want { Ok(false) } else { set_blocked(&tx, &s.hub, h, want).map(|_| true) })
+                }
+            };
+            count(r)?;
+        }
+        tx.commit()?;
+    }
+    Ok(Json(json!({ "changed": changed, "skipped": skipped })))
 }
 
 /// Commands a newly registered install needs: current blocks, and (if enabled) everything delivered to all.

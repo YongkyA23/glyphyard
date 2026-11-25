@@ -135,10 +135,14 @@ impl FromRequestParts<AppState> for Install {
             None => query(parts).remove("token").unwrap_or_default(),
         };
         let db = state.db();
-        let id: Option<String> = db
-            .query_row("SELECT id FROM installs WHERE token_hash = ?1", [token_hash(&token)], |r| r.get(0))
+        let row: Option<(String, bool)> = db
+            .query_row("SELECT id, revoked_at IS NOT NULL FROM installs WHERE token_hash = ?1", [token_hash(&token)], |r| Ok((r.get(0)?, r.get(1)?)))
             .optional()?;
-        let id = id.ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "bad_token", "unknown install token"))?;
+        let id = match row {
+            None => return Err(ApiError::new(StatusCode::UNAUTHORIZED, "bad_token", "unknown install token")),
+            Some((_, true)) => return Err(ApiError::new(StatusCode::UNAUTHORIZED, "revoked", "an admin removed this computer from the server")),
+            Some((id, false)) => id,
+        };
         db.execute("UPDATE installs SET last_seen = ?1 WHERE id = ?2", [db::now(), id.clone()])?;
         Ok(Install { id })
     }

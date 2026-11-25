@@ -1,7 +1,7 @@
 //! Desktop API, `/api/v1`.
 
 use crate::auth::{self, Install, InstallKey};
-use crate::{db, hub, library, ApiError, ApiResult, AppState};
+use crate::{db, hub, installs, library, ApiError, ApiResult, AppState};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -47,6 +47,10 @@ async fn register(State(s): State<AppState>, _: InstallKey, Json(req): Json<Regi
     let now = db::now();
     let mut db = s.db();
     let tx = db.transaction()?;
+    let revoked: Option<bool> = tx.query_row("SELECT revoked_at IS NOT NULL FROM installs WHERE id = ?1", [install_id], |r| r.get(0)).optional()?;
+    if revoked == Some(true) {
+        installs::free_revoked_id(&tx, install_id)?;
+    }
     // `last_seen` moves on the first authenticated request (microsecond timestamps), so an equal pair means the
     // desktop never used its token, most likely because it never got this response: hand out a new one.
     let unused: Option<bool> =

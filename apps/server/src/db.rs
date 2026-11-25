@@ -12,6 +12,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0001_init.sql"),
     include_str!("../migrations/0002_command_fanout.sql"),
     include_str!("../migrations/0003_font_requests.sql"),
+    include_str!("../migrations/0004_revoke.sql"),
 ];
 
 /// Opens (or creates) the database. `None` = in memory, for tests.
@@ -147,10 +148,10 @@ pub fn install_name(c: &Connection, id: &str) -> rusqlite::Result<Option<String>
     c.query_row("SELECT name FROM installs WHERE id = ?1", [id], |r| r.get(0)).optional()
 }
 
-/// Every install not merged away: the admin's list, and the targets of broadcasts (block, policy, deliver to
-/// all), which `hub::queue` fans out to the installs merged into each.
+/// Every install not merged away or revoked: the admin's list, and the targets of broadcasts (block, policy,
+/// deliver to all), which `hub::queue` fans out to the installs merged into each.
 pub fn active_install_ids(c: &Connection) -> rusqlite::Result<Vec<String>> {
-    let mut stmt = c.prepare("SELECT id FROM installs WHERE merged_into IS NULL")?;
+    let mut stmt = c.prepare("SELECT id FROM installs WHERE merged_into IS NULL AND revoked_at IS NULL")?;
     let ids = stmt.query_map([], |r| r.get(0))?.collect();
     ids
 }

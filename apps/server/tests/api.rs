@@ -841,3 +841,181 @@ async fn font_requests_are_capped_per_person() {
     assert_eq!(s.desktop(Method::POST, "/me/events", &token, Some(json!({ "events": events }))).await.status, StatusCode::NO_CONTENT);
     assert_eq!(s.admin(Method::GET, "/requests", None).await.json()["total"], 50);
 }
+
+#[tokio::test]
+async fn a_revoked_install_is_refused_hidden_and_kept_in_name_history() {
+    let s = Server::new().await;
+    let a = s.register("a", "Ana").await;
+    let b = s.register("b", "Budi").await;
+    let hash = s.library_font().await;
+    s.admin(Method::POST, &format!("/library/{hash}/deliver"), Some(json!({ "target": ["a", "b"] }))).await;
+    s.desktop(Method::POST, "/me/events", &a, Some(event(json!({ "kind": "font_activated", "font": font("h1"), "source": "user" })))).await;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let router = s.app.clone();
+    tokio::spawn(async move { axum::serve(listener, router).await });
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/api/v1/me/ws?key={}&token={a}", s.key)).await.unwrap();
+    for _ in 0..50 {
+        if s.state.hub.is_connected("a") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    assert_eq!(s.admin(Method::DELETE, "/installs/a", None).await.status, StatusCode::NO_CONTENT);
+    // The token stops working at once, with its own error code.
+    let me = s.desktop(Method::GET, "/me", &a, None).await;
+    assert_eq!(me.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(me.json()["error"], "revoked");
+    assert_eq!(s.desktop(Method::GET, "/me", &b, None).await.status, StatusCode::OK);
+    // The open socket is closed.
+    loop {
+        match tokio::time::timeout(std::time::Duration::from_secs(5), ws.next()).await.expect("the socket was not closed") {
+            None | Some(Err(_)) | Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))) => break,
+            Some(Ok(_)) => {}
+        }
+    }
+    assert!(!s.state.hub.is_connected("a"));
+    // Gone from lists, counts and the admin's per-install endpoints.
+    let list = s.admin(Method::GET, "/installs", None).await.json();
+    assert_eq!(list["total"], 1);
+    assert_eq!(list["items"][0]["id"], "b");
+    assert_eq!(s.admin(Method::GET, "/overview", None).await.json()["installs"], 1);
+    assert_eq!(s.admin(Method::GET, "/installs/a", None).await.status, StatusCode::NOT_FOUND);
+    assert_eq!(s.admin(Method::DELETE, "/installs/a", None).await.status, StatusCode::NOT_FOUND);
+    assert_eq!(s.admin(Method::DELETE, "/installs/nobody", None).await.status, StatusCode::NOT_FOUND);
+    let lib = s.admin(Method::GET, "/library", None).await.json();
+    assert_eq!(lib["items"][0]["delivered_to"], json!(["b"]), "its deliveries are dropped");
+    // Broadcasts skip it.
+    s.admin(Method::PUT, "/settings", Some(json!({ "name_change_days": 7 }))).await;
+    let pending: i64 = s.state.db().query_row("SELECT COUNT(*) FROM commands WHERE install_id = 'a' AND acked_at IS NULL", [], |r| r.get(0)).unwrap();
+    assert_eq!(pending, 0);
+    // Its name history is still exported.
+    let csv = String::from_utf8(s.admin(Method::GET, "/name-changes.csv", None).await.body).unwrap();
+    assert!(csv.lines().any(|l| l.contains(",a,,Ana,first,")), "{csv}");
+
+    // Registering again with the same install id makes a new install; the old token stays refused.
+    let again = s.register("a", "Ana Baru").await;
+    assert_eq!(s.desktop(Method::GET, "/me", &again, None).await.json()["name"], "Ana Baru");
+    assert_eq!(s.desktop(Method::GET, "/me", &a, None).await.json()["error"], "revoked");
+    let d = s.admin(Method::GET, "/installs/a", None).await.json();
+    assert_eq!(d["previous_names"], json!([]), "the new install does not inherit the old history");
+    assert_eq!(d["active_fonts"], 0);
+    assert_eq!(s.admin(Method::GET, "/installs", None).await.json()["total"], 2);
+    let csv = String::from_utf8(s.admin(Method::GET, "/name-changes.csv", None).await.body).unwrap();
+    assert_eq!(csv.lines().filter(|l| l.contains(",Ana,first,")).count(), 1, "{csv}");
+    assert_eq!(csv.lines().filter(|l| l.contains(",Ana Baru,first,")).count(), 1, "{csv}");
+}
+
+#[tokio::test]
+async fn revoking_a_merged_primary_revokes_the_whole_group() {
+    let s = Server::new().await;
+    let old = s.register("old", "Budi").await;
+    let new = s.register("new", "Budi S.").await;
+    let other = s.register("other", "Citra").await;
+    s.admin(Method::POST, "/installs/merge", Some(json!({ "primary": "old", "secondary": "new", "keep_name": "primary" }))).await;
+    assert_eq!(s.admin(Method::DELETE, "/installs/old", None).await.status, StatusCode::NO_CONTENT);
+    for token in [&old, &new] {
+        assert_eq!(s.desktop(Method::GET, "/me", token, None).await.json()["error"], "revoked");
+    }
+    assert_eq!(s.desktop(Method::GET, "/me", &other, None).await.status, StatusCode::OK);
+    assert_eq!(s.admin(Method::GET, "/installs", None).await.json()["total"], 1);
+    let merge = s.admin(Method::POST, "/installs/merge", Some(json!({ "primary": "other", "secondary": "new", "keep_name": "primary" }))).await;
+    assert_eq!(merge.status, StatusCode::NOT_FOUND, "a revoked install cannot be merged");
+}
+
+#[tokio::test]
+async fn undelivering_changes_what_new_installs_receive() {
+    let s = Server::new().await;
+    let a = s.register("a", "Ana").await;
+    let b = s.register("b", "Budi").await;
+    let hash = s.library_font().await;
+    let path = format!("/library/{hash}/deliver");
+    let deliver = |target: Value| s.admin(Method::POST, &path, Some(json!({ "target": target })));
+    assert_eq!(deliver(json!("all")).await.json()["delivered_to"], "all");
+    // Narrowing "everyone" to one person replaces the targets.
+    let r = deliver(json!(["a"])).await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(r.json()["delivered_to"], json!(["a"]));
+    let late = s.register("late", "Dewi").await;
+    assert!(s.commands(&late).await.iter().all(|c| c["kind"] != "deliver"), "a new install no longer gets it");
+    assert_eq!(s.desktop(Method::GET, &format!("/library/files/{hash}"), &late, None).await.status, StatusCode::NOT_FOUND);
+    assert!(s.desktop(Method::GET, "/me/library", &b, None).await.json().as_array().unwrap().is_empty());
+    assert_eq!(s.desktop(Method::GET, "/me/library", &a, None).await.json().as_array().unwrap().len(), 1);
+    // Unticking everyone leaves nobody.
+    assert_eq!(deliver(json!([])).await.json()["delivered_to"], "none");
+    assert!(s.desktop(Method::GET, "/me/library", &a, None).await.json().as_array().unwrap().is_empty());
+    assert_eq!(deliver(json!(["nobody"])).await.status, StatusCode::NOT_FOUND);
+}
+
+impl Server {
+    /// A library row with an (unparseable) stored file; returns its hash.
+    fn seed_file(&self, name: &str, bytes: &[u8]) -> String {
+        let library = self.state.data_dir.join("library");
+        std::fs::create_dir_all(&library).unwrap();
+        let hash = typeshelf_core::file_hash(bytes);
+        std::fs::write(library.join(&hash), bytes).unwrap();
+        self.state
+            .db()
+            .execute(
+                "INSERT INTO library_files (hash, filename, size, ps_name, family, style, version, uploaded_at)
+                 VALUES (?1, ?2, 1, ?2, ?2, 'Regular', '1.0', ?3)",
+                [hash.clone(), name.to_string(), db::now()],
+            )
+            .unwrap();
+        hash
+    }
+}
+
+#[tokio::test]
+async fn deleting_a_library_file_moves_it_to_quarantine() {
+    let s = Server::new().await;
+    let a = s.register("a", "Ana").await;
+    let hash = s.seed_file("Gone.ttf", b"bytes of gone");
+    s.admin(Method::POST, &format!("/library/{hash}/deliver"), Some(json!({ "target": "all" }))).await;
+    assert_eq!(s.admin(Method::DELETE, &format!("/library/{hash}"), None).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(s.admin(Method::GET, "/library", None).await.json()["total"], 0);
+    assert!(!s.state.data_dir.join("library").join(&hash).exists());
+    assert_eq!(std::fs::read(s.state.data_dir.join("quarantine").join("Gone.ttf")).unwrap(), b"bytes of gone");
+    assert_eq!(s.desktop(Method::GET, &format!("/library/files/{hash}"), &a, None).await.status, StatusCode::NOT_FOUND);
+    let deliveries: i64 = s.state.db().query_row("SELECT COUNT(*) FROM deliveries", [], |r| r.get(0)).unwrap();
+    assert_eq!(deliveries, 0);
+    assert_eq!(s.admin(Method::DELETE, &format!("/library/{hash}"), None).await.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn bulk_library_actions_take_ids_or_the_filter() {
+    let s = Server::new().await;
+    let a = s.register("a", "Ana").await;
+    let one = s.seed_file("Alpha One.ttf", b"alpha one");
+    let two = s.seed_file("Alpha Two.ttf", b"alpha two");
+    let other = s.seed_file("Beta.ttf", b"beta");
+    let bulk = |body: Value| s.admin(Method::POST, "/library/bulk", Some(body));
+    let blocked = || async {
+        let lib = s.admin(Method::GET, "/library", None).await.json();
+        lib["items"].as_array().unwrap().iter().filter(|f| f["blocked"] == true).map(|f| f["hash"].as_str().unwrap().to_string()).collect::<Vec<_>>()
+    };
+
+    // By ids.
+    let r = bulk(json!({ "action": "block", "hashes": [one] })).await;
+    assert_eq!(r.json(), json!({ "changed": 1, "skipped": 0 }));
+    assert_eq!(blocked().await, std::slice::from_ref(&one));
+    // By the list's search filter, across every page: files already in that state are skipped.
+    let r = bulk(json!({ "action": "block", "q": "alpha" })).await;
+    assert_eq!(r.json(), json!({ "changed": 1, "skipped": 1 }));
+    assert_eq!(blocked().await.len(), 2);
+    assert_eq!(bulk(json!({ "action": "unblock", "q": "alpha two" })).await.json(), json!({ "changed": 1, "skipped": 0 }));
+    // Deliver skips blocked files; an empty filter means the whole library.
+    let r = bulk(json!({ "action": "deliver", "q": "", "target": ["a"], "activate": true })).await;
+    assert_eq!(r.json(), json!({ "changed": 2, "skipped": 1 }));
+    assert_eq!(s.desktop(Method::GET, "/me/library", &a, None).await.json().as_array().unwrap().len(), 2);
+    // Unknown hashes are skipped; delete quarantines.
+    let r = bulk(json!({ "action": "delete", "hashes": [two, other, "nope"] })).await;
+    assert_eq!(r.json(), json!({ "changed": 2, "skipped": 1 }));
+    assert_eq!(s.admin(Method::GET, "/library", None).await.json()["total"], 1);
+    assert!(s.state.data_dir.join("quarantine").join("Beta.ttf").exists());
+
+    assert_eq!(bulk(json!({ "action": "block" })).await.json()["error"], "no_selection");
+    assert_eq!(bulk(json!({ "action": "deliver", "hashes": [one] })).await.json()["error"], "invalid_target");
+}

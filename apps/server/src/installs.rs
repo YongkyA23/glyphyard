@@ -1,6 +1,6 @@
 //! Admin views of installs: overview, list, detail, timeline, remote control, name history, merge/split.
 
-use crate::auth::Admin;
+use crate::auth::{self, Admin};
 use crate::{db, db::GROUP, hub, hub::Hub, ApiError, ApiResult, AppState, Page, Paging};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, StatusCode};
@@ -20,7 +20,7 @@ pub fn routes() -> Router<AppState> {
         .route("/overview", get(overview))
         .route("/installs", get(list))
         .route("/installs/merge", post(merge))
-        .route("/installs/{id}", get(detail))
+        .route("/installs/{id}", get(detail).delete(revoke))
         .route("/installs/{id}/timeline", get(timeline))
         .route("/installs/{id}/fonts", get(fonts).post(set_font))
         .route("/installs/{id}/reset-name-limit", post(reset_name_limit))
@@ -56,8 +56,10 @@ fn ago(d: Duration) -> String {
     db::ts(Utc::now() - d)
 }
 
-fn exists(c: &Connection, id: &str) -> ApiResult<()> {
-    db::install_name(c, id)?.map(|_| ()).ok_or_else(|| ApiError::not_found(format!("no install {id}")))
+/// A known, not revoked install (revoked ones answer like unknown ones).
+pub(crate) fn exists(c: &Connection, id: &str) -> ApiResult<()> {
+    let found: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM installs WHERE id = ?1 AND revoked_at IS NULL)", [id], |r| r.get(0))?;
+    found.then_some(()).ok_or_else(|| ApiError::not_found(format!("no install {id}")))
 }
 
 /// Everything except the `possible_duplicate` flag, which needs all installs.
@@ -242,7 +244,7 @@ fn install_detail(c: &Connection, hub: &Hub, id: &str) -> ApiResult<Value> {
         None => summary(c, hub, db::settings(c)?.name_change_days, id)?, // merged away: not in the main list
     };
 
-    let mut stmt = c.prepare("SELECT id FROM installs WHERE merged_into = ?1 ORDER BY first_seen")?;
+    let mut stmt = c.prepare("SELECT id FROM installs WHERE merged_into = ?1 AND revoked_at IS NULL ORDER BY first_seen")?;
     let merged_from: Vec<String> = stmt.query_map([id], |r| r.get(0))?.collect::<Result<_, _>>()?;
 
     let mut stmt = c.prepare(&format!("SELECT new_name, at FROM name_changes WHERE install_id IN {GROUP} ORDER BY at, id"))?;
@@ -385,7 +387,7 @@ async fn merge(State(s): State<AppState>, _: Admin, Json(body): Json<MergeBody>)
     let tx = db.transaction()?;
     let load = |id: &str| -> ApiResult<(String, String)> {
         let row: Option<(String, String, Option<String>)> = tx
-            .query_row("SELECT name, first_seen, merged_into FROM installs WHERE id = ?1", [id], |r| {
+            .query_row("SELECT name, first_seen, merged_into FROM installs WHERE id = ?1 AND revoked_at IS NULL", [id], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?))
             })
             .optional()?;
@@ -450,6 +452,48 @@ async fn split(State(s): State<AppState>, _: Admin, Path(id): Path<String>) -> A
     db::insert_event(&tx, &id, "system", "admin", &format!("Split back out of install {primary}"), "{}", &now)?;
     tx.commit()?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Removes a computer and every install merged into it (one person's computers): their tokens are refused, they
+/// leave every list and count, deliveries aimed at them and unsent commands are dropped, and open sockets are
+/// closed. Names and timeline events stay for the name-history export.
+async fn revoke(State(s): State<AppState>, _: Admin, Path(id): Path<String>) -> ApiResult<StatusCode> {
+    let ids = {
+        let mut db = s.db();
+        let tx = db.transaction()?;
+        exists(&tx, &id)?;
+        let mut stmt = tx.prepare(&format!("SELECT id FROM installs WHERE id IN {GROUP} AND revoked_at IS NULL"))?;
+        let ids: Vec<String> = stmt.query_map([&id], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        drop(stmt);
+        let now = db::now();
+        for i in &ids {
+            tx.execute("UPDATE installs SET revoked_at = ?1 WHERE id = ?2", params![now, i])?;
+            tx.execute("DELETE FROM font_states WHERE install_id = ?1", [i])?;
+            tx.execute("DELETE FROM commands WHERE install_id = ?1 AND acked_at IS NULL", [i])?;
+            tx.execute("DELETE FROM deliveries WHERE target = ?1", [i])?;
+            db::insert_event(&tx, i, "system", "admin", "Removed by an admin", "{}", &now)?;
+        }
+        tx.commit()?;
+        ids
+    };
+    for i in &ids {
+        s.hub.kick(i);
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Moves a revoked install's rows to a new id (`<id>~revoked-<hex>`) so the computer can register again under its
+/// old id as a new install. Run inside the caller's transaction.
+pub fn free_revoked_id(c: &Connection, id: &str) -> rusqlite::Result<()> {
+    let moved = format!("{id}~revoked-{}", auth::random_hex(4));
+    // The children are re-pointed before their parent row; the check runs at commit.
+    c.pragma_update(None, "defer_foreign_keys", true)?;
+    for table in ["name_changes", "name_limit_resets", "font_states", "events", "commands"] {
+        c.execute(&format!("UPDATE {table} SET install_id = ?1 WHERE install_id = ?2"), [&moved, id])?;
+    }
+    c.execute("UPDATE installs SET merged_into = ?1 WHERE merged_into = ?2", [&moved, id])?;
+    c.execute("UPDATE installs SET id = ?1 WHERE id = ?2", [&moved, id])?;
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -615,7 +659,7 @@ async fn overview(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Value>>
     let mut stmt = db.prepare(
         "SELECT e.id, p.id, p.name, e.kind, e.text, e.by, e.at FROM events e
          JOIN installs i ON i.id = e.install_id JOIN installs p ON p.id = COALESCE(i.merged_into, i.id)
-         ORDER BY e.at DESC, e.id DESC LIMIT 20",
+         WHERE p.revoked_at IS NULL ORDER BY e.at DESC, e.id DESC LIMIT 20",
     )?;
     let recent: Vec<Value> = stmt
         .query_map([], |r| {

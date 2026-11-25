@@ -7,12 +7,13 @@ The admin UI is built into `apps/server/static` and served at `/` (SPA fallback 
 ## Desktop API — `/api/v1` (types in `crates/protocol`)
 
 Every request carries `X-Install-Key: <install key>` (403 `bad_install_key` if wrong).
-Everything except registration also carries `Authorization: Bearer <install token>` (401 if wrong).
+Everything except registration also carries `Authorization: Bearer <install token>` (401 `bad_token` if wrong,
+401 `revoked` once an admin removed the computer).
 
 | Method | Path | Body → Response |
 |---|---|---|
 | GET | `/health` | → 204 when the install key is right (used by "Test connection"; no Bearer needed) |
-| POST | `/installs` | `RegisterRequest` → `RegisterResponse`. First name is recorded as `by: "first"`. Re-registering an existing `install_id` that has never made an authenticated request (its first response was lost) returns 200 with a new token and the old token stops working; once the install has used its token it returns 409 `already_registered`. |
+| POST | `/installs` | `RegisterRequest` → `RegisterResponse`. First name is recorded as `by: "first"`. Re-registering an existing `install_id` that has never made an authenticated request (its first response was lost) returns 200 with a new token and the old token stops working; once the install has used its token it returns 409 `already_registered`. An `install_id` an admin removed registers as a new install (the old one's history moves to `<id>~revoked-<hex>`). |
 | GET | `/me` | → `{ name, next_name_change, policy }` (also updates `last_seen`) |
 | PUT | `/me/name` | `NameChange` → 200 `NameStatus`, or 409 `{ error: "name_locked", next_name_change }` |
 | POST | `/me/events` | `EventBatch` → 204. Stored in the timeline; `FontActivated/FontDeactivated` also update `font_states`. `FontRequested { name, note? }` (kind `font_requested`) also creates a font request for the person (the install plus everything merged into it): name cut to 200 characters and note to 1000, an empty name ignored, no new row while the same name (ASCII case-insensitive) is open for that person or the person has 50 open requests. A server older than this kind answers 422 for the batch; the desktop then resends the events one at a time and drops only the rejected ones. |
@@ -69,13 +70,16 @@ Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–20
 | POST | `/installs/{id}/organize-request` | → `{ command_id }` |
 | POST | `/installs/merge` | `{ primary, secondary, keep_name: "primary" \| "secondary" }` → `InstallDetail` of primary |
 | POST | `/installs/{id}/split` | → 204 (undo a merge within 30 days; `id` = the retired install) |
+| DELETE | `/installs/{id}` | → 204. Removes the computer and every install merged into it: tokens get 401 `revoked`, open sockets close, they leave every list and count, their reported fonts, unsent commands and deliveries aimed at them are dropped. Name changes and timeline events stay (name-history export). Revoked installs answer 404 on every `/installs/{id}…` endpoint. |
 | GET | `/name-changes?q=&since=&offset=&limit=` | → `Page<NameChangeRow>` newest first |
 | GET | `/name-changes.csv?q=&since=` | → CSV of every matching row (not paged) |
 | GET | `/library?q=&offset=&limit=` | → `Page<LibraryFile>` by family, style (q matches family, style, PostScript name, file name) |
 | POST | `/library` | multipart, field `files` (one or more font files) → `LibraryFile[]` added |
 | PUT | `/library/{hash}` | `{ license }` → `LibraryFile` |
 | POST | `/library/{hash}/block` | `{ blocked }` → `LibraryFile` (pushes Block/Unblock to every install) |
-| POST | `/library/{hash}/deliver` | `{ target: "all" \| string[], activate }` → `LibraryFile` |
+| DELETE | `/library/{hash}` | → 204. Moves the stored file to `<data>/quarantine/` (as organize does) and drops the row and its deliveries; desktops keep their copies |
+| POST | `/library/{hash}/deliver` | `{ target: "all" \| string[], activate }` → `LibraryFile`. **Sets** the targets (replaces them): ids left out, or "all" narrowed to a list, stop getting the file (new installs, downloads, `/me/library`); `[]` = nobody. Computers that already downloaded it keep it. Queues `Deliver` to every recipient. 409 `blocked`, 404 for an unknown or removed install |
+| POST | `/library/bulk` | `{ action: "deliver" \| "block" \| "unblock" \| "delete", hashes?: string[], q?: string, target?, activate? }` → `{ changed, skipped }`. Acts on `hashes`, or without them on every file the list search `q` matches (`""` = all), so "select all" spans pages. `deliver` needs `target` (same meaning as above). Unknown files, files already in the asked block state and blocked files asked to be delivered are skipped. 400 `no_selection` without `hashes` and `q` |
 | GET | `/library/organize` | → `{ changes: OrganizeChange[] }` |
 | POST | `/library/organize/apply` | → `{ applied }`. Removals move the stored file to `<data>/quarantine/` (nothing is deleted); a file that cannot be moved keeps its row and is not counted |
 | GET | `/organize/reports?offset=&limit=` | → `Page<{ install_id, name, duplicates, version_conflicts, name_clashes, last_organized: string \| null }>` by name |
