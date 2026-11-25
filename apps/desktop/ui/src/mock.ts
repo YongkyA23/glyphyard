@@ -625,6 +625,7 @@ const handlers: Record<string, (a: Args) => unknown> = {
     if (/empty/i.test(path)) return []
     return pdf.filter((r) => r.status !== 'version').map((r) => ({ ...r, pages: 0, detail: r.status === 'missing' ? 'Not in your library' : r.detail.replace(/^Used on .*/, 'In your library') }))
   },
+  document_fonts: (a) => ({ fonts: handlers.pdf_fonts(a) as PdfFont[], partial: /big/i.test(a.path as string) ? 'Only the first 1 GiB of this file was read.' : null }),
   google_catalog: ({ search, category, offset = 0, limit = 30 }) => {
     const q = search?.trim().toLowerCase()
     const all = [...google, ...mockFiller]

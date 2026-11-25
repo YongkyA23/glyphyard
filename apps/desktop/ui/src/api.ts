@@ -96,6 +96,7 @@ export type PdfFont = {
   psName: string; display: string; pages: number; status: 'active' | 'inactive' | 'version' | 'missing'
   detail: string; hash: string | null; google: boolean
 }
+export type DocFonts = { fonts: PdfFont[]; partial: string | null }
 export type GoogleFont = { family: string; category: string; styles: number; variable: boolean; installed: boolean }
 export type GooglePage = { items: GoogleFont[]; total: number }
 export type Settings = {
@@ -187,6 +188,7 @@ export const api = {
   pdfFonts: (path: string) => call<PdfFont[]>('pdf_fonts', { path }),
   usageStats: (period: 'month' | 'year') => call<UsageStats>('usage_stats', { period }),
   badges: () => call<Badge[]>('badges'),
+  documentFonts: (path: string) => call<DocFonts>('document_fonts', { path }),
 
   googleCatalog: (search: string | undefined, category: string | undefined, offset: number, limit: number) =>
     call<GooglePage>('google_catalog', { search, category, offset, limit }),

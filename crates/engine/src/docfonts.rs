@@ -40,12 +40,17 @@ pub(crate) fn xmp_fonts(buf: &[u8], out: &mut BTreeSet<String>) {
     let mut at = 0;
     while let Some(start) = find(buf, OPEN, at) {
         let from = start + OPEN.len();
-        match find(&buf[..(from + 1024).min(buf.len())], CLOSE, from) {
+        let window = (from + 1024).min(buf.len());
+        match find(&buf[..window], CLOSE, from) {
+            // Another opener inside means this one was never closed: look at that one next.
+            Some(end) if find(&buf[..end], OPEN, from).is_some() => at = from,
             Some(end) => {
                 add(out, &unescape_xml(&String::from_utf8_lossy(&buf[from..end])));
                 at = end;
             }
-            None => at = from, // cut off, or not a name: skip it
+            // Cut off by the end of the buffer (the carried overlap re-reads it) or not a name: resume after
+            // the stretch already searched, so many unclosed openers cost one pass, not one search each.
+            None => at = window,
         }
     }
 }
@@ -107,14 +112,27 @@ pub(crate) fn psd_fonts(buf: &[u8], out: &mut BTreeSet<String>) {
                 _ => i += 1,
             }
         }
-        at = from;
+        at = i.max(from); // resume past what the walk covered
     }
 }
 
+struct Scanned {
+    names: BTreeSet<String>,
+    /// Why only part of the file was read (size or name cap), in plain words.
+    partial: Option<String>,
+}
+
+/// What the page shows when a cap or a guard kept us from reading the whole file.
+fn join_notes(notes: Vec<String>) -> Option<String> {
+    (!notes.is_empty()).then(|| notes.join(" "))
+}
+
 /// Runs `extract` over the file in chunks, carrying the tail of each chunk into the next.
-fn scan(path: &Path, extract: fn(&[u8], &mut BTreeSet<String>)) -> Result<BTreeSet<String>> {
+fn scan(path: &Path, extract: fn(&[u8], &mut BTreeSet<String>), max_bytes: u64) -> Result<Scanned> {
     let io = |e: std::io::Error| EngineError::new("io", e.to_string());
-    let mut reader = std::fs::File::open(path).map_err(io)?.take(MAX_BYTES);
+    let file = std::fs::File::open(path).map_err(io)?;
+    let len = file.metadata().map_err(io)?.len();
+    let mut reader = file.take(max_bytes);
     let mut out = BTreeSet::new();
     let mut buf: Vec<u8> = Vec::with_capacity(CHUNK + OVERLAP);
     loop {
@@ -127,29 +145,55 @@ fn scan(path: &Path, extract: fn(&[u8], &mut BTreeSet<String>)) -> Result<BTreeS
         }
         buf.drain(..buf.len().saturating_sub(OVERLAP));
     }
-    Ok(out)
+    let mut notes = Vec::new();
+    if len > max_bytes {
+        let size = if max_bytes.is_multiple_of(1 << 30) { format!("{} GiB", max_bytes >> 30) } else { format!("{max_bytes} bytes") };
+        notes.push(format!("Only the first {size} of this file was read."));
+    }
+    if out.len() >= MAX_NAMES {
+        notes.push(format!("Showing only the first {MAX_NAMES} fonts found."));
+    }
+    Ok(Scanned { names: out, partial: join_notes(notes) })
 }
+
+/// Fonts of a document plus, when the file was only partly read, why.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocFonts {
+    pub fonts: Vec<PdfFont>,
+    pub partial: Option<String>,
+}
+
+/// Above this a PDF-compatible .ai is not also read as a PDF (the PDF reader loads the whole file).
+const MAX_PDF_FALLBACK: u64 = 256 << 20;
 
 impl Engine {
     /// Fonts used by a .pdf, .ai, .indd or .psd file, matched against the library.
-    pub fn document_fonts(&self, path: impl AsRef<Path>) -> Result<Vec<PdfFont>> {
+    pub fn document_fonts(&self, path: impl AsRef<Path>) -> Result<DocFonts> {
         let path = path.as_ref();
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-        let names = match ext.as_str() {
-            "pdf" => return self.pdf_fonts(path),
-            "psd" => scan(path, psd_fonts)?,
-            "indd" => scan(path, xmp_fonts)?,
+        let scanned = match ext.as_str() {
+            "pdf" => return Ok(DocFonts { fonts: self.pdf_fonts(path)?, partial: None }),
+            "psd" => scan(path, psd_fonts, MAX_BYTES)?,
+            "indd" => scan(path, xmp_fonts, MAX_BYTES)?,
             "ai" => {
-                let names = scan(path, xmp_fonts)?;
-                if names.is_empty() {
+                let mut scanned = scan(path, xmp_fonts, MAX_BYTES)?;
+                if scanned.names.is_empty() {
                     // A PDF-compatible .ai without a readable XMP list still has PDF font dictionaries.
-                    return self.match_fonts(read_fonts(path).unwrap_or_default());
+                    let size = std::fs::metadata(path).map_err(|e| EngineError::new("io", e.to_string()))?.len();
+                    if size > MAX_PDF_FALLBACK {
+                        let note = format!("This file is too large (over {} MiB) to also read as a PDF.", MAX_PDF_FALLBACK >> 20);
+                        scanned.partial = join_notes(scanned.partial.into_iter().chain([note]).collect());
+                    } else {
+                        return Ok(DocFonts { fonts: self.match_fonts(read_fonts(path).unwrap_or_default())?, partial: scanned.partial });
+                    }
                 }
-                names
+                scanned
             }
             _ => return Err(EngineError::new("unsupported_file", "Choose a .pdf, .psd, .ai or .indd file.")),
         };
-        self.match_fonts(names.into_iter().map(|n| (n, Default::default())).collect::<PdfUses>())
+        let fonts = self.match_fonts(scanned.names.into_iter().map(|n| (n, Default::default())).collect::<PdfUses>())?;
+        Ok(DocFonts { fonts, partial: scanned.partial })
     }
 }
 
@@ -219,18 +263,53 @@ mod tests {
     }
 
     #[test]
-    fn scan_finds_a_name_across_chunk_boundary_and_handles_odd_files() {
-        let dir = std::env::temp_dir().join(format!("ts-docfonts-{}", std::process::id()));
+    fn scanners_stay_linear_on_openers_without_closers() {
+        let t = std::time::Instant::now();
+        assert!(run(psd_fonts, &b"/FontSet [".repeat(40 << 10)).is_empty());
+        assert!(run(xmp_fonts, &b"<stFnt:fontName>".repeat(256 << 10)).is_empty());
+        assert!(t.elapsed().as_secs() < 5, "took {:?}", t.elapsed());
+    }
+
+    #[test]
+    fn scan_finds_markers_split_across_the_chunk_boundary() {
+        let dir = std::env::temp_dir().join(format!("ts-docfonts-split-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let f = dir.join("big.ai");
-        let mut data = vec![b'x'; CHUNK - 20];
-        data.extend(xmp(&["Boundary-Font"]));
+        let f = dir.join("split.ai");
+        // The marker (or the name inside it) crosses the CHUNK mark; without the carried overlap it is missed.
+        for back in [5, 22] {
+            let packet = xmp(&["Boundary-Font"]);
+            let lead = find(&packet, b"<stFnt:fontName>", 0).unwrap();
+            let mut data = vec![b'x'; CHUNK - back - lead];
+            data.extend(&packet);
+            data.extend(vec![b'y'; CHUNK]);
+            std::fs::write(&f, &data).unwrap();
+            assert_eq!(scan(&f, xmp_fonts, MAX_BYTES).unwrap().names.into_iter().collect::<Vec<_>>(), ["Boundary-Font"], "xmp, {back} bytes before the mark");
+        }
+        let mut data = vec![b'x'; CHUNK - 5];
+        data.extend(psd(&["Boundary-Font"]));
         data.extend(vec![b'y'; CHUNK]);
         std::fs::write(&f, &data).unwrap();
-        assert_eq!(scan(&f, xmp_fonts).unwrap().into_iter().collect::<Vec<_>>(), ["Boundary-Font"]);
+        assert_eq!(scan(&f, psd_fonts, MAX_BYTES).unwrap().names.into_iter().collect::<Vec<_>>(), ["Boundary-Font"], "psd");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn caps_are_reported() {
+        let dir = std::env::temp_dir().join(format!("ts-docfonts-caps-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("caps.indd");
+        let names: Vec<String> = (0..MAX_NAMES + 5).map(|i| format!("Font-{i}")).collect();
+        std::fs::write(&f, xmp(&names.iter().map(String::as_str).collect::<Vec<_>>())).unwrap();
+        let r = scan(&f, xmp_fonts, MAX_BYTES).unwrap();
+        assert_eq!(r.names.len(), MAX_NAMES);
+        assert!(r.partial.unwrap().contains("500"));
+        let r = scan(&f, xmp_fonts, 100).unwrap();
+        assert!(r.partial.unwrap().contains("first"), "size cap reported");
+        std::fs::write(&f, xmp(&["A-Regular"])).unwrap();
+        assert!(scan(&f, xmp_fonts, MAX_BYTES).unwrap().partial.is_none(), "a small file is not partial");
         std::fs::write(&f, b"").unwrap();
-        assert!(scan(&f, xmp_fonts).unwrap().is_empty());
-        assert!(scan(&dir, xmp_fonts).is_err(), "a folder is an error, not a panic");
+        assert!(scan(&f, xmp_fonts, MAX_BYTES).unwrap().names.is_empty(), "zero-byte file");
+        assert!(scan(&dir, xmp_fonts, MAX_BYTES).is_err(), "a folder is an error, not a panic");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

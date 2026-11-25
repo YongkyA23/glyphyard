@@ -31,7 +31,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         list_tags, set_tags, set_license,
         list_project_sets, save_project_set, delete_project_set, toggle_project_set,
         organize_plan, organize_apply, list_history, undo_history,
-        health, repair_now, pdf_fonts,
+        health, repair_now, pdf_fonts, document_fonts,
         usage_stats, badges,
         google_catalog, google_install, google_remove,
         backup_create, backup_restore,
@@ -338,6 +338,11 @@ pub async fn repair_now(ctx: St<'_>) -> R<Health> {
 
 #[tauri::command]
 pub async fn pdf_fonts(ctx: St<'_>, path: String) -> R<Vec<PdfFont>> {
+    ctx.run(move |e| e.pdf_fonts(&path)).await
+}
+
+#[tauri::command]
+pub async fn document_fonts(ctx: St<'_>, path: String) -> R<typeshelf_engine::DocFonts> {
     ctx.run(move |e| e.document_fonts(&path)).await
 }
 

@@ -28,6 +28,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock, RwLock};
 use typeshelf_protocol::{Event, TimedEvent};
 
+pub use docfonts::DocFonts;
 pub use activation::{OsFonts, SystemFonts};
 pub use stats::{Badge, FamilyUse, UnusedFamily, UsagePeriod, UsageStats};
 pub use temporary::Until;

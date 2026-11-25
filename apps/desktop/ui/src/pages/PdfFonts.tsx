@@ -17,6 +17,7 @@ export function PdfFonts() {
   const { activate, toast } = useApp()
   const [path, setPath] = useState<string | null>(null)
   const [rows, setRows] = useState<PdfFont[] | null>(null)
+  const [partial, setPartial] = useState<string | null>(null)
   const [faces, setFaces] = useState<Map<string, Face>>(new Map())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -27,8 +28,9 @@ export function PdfFonts() {
     setBusy(true)
     setError(null)
     try {
-      const res = await api.pdfFonts(p)
+      const { fonts: res, partial } = await api.documentFonts(p)
       setRows(res)
+      setPartial(partial)
       if (res.some((r) => r.hash)) {
         const faces = await api.getFaces(res.flatMap((r) => (r.hash ? [r.hash] : [])))
         setFaces(new Map(faces.map((f) => [f.hash, f])))
@@ -102,7 +104,8 @@ export function PdfFonts() {
               {pending.length ? `Turn on ${pending.length} available ${pending.length === 1 ? 'font' : 'fonts'}` : 'All available fonts are on'}
             </button>
           </div>
-          {!rows.length && <p className="muted" style={{ margin: 0 }}>This file doesn't list its fonts.</p>}
+          {partial && <p role="status" className="muted" style={{ margin: 0 }}>{partial} The list below may be incomplete.</p>}
+          {!rows.length && <p className="muted" style={{ margin: 0 }}>{partial ? 'No fonts were found in the part that was read.' : "This file doesn't list its fonts."}</p>}
           <div className="card" style={{ padding: 0, gap: 0 }}>
             {rows.map((r, i) => (
               <div key={r.psName} className="pdf-row enter" style={cssStagger(i)}>
