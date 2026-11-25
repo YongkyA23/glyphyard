@@ -22,13 +22,17 @@ fn find(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     hay.get(from..)?.windows(needle.len()).position(|w| w == needle).map(|p| p + from)
 }
 
+fn rfind(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    hay.windows(needle.len()).rposition(|w| w == needle)
+}
+
 fn unescape_xml(s: &str) -> String {
     s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
 }
 
 fn add(out: &mut BTreeSet<String>, name: &str) {
     let name = name.trim();
-    if !name.is_empty() && !PLACEHOLDERS.contains(&name) && out.len() < MAX_NAMES {
+    if !name.is_empty() && !PLACEHOLDERS.contains(&name) && out.len() <= MAX_NAMES { // one past the cap, so scan() can tell a name was refused
         out.insert(name.to_string());
     }
 }
@@ -48,9 +52,10 @@ pub(crate) fn xmp_fonts(buf: &[u8], out: &mut BTreeSet<String>) {
                 add(out, &unescape_xml(&String::from_utf8_lossy(&buf[from..end])));
                 at = end;
             }
-            // Cut off by the end of the buffer (the carried overlap re-reads it) or not a name: resume after
-            // the stretch already searched, so many unclosed openers cost one pass, not one search each.
-            None => at = window,
+            // Cut off by the end of the buffer (the carried overlap re-reads it) or not a name. Resume at the last
+            // opener inside the stretch already searched (an entry may start there and close after it), or after
+            // it when there is none, so many unclosed openers cost about one pass, not one search each.
+            None => at = rfind(&buf[from..window], OPEN).map_or(window, |q| from + q),
         }
     }
 }
@@ -100,14 +105,20 @@ pub(crate) fn psd_fonts(buf: &[u8], out: &mut BTreeSet<String>) {
                 b']' => break,
                 b'(' => match ps_string(&buf[..end], i + 1) {
                     Some((_, next)) => i = next,
-                    None => break,
+                    None => {
+                        i = end; // no `)` anywhere in the window: nothing after this can be read either
+                        break;
+                    }
                 },
                 b'/' if buf[i..end].starts_with(NAME) => match ps_string(&buf[..end], i + NAME.len()) {
                     Some((bytes, next)) => {
                         add(out, &decode_name(&bytes));
                         i = next;
                     }
-                    None => break,
+                    None => {
+                        i = end;
+                        break;
+                    }
                 },
                 _ => i += 1,
             }
@@ -140,7 +151,7 @@ fn scan(path: &Path, extract: fn(&[u8], &mut BTreeSet<String>), max_bytes: u64) 
             break;
         }
         extract(&buf, &mut out);
-        if out.len() >= MAX_NAMES {
+        if out.len() > MAX_NAMES {
             break;
         }
         buf.drain(..buf.len().saturating_sub(OVERLAP));
@@ -150,8 +161,9 @@ fn scan(path: &Path, extract: fn(&[u8], &mut BTreeSet<String>), max_bytes: u64) 
         let size = if max_bytes.is_multiple_of(1 << 30) { format!("{} GiB", max_bytes >> 30) } else { format!("{max_bytes} bytes") };
         notes.push(format!("Only the first {size} of this file was read."));
     }
-    if out.len() >= MAX_NAMES {
-        notes.push(format!("Showing only the first {MAX_NAMES} fonts found."));
+    if out.len() > MAX_NAMES {
+        out.pop_last();
+        notes.push(format!("Showing only {MAX_NAMES} of the fonts found."));
     }
     Ok(Scanned { names: out, partial: join_notes(notes) })
 }
@@ -266,8 +278,18 @@ mod tests {
     fn scanners_stay_linear_on_openers_without_closers() {
         let t = std::time::Instant::now();
         assert!(run(psd_fonts, &b"/FontSet [".repeat(40 << 10)).is_empty());
+        assert!(run(psd_fonts, &b"/FontSet [ (".repeat(40 << 10)).is_empty(), "unterminated string");
+        assert!(run(psd_fonts, &b"/FontSet [ /Name (".repeat(30 << 10)).is_empty(), "unterminated name");
         assert!(run(xmp_fonts, &b"<stFnt:fontName>".repeat(256 << 10)).is_empty());
         assert!(t.elapsed().as_secs() < 5, "took {:?}", t.elapsed());
+    }
+
+    #[test]
+    fn xmp_entry_inside_an_unclosed_openers_window_is_kept() {
+        let mut v = b"<stFnt:fontName>".to_vec();
+        v.extend(vec![b'x'; 1000]);
+        v.extend(b"<stFnt:fontName>Real-Font</stFnt:fontName>");
+        assert_eq!(run(xmp_fonts, &v), ["Real-Font"]);
     }
 
     #[test]
@@ -303,6 +325,10 @@ mod tests {
         let r = scan(&f, xmp_fonts, MAX_BYTES).unwrap();
         assert_eq!(r.names.len(), MAX_NAMES);
         assert!(r.partial.unwrap().contains("500"));
+        let exact: Vec<String> = (0..MAX_NAMES).map(|i| format!("Font-{i}")).collect();
+        std::fs::write(&f, xmp(&exact.iter().map(String::as_str).collect::<Vec<_>>())).unwrap();
+        let r = scan(&f, xmp_fonts, MAX_BYTES).unwrap();
+        assert_eq!((r.names.len(), r.partial), (MAX_NAMES, None), "exactly 500 is complete");
         let r = scan(&f, xmp_fonts, 100).unwrap();
         assert!(r.partial.unwrap().contains("first"), "size cap reported");
         std::fs::write(&f, xmp(&["A-Regular"])).unwrap();
