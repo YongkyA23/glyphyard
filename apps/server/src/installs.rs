@@ -660,9 +660,11 @@ async fn overview(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Value>>
     let month_start = db::ts(Utc.from_utc_datetime(&today.with_day(1).expect("day 1").and_hms_opt(0, 0, 0).expect("midnight")));
     let week = ago(Duration::days(7));
     let count = |sql: &str, since: &str| -> rusqlite::Result<i64> { db.query_row(sql, [since], |r| r.get(0)) };
-    let name_changes_month = count("SELECT COUNT(*) FROM name_changes WHERE by = 'user' AND at >= ?1", &month_start)?;
-    let overrides_week = count("SELECT COUNT(*) FROM events WHERE kind = 'override' AND at >= ?1", &week)?;
-    let failures_week = count("SELECT COUNT(*) FROM events WHERE kind = 'failure' AND at >= ?1", &week)?;
+    // Rows `x` of computers whose person (the merge primary) is not removed.
+    let live = "x JOIN installs i ON i.id = x.install_id JOIN installs p ON p.id = COALESCE(i.merged_into, i.id) WHERE p.revoked_at IS NULL AND x.at >= ?1";
+    let name_changes_month = count(&format!("SELECT COUNT(*) FROM name_changes {live} AND x.by = 'user'"), &month_start)?;
+    let overrides_week = count(&format!("SELECT COUNT(*) FROM events {live} AND x.kind = 'override'"), &week)?;
+    let failures_week = count(&format!("SELECT COUNT(*) FROM events {live} AND x.kind = 'failure'"), &week)?;
 
     let mut stmt = db.prepare(
         "SELECT e.id, p.id, p.name, e.kind, e.text, e.by, e.at FROM events e

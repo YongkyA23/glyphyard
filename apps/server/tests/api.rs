@@ -1494,3 +1494,18 @@ async fn deleting_a_library_file_cancels_its_queued_deliveries() {
     let cancelled: i64 = s.state.db().query_row("SELECT COUNT(*) FROM commands WHERE install_id = 'a' AND error = 'cancelled'", [], |r| r.get(0)).unwrap();
     assert_eq!(cancelled, 1);
 }
+
+#[tokio::test]
+async fn overview_numbers_leave_out_removed_computers() {
+    let s = Server::new().await;
+    let token = s.register("a", "Ana").await;
+    s.desktop(Method::PUT, "/me/name", &token, Some(json!({ "name": "Ana S." }))).await;
+    s.desktop(Method::POST, "/me/events", &token, Some(event(json!({ "kind": "font_activated", "font": font("h1"), "source": "admin" })))).await;
+    let off = event(json!({ "kind": "font_deactivated", "font": font("h1"), "source": "user", "was_admin": false }));
+    s.desktop(Method::POST, "/me/events", &token, Some(off)).await;
+    s.desktop(Method::POST, "/me/events", &token, Some(event(json!({ "kind": "activation_failed", "font": font("h1"), "reason": "broken" })))).await;
+    let numbers = |o: &Value| [o["name_changes_month"].clone(), o["overrides_week"].clone(), o["failures_week"].clone()];
+    assert_eq!(numbers(&s.admin(Method::GET, "/overview", None).await.json()), [json!(1), json!(1), json!(1)]);
+    assert_eq!(s.admin(Method::DELETE, "/installs/a", None).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(numbers(&s.admin(Method::GET, "/overview", None).await.json()), [json!(0), json!(0), json!(0)]);
+}
