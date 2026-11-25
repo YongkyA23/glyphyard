@@ -110,11 +110,11 @@ impl Engine {
                 }
                 Fix::Off(row, _) => {
                     // ponytail: `Source` has no "system" value, so the row's own source is used (an admin font stays
-                    // Admin, so the server sees no user override); a font the user turned on goes off as `User`, which
-                    // usage statistics would count as the user's action. A turned-off admin font is attributed to the
+                    // Admin, so the server sees no user override); a font the user turned on goes off as `User`, but
+                    // is not recorded in usage statistics (`record_use: false`). A turned-off admin font is attributed to the
                     // admin on the server timeline, and a replaced file is reported as "file_missing" too. Upgrade path: a
                     // dedicated source and reason in the protocol.
-                    let (_, off) = self.deactivate_unlocked(std::slice::from_ref(&row.hash), row.source)?;
+                    let (_, off) = self.deactivate_unlocked(std::slice::from_ref(&row.hash), row.source, false)?;
                     if off {
                         let db = self.db();
                         self.emit(Event::ActivationFailed { font: font_ref(&db, &row.hash), reason: "file_missing".into() });

@@ -110,6 +110,6 @@ impl Engine {
         }
         // ponytail: the normal user turn-off; a font the user turns on again in the instant between the step
         // above and this call still goes off. Recheck under the lock if that ever matters.
-        Ok(self.set_active_now(&due, false)?.iter().filter(|r| r.ok).count())
+        Ok(self.set_active_now_as(&due, false, false)?.iter().filter(|r| r.ok).count())
     }
 }

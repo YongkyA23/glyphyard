@@ -565,6 +565,12 @@ impl Engine {
     /// working, with `activation-progress` events; apps get one font-change broadcast at the end
     /// (Photoshop rebuilds its font list on every one).
     pub fn set_active_now(&self, hashes: &[String], active: bool) -> Result<Vec<ActivationResult>> {
+        self.set_active_now_as(hashes, active, true)
+    }
+
+    /// `set_active_now`; `record_use: false` for turn-offs the user did not ask for (a temporary font expiring),
+    /// which usage statistics and badges must not count.
+    pub(crate) fn set_active_now_as(&self, hashes: &[String], active: bool, record_use: bool) -> Result<Vec<ActivationResult>> {
         const CHUNK: usize = 64;
         let chunks: Vec<Vec<String>> = {
             let db = self.db();
@@ -577,7 +583,7 @@ impl Engine {
             let (r, did) = if active {
                 self.activate_batch(&self.db(), &chunk, Source::User)?
             } else {
-                self.deactivate_unlocked(&chunk, Source::User)?
+                self.deactivate_unlocked(&chunk, Source::User, record_use)?
             };
             changed |= did;
             results.extend(r);
@@ -595,7 +601,8 @@ impl Engine {
     /// Turning off with the OS call outside the database lock (see `repair_now`): reads the ledger rows,
     /// unregisters without the lock, then removes the rows. A row that changed meanwhile (another version
     /// was picked) is left alone; a queued registration that lands later sees its row gone and undoes itself.
-    pub(crate) fn deactivate_unlocked(&self, hashes: &[String], source: Source) -> Result<(Vec<ActivationResult>, bool)> {
+    /// `record_use: false` keeps the turn-off out of usage statistics (not the user's action).
+    pub(crate) fn deactivate_unlocked(&self, hashes: &[String], source: Source, record_use: bool) -> Result<(Vec<ActivationResult>, bool)> {
         let mut results = Vec::new();
         let rows: Vec<LedgerRow> = {
             let db = self.db();
@@ -622,7 +629,9 @@ impl Engine {
             }
             db.execute("DELETE FROM activations WHERE hash = ?1 AND path = ?2", params![row.hash, row.path])?;
             crate::temporary::forget(&db, std::slice::from_ref(&row.hash))?;
-            crate::stats::record(&db, &row.hash, false, source);
+            if record_use {
+                crate::stats::record(&db, &row.hash, false, source);
+            }
             let was_admin = row.source == Source::Admin && source != Source::Admin;
             self.emit(Event::FontDeactivated { font: font_ref(&db, &row.hash), source, was_admin });
             results.push(ok(&row.hash, None));

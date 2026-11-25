@@ -254,3 +254,36 @@ fn quiet_is_not_one_by_one_or_some() {
     fx.engine.set_active(&hashes[10..], false).unwrap();
     assert_eq!(earned(&fx, "quiet"), None, "the last one alone is not ten at once");
 }
+
+fn off_rows(fx: &Fixture) -> usize {
+    usage_rows(fx).iter().filter(|(active, _)| !active).count()
+}
+
+#[test]
+fn reconciled_turn_offs_are_not_use() {
+    let fx = fixture!();
+    let Some(_) = eleven_on(&fx) else { return };
+    fx.engine.wait_for_activations();
+    for name in ELEVEN {
+        std::fs::remove_file(fx.root.join(name)).unwrap();
+    }
+    fx.engine.rescan().unwrap();
+    assert!(fx.os.registered().is_empty(), "the rescan turned the fonts off");
+    assert_eq!(off_rows(&fx), 0, "file gone is not the user turning fonts off");
+    assert_eq!(earned(&fx, "quiet"), None);
+}
+
+#[test]
+fn expired_temporary_fonts_are_not_use() {
+    let fx = fixture!();
+    for name in ELEVEN {
+        let Some(bytes) = system_font(name) else { return };
+        fx.put(name, &bytes);
+    }
+    fx.engine.add_folder(&fx.root).unwrap();
+    let hashes: Vec<String> = fx.engine.list_families(&FamilyQuery::default()).unwrap().into_iter().flat_map(|f| f.faces).map(|f| f.hash).collect();
+    assert!(fx.engine.set_active_for(&hashes, Until::Minutes(5)).unwrap().iter().all(|r| r.ok));
+    assert_eq!(fx.engine.expire_temporary(Utc::now() + Duration::minutes(6), false).unwrap(), 11);
+    assert_eq!(off_rows(&fx), 0, "an expiry is not the user turning fonts off");
+    assert_eq!(earned(&fx, "quiet"), None);
+}
