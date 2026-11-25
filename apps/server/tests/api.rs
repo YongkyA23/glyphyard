@@ -850,6 +850,7 @@ async fn a_revoked_install_is_refused_hidden_and_kept_in_name_history() {
     let hash = s.library_font().await;
     s.admin(Method::POST, &format!("/library/{hash}/deliver"), Some(json!({ "target": ["a", "b"] }))).await;
     s.desktop(Method::POST, "/me/events", &a, Some(event(json!({ "kind": "font_activated", "font": font("h1"), "source": "user" })))).await;
+    s.desktop(Method::POST, "/me/events", &a, Some(request("Söhne", None))).await;
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -906,6 +907,9 @@ async fn a_revoked_install_is_refused_hidden_and_kept_in_name_history() {
     let csv = String::from_utf8(s.admin(Method::GET, "/name-changes.csv", None).await.body).unwrap();
     assert_eq!(csv.lines().filter(|l| l.contains(",Ana,first,")).count(), 1, "{csv}");
     assert_eq!(csv.lines().filter(|l| l.contains(",Ana Baru,first,")).count(), 1, "{csv}");
+    // Its font request moved with the old history, not to the new install.
+    let owner: String = s.state.db().query_row("SELECT install_id FROM font_requests WHERE font_name = 'Söhne'", [], |r| r.get(0)).unwrap();
+    assert!(owner.starts_with("a~revoked-"), "{owner}");
 }
 
 #[tokio::test]
