@@ -171,6 +171,34 @@ fn an_active_file_replaced_with_other_bytes_is_turned_off() {
 }
 
 #[test]
+fn a_replaced_file_in_an_auto_folder_turns_the_new_font_on() {
+    let fx = fixture!();
+    let Some(times) = system_font("times.ttf") else { return };
+    let path = fx.put("a/arial.ttf", &system_font("arial.ttf").unwrap());
+    fx.engine.add_folder(&fx.root).unwrap();
+    fx.engine.set_folder_auto(&fx.root.join("a").to_string_lossy(), true).unwrap();
+    assert_eq!(fx.os.registered(), HashSet::from([path.clone()]));
+
+    std::fs::write(&path, &times).unwrap(); // another font (another PostScript name) at the same path
+    fx.engine.rescan().unwrap();
+    let hashes: Vec<String> =
+        fx.engine.db().prepare("SELECT hash FROM activations").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+    assert_eq!(hashes, vec![typeshelf_core::file_hash(&times)], "the old row is gone, the new font is on");
+    assert_eq!(fx.os.registered(), HashSet::from([path]), "and really registered");
+}
+
+#[test]
+fn a_folder_that_fails_to_scan_does_not_skip_the_others() {
+    let fx = fixture!();
+    let (path, _) = arial_on(&fx, "a/arial.ttf");
+    let id = fx.engine.list_folders().unwrap()[0].id;
+    std::fs::remove_file(&path).unwrap();
+    let err = fx.engine.scan_folders(&[id, 9999]).unwrap_err(); // 9999: no such folder
+    assert_eq!(err.code, "not_found", "the error is still returned");
+    assert!(fx.os.registered().is_empty() && ledger_paths(&fx).is_empty(), "the folder that scanned was reconciled");
+}
+
+#[test]
 fn an_offline_folder_keeps_its_fonts_on() {
     let fx = fixture!();
     let path = fx.put("lib/arial.ttf", &system_font("arial.ttf").unwrap());

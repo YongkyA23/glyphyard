@@ -525,7 +525,6 @@ impl Engine {
             folder_dto(&db, &row, None)?
         };
         self.ui(UiEvent::FolderStatus(dto));
-        let pending = ToReconcile { id, root: root.clone(), unread, removed: !removed.is_empty() };
         // Bytes this folder already had did not arrive: a re-read (touched, re-parsed after an upgrade),
         // a rename, or a move inside the folder.
         let known: HashSet<&str> = existing.values().map(|e| e.2.as_str()).collect();
@@ -534,10 +533,8 @@ impl Engine {
             .filter(|s| !s.faces.is_empty() && !known.contains(s.hash.as_str()))
             .map(|s| (root.join(&s.rel), s.hash.clone()))
             .collect();
-        if !arrived.is_empty() {
-            self.auto_activate(&arrived)?;
-        }
-        Ok((changed, Some(pending)))
+        // Auto-activation of `arrived` runs in `scan_folders`, after the ledger is reconciled.
+        Ok((changed, Some(ToReconcile { id, root: root.clone(), unread, removed: !removed.is_empty(), arrived })))
     }
 
     /// Folder ids containing any of `paths`.

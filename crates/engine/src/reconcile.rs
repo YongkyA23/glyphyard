@@ -23,26 +23,47 @@ pub(crate) struct ToReconcile {
     pub unread: Vec<PathBuf>,
     /// Files were removed, so faces need pruning.
     pub removed: bool,
+    /// New bytes found by the scan, for auto-activation (path, hash).
+    pub arrived: Vec<(PathBuf, String)>,
 }
 
 impl Engine {
     /// Scans `ids`, then reconciles the ledger once for all of them, so a font moved from one folder to another
-    /// is found in the other whatever the scan order. Faces are pruned last, so a font turned off is reported by name.
+    /// is found in the other whatever the scan order. Faces are pruned after it, so a font turned off is reported by
+    /// name; auto-activation runs last, so turning off a replaced file cannot unload a font just registered at its path.
+    /// A folder that fails to scan does not stop the others from being reconciled; the first error is returned.
     pub(crate) fn scan_folders(&self, ids: &[i64]) -> Result<bool> {
         let mut changed = false;
         let mut scanned = Vec::new();
+        let mut first_err = None;
         for &id in ids {
-            let (c, pending) = self.scan_files(id)?;
-            changed |= c;
-            scanned.extend(pending);
+            match self.scan_files(id) {
+                Ok((c, pending)) => {
+                    changed |= c;
+                    scanned.extend(pending);
+                }
+                Err(e) => {
+                    first_err.get_or_insert(e);
+                }
+            }
         }
-        for s in &scanned {
-            changed |= self.reconcile_ledger(s.id, &s.root, &s.unread)?;
+        let mut finish = || -> Result<()> {
+            for s in &scanned {
+                changed |= self.reconcile_ledger(s.id, &s.root, &s.unread)?;
+            }
+            if scanned.iter().any(|s| s.removed) {
+                crate::scan::prune_faces(&self.db())?;
+            }
+            for s in scanned.iter().filter(|s| !s.arrived.is_empty()) {
+                self.auto_activate(&s.arrived)?;
+            }
+            Ok(())
+        };
+        finish()?;
+        match first_err {
+            Some(e) => Err(e),
+            None => Ok(changed),
         }
-        if scanned.iter().any(|s| s.removed) {
-            crate::scan::prune_faces(&self.db())?;
-        }
-        Ok(changed)
     }
 
     /// Ledger rows under `root` (folder `id`, just scanned) whose file is not where the ledger says. Rows under
