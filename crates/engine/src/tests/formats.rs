@@ -41,7 +41,8 @@ fn collection_lists_every_face_and_turns_on_once() {
     let hashes: Vec<String> = faces.iter().map(|f| f.hash.clone()).collect::<HashSet<_>>().into_iter().collect();
     let results = fx.engine.set_active(&hashes, true).unwrap();
     assert!(results.iter().all(|r| r.ok), "{results:?}");
-    assert_eq!(fx.os.registered(), HashSet::from([path.clone()]), "the file is registered once");
+    assert_eq!(fx.os.registered(), HashSet::from([path.clone()]), "the file is registered");
+    assert_eq!(fx.os.activations_of(&path), 1, "the file is handed to the OS once, not once per face");
     assert!(all_faces(&fx).into_iter().filter(|f| Path::new(&f.path) == path).all(|f| f.active), "every face shows as on");
 
     fx.engine.set_active(&hashes, false).unwrap();

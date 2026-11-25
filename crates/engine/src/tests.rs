@@ -16,6 +16,8 @@ struct FakeState {
     /// Held by a test to keep deactivate() and reconcile() waiting (a stalled OS call).
     stall: Mutex<()>,
     font_dirs: Mutex<Vec<PathBuf>>,
+    /// Every successful activate() call, in order (a set cannot tell one call from several).
+    activations: Mutex<Vec<PathBuf>>,
 }
 
 #[derive(Clone, Default)]
@@ -31,6 +33,7 @@ impl OsFonts for FakeOs {
             return Err(ActivationError::FileMissing(e.path.clone()));
         }
         self.0.registered.lock().unwrap().insert(e.path.clone());
+        self.0.activations.lock().unwrap().push(e.path.clone());
         Ok(())
     }
     fn deactivate(&self, e: &LedgerEntry) -> std::result::Result<(), ActivationError> {
@@ -73,6 +76,10 @@ impl OsFonts for FakeOs {
 impl FakeOs {
     fn registered(&self) -> HashSet<PathBuf> {
         self.0.registered.lock().unwrap().clone()
+    }
+    /// How many times `path` was handed to activate().
+    fn activations_of(&self, path: &Path) -> usize {
+        self.0.activations.lock().unwrap().iter().filter(|p| p.as_path() == path).count()
     }
 }
 
