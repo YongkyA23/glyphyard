@@ -164,6 +164,12 @@ impl Engine {
     }
 
     fn trash_copy(&self, conn: &Connection, path: &Path, kept: &Path) -> Result<Done> {
+        // The plan can be minutes old: only bin a file while another file with the same bytes is still there.
+        let bytes = file_hash(&std::fs::read(path)?);
+        let same_file = std::fs::canonicalize(path).ok() == std::fs::canonicalize(kept).ok();
+        if same_file || std::fs::read(kept).map(|b| file_hash(&b)).ok().as_deref() != Some(bytes.as_str()) {
+            return Err(EngineError::new("no_copy", "the copy to keep is gone or has changed, so this one stays"));
+        }
         // If the copy going away is the registered one, register the kept copy instead.
         if let Some((hash, full_name)) = active_at(conn, path)? {
             let old = typeshelf_activation::LedgerEntry { path: path.into(), full_name: full_name.clone() };
@@ -250,20 +256,36 @@ impl Engine {
             "organize" => {
                 let done: Vec<Done> = serde_json::from_str(&payload)?;
                 let db = self.db();
+                let mut failed = 0;
                 for d in done.iter().rev() {
-                    // Best effort: a file the user moved since stays where it is.
-                    let _ = match d {
+                    let step = match d {
                         Done::Trashed { path, kept } if !path.exists() => std::fs::copy(kept, path).map(|_| ()).map_err(EngineError::from),
                         Done::Trashed { .. } => Ok(()),
                         Done::Moved { from, to, override_hash } => {
                             if let Some(h) = override_hash {
                                 db.execute("DELETE FROM display_overrides WHERE hash = ?1", [h])?;
                             }
-                            self.move_tracked(&db, to, from)
+                            // A file the user moved or deleted since stays where it is: nothing to put back.
+                            if to.exists() {
+                                self.move_tracked(&db, to, from)
+                            } else {
+                                Ok(())
+                            }
                         }
                     };
+                    failed += u32::from(step.is_err());
                 }
                 self.os.notify_font_change();
+                if failed > 0 {
+                    // Not marked undone: every step above is safe to repeat, so the user can try again.
+                    drop(db);
+                    self.rescan()?;
+                    self.library_changed("organize");
+                    return Err(EngineError::new(
+                        "undo_incomplete",
+                        format!("{failed} change(s) could not be undone. Close apps using the fonts, or restore the files from the Recycle Bin, then undo again."),
+                    ));
+                }
             }
             "restore" => self.import_backup(&serde_json::from_str(&payload)?)?,
             other => return Err(EngineError::new("invalid", format!("cannot undo {other}"))),

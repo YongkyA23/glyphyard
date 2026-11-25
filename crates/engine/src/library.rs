@@ -798,7 +798,9 @@ impl Engine {
 
     pub fn set_license(&self, family_key: &str, label: License, file: Option<&str>, note: Option<&str>) -> Result<LicenseInfo> {
         let db = self.db();
-        set_license_row(&db, family_key, label, file, note.unwrap_or(""))?;
+        // `None` keeps what is there: the UI edits the label, the file and the note one at a time.
+        let cur = license_info(&db, family_key)?;
+        set_license_row(&db, family_key, label, file.or(cur.file.as_deref()), note.unwrap_or(&cur.note))?;
         Ok(license_info(&db, family_key)?)
     }
 

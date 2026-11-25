@@ -114,6 +114,14 @@ ALTER TABLE faces ADD COLUMN coverage_json TEXT NOT NULL DEFAULT '[]';
 CREATE TABLE pins (family_key TEXT PRIMARY KEY);
 UPDATE files SET mtime = -1;
 "#,
+    // 5: one block per (name, file) instead of per name, so blocking a second file with the same
+    // PostScript name no longer replaces the first. An empty hash blocks every file with the name.
+    r#"
+CREATE TABLE blocked_v2 (ps_name TEXT NOT NULL COLLATE NOCASE, hash TEXT NOT NULL DEFAULT '', PRIMARY KEY (ps_name, hash));
+INSERT INTO blocked_v2 SELECT ps_name, COALESCE(hash, '') FROM blocked;
+DROP TABLE blocked;
+ALTER TABLE blocked_v2 RENAME TO blocked;
+"#,
 ];
 
 pub(crate) fn open(path: &Path) -> rusqlite::Result<Connection> {

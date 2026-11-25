@@ -1240,3 +1240,5 @@ fn collections_report_how_many_families_are_on() {
     fx.engine.set_active(&fx.hashes("Times New Roman"), true).unwrap();
     assert_eq!(state(&fx), (2, 2), "all on");
 }
+
+mod audit;

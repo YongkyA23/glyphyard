@@ -56,6 +56,16 @@ fn find_moved(old: &Path, id: &str) -> Option<PathBuf> {
         .map(|e| e.into_path())
 }
 
+/// A watched folder may not contain, or sit inside, another one: each file would be listed twice
+/// and auto-organize would see it as its own duplicate.
+// ponytail: compares paths as written (case-sensitive, junctions not resolved); canonicalize if that bites.
+fn check_overlap(conn: &Connection, path: &Path, except: Option<i64>) -> Result<()> {
+    match folder_rows(conn)?.into_iter().find(|f| Some(f.id) != except && (path.starts_with(&f.path) || f.path.starts_with(path))) {
+        Some(f) => Err(EngineError::new("overlap", format!("{} overlaps {}", path.display(), f.path.display()))),
+        None => Ok(()),
+    }
+}
+
 fn is_candidate(path: &Path) -> bool {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
     FONT_EXTS.contains(&ext.as_str()) || is_junk_path(path)
@@ -201,14 +211,10 @@ impl Engine {
             return Err(EngineError::new("not_a_folder", format!("{} is not a folder", path.display())));
         }
         let db = self.db();
-        for f in folder_rows(&db)? {
-            if f.path == path {
-                return Ok(f.id);
-            }
-            if path.starts_with(&f.path) || f.path.starts_with(&path) {
-                return Err(EngineError::new("overlap", format!("{} overlaps {}", path.display(), f.path.display())));
-            }
+        if let Some(f) = folder_rows(&db)?.into_iter().find(|f| f.path == path) {
+            return Ok(f.id);
         }
+        check_overlap(&db, &path, None)?;
         db.execute(
             "INSERT INTO folders (path, file_id, managed, added_at) VALUES (?1, ?2, ?3, ?4)",
             params![path.to_string_lossy(), folder_file_id(&path), managed, store::now()],
@@ -241,7 +247,11 @@ impl Engine {
         if !new.is_dir() {
             return Err(EngineError::new("not_a_folder", format!("{} is not a folder", new.display())));
         }
-        let old = folder_row(&self.db(), id)?.path;
+        let old = {
+            let db = self.db();
+            check_overlap(&db, &new, Some(id))?;
+            folder_row(&db, id)?.path
+        };
         self.relocate(id, &old, &new)?;
         self.scan_folder(id)?;
         self.watch_folder(&new, true);
@@ -264,6 +274,33 @@ impl Engine {
         self.list_folders()
     }
 
+    /// Cheap check for a running app to poll: did an offline folder's drive come back? If so its fonts
+    /// are rescanned and its active fonts registered again. Returns whether anything came back.
+    pub fn reconnect_folders(&self) -> Result<bool> {
+        let back = folder_rows(&self.db())?.iter().any(|f| !f.online && f.path.is_dir());
+        if back {
+            self.rescan()?;
+        }
+        Ok(back)
+    }
+
+    /// Registers the active fonts under `dir` again (startup repair drops registrations whose file
+    /// was unreachable).
+    fn reregister_under(&self, dir: &Path) -> Result<()> {
+        let rows: Vec<_> = self.ledger(&self.db())?.into_iter().filter(|a| Path::new(&a.path).starts_with(dir)).collect();
+        let mut any = false;
+        for a in &rows {
+            match self.os.activate(&a.entry()) {
+                Ok(()) => any = true,
+                Err(e) => self.activation_failed(&self.db(), &a.hash, &e),
+            }
+        }
+        if any {
+            self.os.notify_font_change();
+        }
+        Ok(())
+    }
+
     /// Marks vanished folders offline (keeping their data), follows moved ones and brings back
     /// folders whose path exists again.
     pub(crate) fn refresh_folders(&self) -> Result<()> {
@@ -272,8 +309,16 @@ impl Engine {
             if f.path.is_dir() {
                 if !f.online {
                     self.set_folder_online(f.id, true)?;
+                    self.reregister_under(&f.path)?;
+                    self.watch_folder(&f.path, true);
                 }
-            } else if let Some(found) = f.file_id.as_deref().and_then(|id| find_moved(&f.path, id)) {
+            } else if let Some(found) = f
+                .file_id
+                .as_deref()
+                .and_then(|id| find_moved(&f.path, id))
+                // Moved inside another watched folder: that folder lists the files already.
+                .filter(|found| check_overlap(&self.db(), found, Some(f.id)).is_ok())
+            {
                 self.relocate(f.id, &f.path, &found)?;
             } else if f.online {
                 self.set_folder_online(f.id, false)?;
@@ -352,11 +397,23 @@ impl Engine {
 
         let mut seen = HashSet::new();
         let mut todo = Vec::new();
-        for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+        // Places that could not be read this time (no access, a network hiccup): what is known under them stays.
+        let mut unread: Vec<PathBuf> = Vec::new();
+        for entry in WalkDir::new(root) {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(e) => {
+                    unread.push(e.path().unwrap_or(root).to_path_buf());
+                    continue;
+                }
+            };
             if !entry.file_type().is_file() || !is_candidate(entry.path()) {
                 continue;
             }
-            let Ok(meta) = entry.metadata() else { continue };
+            let Ok(meta) = entry.metadata() else {
+                unread.push(entry.into_path());
+                continue;
+            };
             // ponytail: cloud placeholders (OneDrive "files on demand") are skipped rather than listed unread.
             #[cfg(windows)]
             {
@@ -402,7 +459,8 @@ impl Engine {
             })
             .collect();
 
-        let removed: Vec<&String> = existing.keys().filter(|k| !seen.contains(*k)).collect();
+        let removed: Vec<&String> =
+            existing.keys().filter(|k| !seen.contains(*k) && !unread.iter().any(|u| root.join(k).starts_with(u))).collect();
         let changed = !scanned.is_empty() || !removed.is_empty();
         let dto = {
             let mut db = self.db();
@@ -429,10 +487,12 @@ impl Engine {
             folder_dto(&db, &row, None)?
         };
         self.ui(UiEvent::FolderStatus(dto));
-        // A file re-read with the same bytes (touched, or a re-parse after an upgrade) did not arrive.
+        // Bytes this folder already had did not arrive: a re-read (touched, re-parsed after an upgrade),
+        // a rename, or a move inside the folder.
+        let known: HashSet<&str> = existing.values().map(|e| e.2.as_str()).collect();
         let arrived: Vec<(PathBuf, String)> = scanned
             .iter()
-            .filter(|s| !s.faces.is_empty() && existing.get(&s.rel).is_none_or(|e| e.2 != s.hash))
+            .filter(|s| !s.faces.is_empty() && !known.contains(s.hash.as_str()))
             .map(|s| (root.join(&s.rel), s.hash.clone()))
             .collect();
         if !arrived.is_empty() {

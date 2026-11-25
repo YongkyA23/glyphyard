@@ -235,8 +235,8 @@ impl Engine {
     fn is_blocked(&self, conn: &Connection, f: &FontFile) -> rusqlite::Result<bool> {
         let mut stmt = conn.prepare_cached("SELECT hash FROM blocked WHERE ps_name = ?1 COLLATE NOCASE")?;
         for ps in &f.ps_names {
-            let rows: Vec<Option<String>> = stmt.query_map([ps], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-            if rows.iter().any(|h| h.as_deref().is_none_or(|h| h == f.hash)) {
+            let rows: Vec<String> = stmt.query_map([ps], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+            if rows.iter().any(|h| h.is_empty() || *h == f.hash) {
                 return Ok(true);
             }
         }

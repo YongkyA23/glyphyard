@@ -75,8 +75,8 @@ impl Engine {
                 let (results, labels) = {
                     let db = self.db();
                     db.execute(
-                        "INSERT INTO blocked (ps_name, hash) VALUES (?1, ?2) ON CONFLICT (ps_name) DO UPDATE SET hash = excluded.hash",
-                        params![ps_name, hash],
+                        "INSERT OR IGNORE INTO blocked (ps_name, hash) VALUES (?1, ?2)",
+                        params![ps_name, hash.as_deref().unwrap_or("")],
                     )?;
                     let mut hashes = active_matching(&db, hash.as_deref(), ps_name)?;
                     if let Some(h) = hash {
