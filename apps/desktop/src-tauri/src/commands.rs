@@ -21,7 +21,7 @@ type St<'a> = State<'a, Ctx>;
 pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         get_app_state, complete_onboarding, change_name,
-        list_families, family_page, library_counts, language_counts, get_faces, get_family, set_active, similar_families,
+        list_families, family_page, query_targets, library_counts, language_counts, get_faces, get_family, set_active, similar_families,
         set_active_for,
         set_family_name, delete_fonts, import_paths, face_glyphs, glyph_svg, set_pinned,
         pairing_suggestions, list_axis_presets, save_axis_preset, delete_axis_preset,
@@ -102,6 +102,11 @@ pub async fn list_families(ctx: St<'_>, query: FamilyQuery) -> R<Vec<Family>> {
 #[tauri::command]
 pub async fn family_page(ctx: St<'_>, query: FamilyQuery, offset: usize, limit: usize) -> R<FamilyPage> {
     ctx.run(move |e| e.family_page(&query, offset, limit)).await
+}
+
+#[tauri::command]
+pub async fn query_targets(ctx: St<'_>, query: FamilyQuery) -> R<QueryTargets> {
+    ctx.run(move |e| e.query_targets(&query)).await
 }
 
 #[tauri::command]

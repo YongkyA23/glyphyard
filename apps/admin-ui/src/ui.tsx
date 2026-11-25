@@ -4,6 +4,7 @@ import { Link, NavLink, useLocation, useNavigate, useOutlet } from 'react-router
 import { animate, AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
 import { api, errorText, PAGE_SIZE, type By } from './api'
 import { easeOut, fast, page, shakeOpts, shakeX, softSpring, spring, stagger } from './motion'
+import { ErrorBoundary } from './ErrorBoundary'
 
 /* ---------- data ---------- */
 
@@ -123,7 +124,7 @@ export function Layout() {
       <main className="main">
         {/* The exiting route keeps its own outlet element, so it renders the old page while fading out. */}
         <AnimatePresence mode="wait">
-          <motion.div key={pathname} {...page}>{outlet}</motion.div>
+          <motion.div key={pathname} {...page}><ErrorBoundary>{outlet}</ErrorBoundary></motion.div>
         </AnimatePresence>
       </main>
     </div>

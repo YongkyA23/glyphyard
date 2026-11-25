@@ -11,6 +11,7 @@ import { useContextMenu, type MenuItem } from './menu'
 import { dur, easeOut, pop, route, spring } from './motion'
 import { useApp } from './state'
 import { Extras } from './extras/Extras'
+import { ErrorBoundary } from './ErrorBoundary'
 import { Logo } from './extras/Roulette'
 import { ago, basename, collectionTree, Dialog, errMsg, initials, keysBusy, LICENSE_LABEL, Num, plural, PromptDialog, Spinner } from './ui'
 
@@ -498,11 +499,11 @@ export function Shell() {
       </div>
       <main className="shell-main" ref={main}>
         <AnimatePresence mode="popLayout" initial={false}>
-          <motion.div key={pathname} className="route" {...route}>{outlet}</motion.div>
+          <motion.div key={pathname} className="route" {...route}><ErrorBoundary>{outlet}</ErrorBoundary></motion.div>
         </AnimatePresence>
       </main>
       <FileDrop />
-      <Extras />
+      <ErrorBoundary quiet><Extras /></ErrorBoundary>
     </div>
   )
 }

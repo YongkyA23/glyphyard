@@ -24,6 +24,7 @@ import { SettingsPage } from './pages/Settings'
 import { Quick } from './pages/Quick'
 import { PrintCollection } from './pages/Print'
 import { pop, spring } from './motion'
+import { ErrorBoundary } from './ErrorBoundary'
 
 function MainRoutes() {
   const { app } = useApp()
@@ -56,9 +57,9 @@ createRoot(document.getElementById('root')!).render(
         <Routes>
           <Route
             path="/quick"
-            element={<AppProvider main={false}><motion.div style={{ height: '100%' }} {...pop} initial={{ opacity: 0, scale: 0.94 }} transition={spring.panel}><Quick /></motion.div></AppProvider>}
+            element={<AppProvider main={false}><motion.div style={{ height: '100%' }} {...pop} initial={{ opacity: 0, scale: 0.94 }} transition={spring.panel}><ErrorBoundary><Quick /></ErrorBoundary></motion.div></AppProvider>}
           />
-          <Route path="*" element={<AppProvider main><MainRoutes /></AppProvider>} />
+          <Route path="*" element={<AppProvider main><ErrorBoundary><MainRoutes /></ErrorBoundary></AppProvider>} />
         </Routes>
       </BrowserRouter>
     </MotionConfig>

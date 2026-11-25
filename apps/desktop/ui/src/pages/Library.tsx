@@ -5,9 +5,10 @@ import {
   api, type ActivationResult, type Family, type FamilyFilter, type FamilyPage, type FamilySort, type Folder, type FolderNode, type FontCategory, type Health,
   type LanguageCount, type LibraryCounts, type License, type ListFamiliesArgs,
 } from '../api'
+import { ErrorBoundary } from '../ErrorBoundary'
 import { familyStyle } from '../fonts'
 import { LibraryEggs } from '../extras/LibraryEggs'
-import { useAddFonts, useFamilyDrag, useFontActions } from '../fontActions'
+import { NOT_ALL, useAddFonts, useFamilyDrag, useFontActions, type Targets } from '../fontActions'
 import { clockMark, turnsOff } from '../temporary'
 import { useContextMenu, type MenuItem } from '../menu'
 import { PreselectBar } from '../PreselectBar'
@@ -106,6 +107,8 @@ const ItemCheck = ({ f, i, selected, h }: { f: Family; i: number; selected: bool
   <input type="checkbox" className="item-check" aria-label={`Select ${f.family}`} checked={selected} onChange={() => {}} onClick={(e) => h.check(f, i, e)} />
 )
 const familyLink = (f: Family) => `/family/${encodeURIComponent(f.key)}`
+/** Tells the family page it can go Back to this list (same filters and page). */
+const FROM_LIBRARY = { fromLibrary: true }
 
 /** One family. The font file is only requested once the row is near the viewport. */
 const FamilyRow = memo(function FamilyRow({ f, i, first, sample, size, error, selected, h, onSize }: RowProps) {
@@ -118,7 +121,7 @@ const FamilyRow = memo(function FamilyRow({ f, i, first, sample, size, error, se
       <ItemSwitch f={f} h={h} />
       <div style={{ width: 200, display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-          <Link to={familyLink(f)} className="plain-link ellipsis" style={{ fontWeight: 500 }} draggable={false}>{f.family}</Link>
+          <Link to={familyLink(f)} state={FROM_LIBRARY} className="plain-link ellipsis" style={{ fontWeight: 500 }} draggable={false}>{f.family}</Link>
           {f.pinned && <PinMark />}
           {clockMark(f)}
         </span>
@@ -152,7 +155,7 @@ const FamilyCard = memo(function FamilyCard({ f, i, first, sample, size, error, 
       <div ref={pvRef} className="card-sample" style={{ ...(seen ? familyStyle(f) : {}), ...pvStyle, fontSize: size, color: on ? 'var(--ink)' : 'var(--disabled)' }}>{sample}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-          <Link to={familyLink(f)} className="plain-link ellipsis" style={{ fontWeight: 500 }} draggable={false}>{f.family}</Link>
+          <Link to={familyLink(f)} state={FROM_LIBRARY} className="plain-link ellipsis" style={{ fontWeight: 500 }} draggable={false}>{f.family}</Link>
           {f.pinned && <PinMark />}
           {clockMark(f)}
         </span>
@@ -206,10 +209,11 @@ function FolderBar({ node, onDone }: { node: FolderNode; onDone: () => void }) {
 
 export function Library() {
   const { app, libVersion, activate, adminChange, dismissAdmin } = useApp()
-  const [params, setParams] = useSearchParams()
-  const [search, setSearch] = useState('')
-  const [chars, setChars] = useState('')
-  const [lang, setLang] = useState('')
+  const [params, setParams] = useSearchParams()  // Search, filters, sort, view and page start from the URL query and are written back to it (below), so Back from a
+  // family page returns to the same list at the same page. They stay as they are when the sidebar changes the scope.
+  const [search, setSearch] = useState(() => params.get('q') ?? '')
+  const [chars, setChars] = useState(() => params.get('chars') ?? '')
+  const [lang, setLang] = useState(() => params.get('lang') ?? '')
   const [langs, setLangs] = useState<LanguageCount[]>([])
   // Counts are heavy and only change when the library does: load once, refresh when the list is opened.
   const loadLangs = () => api.languageCounts().then(setLangs, () => {})
@@ -217,12 +221,14 @@ export function Library() {
   const sampleBtn = useRef<HTMLButtonElement>(null)
   const navigate = useNavigate()
   const add = useAddFonts()
-  const [filter, setFilter] = useState<FamilyFilter>('all')
-  const [sort, setSort] = useState<FamilySort>('name')
-  const [seed, setSeed] = useState(newSeed)
-  const [category, setCategory] = useState<FontCategory | null>(null)
-  const [view, setView] = useState<View>(savedView)
+  const [filter, setFilter] = useState<FamilyFilter>(() => (params.get('filter') as FamilyFilter | null) ?? 'all')
+  const [sort, setSort] = useState<FamilySort>(() => (params.get('sort') as FamilySort | null) ?? 'name')
+  const [seed, setSeed] = useState(() => Number(params.get('seed')) || newSeed())
+  const [category, setCategory] = useState<FontCategory | null>(() => params.get('category') as FontCategory | null)
+  const [view, setView] = useState<View>(() => (params.get('view') === 'grid' ? 'grid' : params.has('view') ? 'list' : savedView()))
   const [sel, setSel] = useState<Map<string, Family>>(new Map())
+  /** "Select all N results": bulk actions apply to every match of the query, not just the selected rows. */
+  const [all, setAll] = useState(false)
   const anchor = useRef<number | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const [sample, setSample] = useState(DEFAULT_SAMPLE)
@@ -230,7 +236,7 @@ export function Library() {
   const [size, setSize] = useState(32)
   const nudgeSize = useCallback((d: number) => setSize((s) => Math.min(72, Math.max(16, s + d))), [])
   useBreathing()
-  const [page, setPage] = useState(1)
+  const [page, setPage] = useState(() => Math.max(1, Math.floor(Number(params.get('page'))) || 1))
   const [data, setData] = useState<FamilyPage | null>(null)
   const [counts, setCounts] = useState<LibraryCounts | null>(null)
   const [folders, setFolders] = useState<Folder[]>([])
@@ -247,15 +253,55 @@ export function Library() {
   const system = params.get('system') === '1'
   const tag = params.get('tag')
   // navigate('/', { state: { select: keys } }) shows just those families, all selected (Stats › Never used).
-  // `location.key` tells one hand-off from the next.
+  // The hand-off rides in location state, not the URL; its keys tell one hand-off from the next (the URL updates
+  // below replace the history entry, so `location.key` changes while the hand-off stays the same).
   const location = useLocation()
   const preselect = (location.state as { select?: string[] } | null)?.select ?? null
-  const scopeKey = [search.trim(), chars.trim(), lang, filter, sort, sort === 'random' ? seed : '', category, path, collectionId, license, tag, system, preselect ? location.key : ''].join('|')
+  const handoff = preselect?.join('\n') ?? ''
+  const scopeKey = [search.trim(), chars.trim(), lang, filter, sort, sort === 'random' ? seed : '', category, path, collectionId, license, tag, system, handoff].join('|')
+
+  /** The list's query, for a page of it and for "Select all N results". */
+  function query(): ListFamiliesArgs {
+    const args: ListFamiliesArgs = { search: search.trim() || undefined, filter: system ? 'system' : filter, sort }
+    if (chars.trim()) args.chars = chars.trim()
+    if (lang) args.lang = lang
+    if (path) args.path = path
+    if (collectionId) args.collectionId = Number(collectionId)
+    if (license) args.license = license
+    if (tag) args.tag = tag
+    if (preselect) args.keys = preselect
+    if (category) args.category = category
+    if (sort === 'random') args.seed = seed
+    return args
+  }
+  // Write the list state into the URL query (replacing the history entry, keeping the Stats hand-off state).
+  const urlState = new URLSearchParams(params)
+  const put = (k: string, v: string | number | null | false) => (v ? urlState.set(k, String(v)) : urlState.delete(k))
+  put('q', search)
+  put('chars', chars)
+  put('lang', lang)
+  put('filter', filter !== 'all' && filter)
+  put('category', category)
+  put('sort', sort !== 'name' && sort)
+  put('seed', sort === 'random' && seed)
+  put('view', view === 'grid' && view)
+  put('page', page > 1 && page)
+  const urlWanted = urlState.toString()
+  // Only while the Library is the current page: on the way out it still renders (exit animation) with the next page's URL.
+  const here = location.pathname === '/'
+  const urlNow = params.toString()
+  useEffect(() => {
+    if (here && urlWanted !== urlNow) setParams(new URLSearchParams(urlWanted), { replace: true, state: location.state })
+  }, [urlWanted, urlNow, here]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const actions = useFontActions((clear) => {
-    if (clear) setSel(new Map())
+    if (clear) {
+      setSel(new Map())
+      setAll(false)
+    }
     setReload((n) => n + 1)
   })
+  const targets: Targets = all && data ? { query: query(), count: data.total } : [...sel.values()]
   const { show, menu } = useContextMenu('Font actions')
   const tokensMenu = useContextMenu('Search tokens')
   const samplesMenu = useContextMenu('Sample texts')
@@ -279,15 +325,19 @@ export function Library() {
     if (!path) return setNode(null)
     api.folderTree().then((t) => setNode(findNode(t, path)), () => setNode(null))
   }, [path, libVersion, reload])
-  // A new search or scope starts at page 1 with nothing selected.
+  // A new search or scope starts at page 1 with nothing selected (not on mount: the page came from the URL).
+  const lastScope = useRef(scopeKey)
   useEffect(() => {
+    if (lastScope.current === scopeKey) return
+    lastScope.current = scopeKey
     setPage(1)
     setSel(new Map())
+    setAll(false)
     anchor.current = null
   }, [scopeKey])
   useEffect(() => {
     if (preselect) api.listFamilies({ keys: preselect }).then((fs) => setSel(new Map(fs.map((f) => [f.key, f]))), () => {})
-  }, [location.key]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [handoff]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => void (anchor.current = null), [page])
   useEffect(() => {
     try {
@@ -300,16 +350,7 @@ export function Library() {
       setSel((cur) => new Map([...cur].map(([k, f]) => [k, data.items.find((x) => x.key === k) ?? f])))
   }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    const args: ListFamiliesArgs = { search: search.trim() || undefined, filter: system ? 'system' : filter, sort }
-    if (chars.trim()) args.chars = chars.trim()
-    if (lang) args.lang = lang
-    if (path) args.path = path
-    if (collectionId) args.collectionId = Number(collectionId)
-    if (license) args.license = license
-    if (tag) args.tag = tag
-    if (preselect) args.keys = preselect
-    if (category) args.category = category
-    if (sort === 'random') args.seed = seed
+    const args = query()
     const t = setTimeout(() => api.familyPage(args, (page - 1) * PAGE, PAGE).then(setData, () => setData({ items: [], total: 0 })), search || chars ? 150 : 0)
     return () => clearTimeout(t)
   }, [scopeKey, page, libVersion, reload]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -327,6 +368,7 @@ export function Library() {
   /** Click = select just this one, Ctrl/Cmd+click = add/remove, Shift+click = range from the last clicked. */
   function select(f: Family, i: number, ctrl: boolean, shift: boolean) {
     const rows = data?.items ?? []
+    setAll(false)
     if (shift && anchor.current !== null) {
       const [a, b] = [anchor.current, i].sort((x, y) => x - y)
       setSel((cur) => {
@@ -345,8 +387,8 @@ export function Library() {
     })
   }
   // Latest state for the stable handler object and the window key listener.
-  const live = useRef({ toggle, select, show, actions, sel, rows: data?.items ?? [] })
-  live.current = { toggle, select, show, actions, sel, rows: data?.items ?? [] }
+  const live = useRef({ toggle, select, show, actions, sel, all, targets, rows: data?.items ?? [] })
+  live.current = { toggle, select, show, actions, sel, all, targets, rows: data?.items ?? [] }
   const dragStart = drag.start
   const h = useMemo<ItemHandlers>(() => ({
     toggle: (f) => live.current.toggle(f),
@@ -362,13 +404,13 @@ export function Library() {
     },
     check: (f, i, e) => live.current.select(f, i, true, e.shiftKey),
     menu: (f, e) => {
-      const { sel, show, actions } = live.current
-      let targets = [f]
-      if (sel.has(f.key)) targets = [...sel.values()]
-      else setSel(new Map([[f.key, f]]))
-      show(e, actions.menuItems(targets))
+      const { sel, all, targets, show, actions } = live.current
+      if (all || sel.has(f.key)) return show(e, actions.menuItems(targets)) // every row counts as selected in "all results"
+      setSel(new Map([[f.key, f]]))
+      show(e, actions.menuItems([f]))
     },
-    drag: (f, e) => dragStart(e, () => (live.current.sel.has(f.key) ? [...live.current.sel.values()] : [f])),
+    // Dragging carries the rows on this page; in "all results" it falls back to the page selection, as the bar then says.
+    drag: (f, e) => dragStart(e, () => (setAll(false), live.current.sel.has(f.key) ? [...live.current.sel.values()] : [f])),
   }), [dragStart])
 
   // FontBase shortcuts. Ctrl+F works everywhere; the rest stay out of the way while typing or in a dialog/menu.
@@ -383,19 +425,21 @@ export function Library() {
         return
       }
       if (keysBusy(e)) return
-      const { sel, rows, actions } = live.current
+      const { sel, rows, actions, targets } = live.current
       if (k === 'enter' && !mod && !e.altKey && !e.shiftKey && !(e.target as Element).closest?.('a, button, input, summary, [tabindex]')) {
         e.preventDefault()
         sampleBtn.current?.click() // like FontBase: Enter opens the sample text picker
       } else if (mod && !e.altKey && k === 'a') {
         e.preventDefault()
-        if (e.shiftKey) actions.setActive([...sel.values()], true)
-        else setSel(new Map(rows.map((f) => [f.key, f])))
+        if (e.shiftKey) return void actions.setActive(targets, true)
+        setSel(new Map(rows.map((f) => [f.key, f])))
+        setAll(false)
       } else if (mod && e.shiftKey && !e.altKey && k === 'd') {
         e.preventDefault()
-        actions.setActive([...sel.values()], false)
+        actions.setActive(targets, false)
       } else if (k === 'escape' && sel.size) {
         setSel(new Map())
+        setAll(false)
       }
     }
     addEventListener('keydown', onKey)
@@ -416,6 +460,8 @@ export function Library() {
   const adminFamilies = adminChange ? [...new Set(adminChange.fonts.map((f) => f.family))] : []
   const rows = data?.items ?? null
   const first = firstLoad.current
+  const total = data?.total ?? 0
+  const offerAll = !all && !!rows?.length && total > rows.length && rows.every((f) => sel.has(f.key))
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
@@ -557,16 +603,20 @@ export function Library() {
         {sel.size > 0 && (
           <motion.div key="selbar" className="select-bar" role="toolbar" aria-label="Selected fonts" {...collapse}>
             <div className="select-bar-inner">
-              <span style={{ fontWeight: 500, marginRight: 4 }} role="status">{num(sel.size)} selected</span>
-              <button type="button" className="btn small" onClick={() => actions.setActive(selList, true)} title={`${mod}Shift+A`}>Activate</button>
-              <button type="button" className="btn small" onClick={() => actions.setActive(selList, false)} title={`${mod}Shift+D`}>Deactivate</button>
-              <button type="button" className="btn small" aria-haspopup="menu" onClick={(e) => show(e, actions.collectionItems(selList), true)}>Add to collection ▾</button>
-              <button type="button" className="btn small" onClick={() => actions.openTags(selList)}>Tags…</button>
-              {selList.every((f) => f.pinned)
-                ? <button type="button" className="btn small" onClick={() => actions.setPinned(selList, false)}>Unpin</button>
-                : <button type="button" className="btn small" onClick={() => actions.setPinned(selList, true)}>Pin to top</button>}
-              <button type="button" className="btn small" aria-haspopup="menu" onClick={(e) => show(e, actions.menuItems(selList), true)}>More ▾</button>
-              <button type="button" className="btn small link" style={{ marginLeft: 'auto' }} onClick={() => setSel(new Map())} title="Esc">Clear</button>
+              <span style={{ fontWeight: 500, marginRight: 4 }} role="status">{all ? `All ${num(total)} results selected` : `${num(sel.size)} selected`}</span>
+              {offerAll && <button type="button" className="btn small link" onClick={() => setAll(true)}>Select all {num(total)} results</button>}
+              {all && <button type="button" className="btn small link" onClick={() => setAll(false)}>Select just this page</button>}
+              <button type="button" className="btn small" onClick={() => actions.setActive(targets, true)} title={`${mod}Shift+A`}>Activate</button>
+              <button type="button" className="btn small" onClick={() => actions.setActive(targets, false)} title={`${mod}Shift+D`}>Deactivate</button>
+              <button type="button" className="btn small" aria-haspopup="menu" onClick={(e) => show(e, actions.collectionItems(targets), true)}>Add to collection ▾</button>
+              <button type="button" className="btn small" onClick={() => actions.openTags(targets)}>Tags…</button>
+              {all
+                ? <button type="button" className="btn small" disabled title={`${NOT_ALL}: select just this page to pin`} aria-label={`Pin to top. ${NOT_ALL}`}>Pin to top</button>
+                : selList.every((f) => f.pinned)
+                  ? <button type="button" className="btn small" onClick={() => actions.setPinned(selList, false)}>Unpin</button>
+                  : <button type="button" className="btn small" onClick={() => actions.setPinned(selList, true)}>Pin to top</button>}
+              <button type="button" className="btn small" aria-haspopup="menu" onClick={(e) => show(e, actions.menuItems(targets), true)}>More ▾</button>
+              <button type="button" className="btn small link" style={{ marginLeft: 'auto' }} onClick={() => (setSel(new Map()), setAll(false))} title="Esc">Clear</button>
             </div>
           </motion.div>
         )}
@@ -581,7 +631,7 @@ export function Library() {
             {rows === null && [0, 1, 2, 3, 4, 5].map((i) => (view === 'grid' ? <CardSkeleton key={i} size={size} /> : <RowSkeleton key={i} size={size} />))}
             {rows?.map((f, i) => {
               const Item = view === 'grid' ? FamilyCard : FamilyRow
-              return <Item key={f.key} f={f} i={i} first={first} sample={shown} size={size} error={errors[f.key]} selected={sel.has(f.key)} h={h} onSize={nudgeSize} />
+              return <Item key={f.key} f={f} i={i} first={first} sample={shown} size={size} error={errors[f.key]} selected={all || sel.has(f.key)} h={h} onSize={nudgeSize} />
             })}
           </motion.div>
         </AnimatePresence>
@@ -594,7 +644,7 @@ export function Library() {
       {addMenu.menu}
       {drag.ghost}
       {actions.dialogs}
-      <LibraryEggs search={search} sample={sample} />
+      <ErrorBoundary quiet><LibraryEggs search={search} sample={sample} /></ErrorBoundary>
 
       <div className="statusbar">
         {counts && <span>{num(counts.active)} active</span>}

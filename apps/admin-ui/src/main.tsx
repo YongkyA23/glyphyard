@@ -9,6 +9,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Route, Routes } from 'react-router'
 import { MotionConfig } from 'motion/react'
 import { Layout } from './ui'
+import { ErrorBoundary, RejectionToast } from './ErrorBoundary'
 import { Login } from './pages/Login'
 import { Overview } from './pages/Overview'
 import { Users } from './pages/Users'
@@ -33,7 +34,7 @@ createRoot(document.getElementById('root')!).render(
     <MotionConfig reducedMotion="user">
       <BrowserRouter>
         <Routes>
-          <Route path="/login" element={<Login />} />
+          <Route path="/login" element={<ErrorBoundary><Login /></ErrorBoundary>} />
           <Route element={<Layout />}>
             <Route index element={<Overview />} />
             <Route path="users" element={<Users />} />
@@ -48,6 +49,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="*" element={<p className="empty">Page not found.</p>} />
           </Route>
         </Routes>
+        <RejectionToast />
       </BrowserRouter>
     </MotionConfig>
   </StrictMode>,

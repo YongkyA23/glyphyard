@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { animate, AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { api, tagsOf, type Axis, type Face, type Family, type FamilyDetail, type FileRow, type FontDetails, type GlyphBlock, type License, type ProjectSet } from '../api'
 import { AXIS_NAME, axisStep, faceStyle, familyStyle, pickFace } from '../fonts'
@@ -26,6 +26,13 @@ const FILE_STATUS: Record<FileRow['status'], [string, Tone]> = {
   active: ['Active', 'ok'], older_version: ['Older version', 'warn'], alternate: ['Alternate', 'accent'], grouped: ['Grouped with variable', 'neutral'], inactive: ['Inactive', 'neutral'],
   system: ['System font', 'neutral'],
 }
+/** Back to the Library: History Back when the Library opened this page (same list, filters and page), else the Library itself. */
+function BackLink() {
+  const navigate = useNavigate()
+  const fromLibrary = !!(useLocation().state as { fromLibrary?: boolean } | null)?.fromLibrary
+  return <Link to="/" className="back" onClick={(e) => fromLibrary && (e.preventDefault(), navigate(-1))}>← Library</Link>
+}
+
 const LICENSE_OPTIONS: [License, string][] = [['licensed', 'Licensed'], ['personal', 'Personal use only'], ['client', 'Client-provided'], ['unknown', 'Unknown']]
 
 const WATERFALL = [72, 48, 32, 24, 16]
@@ -325,11 +332,11 @@ export function FamilyPage() {
     }, (e) => setError(errMsg(e)))
   }, [key, libVersion])
 
-  if (error) return <div className="page"><Link to="/" className="back">← Library</Link><p role="alert">{error}</p></div>
+  if (error) return <div className="page"><BackLink /><p role="alert">{error}</p></div>
   if (!fam)
     return (
       <div className="page" aria-busy="true" style={{ gap: 20, padding: '20px 32px 32px' }}>
-        <Link to="/" className="back">← Library</Link>
+        <BackLink />
         <Skel w="45%" h={56} r={8} />
         <Skel w="30%" h={14} />
         <Skel h={40} r={0} />
@@ -398,7 +405,7 @@ export function FamilyPage() {
 
   return (
     <div className="page" style={{ gap: 20, padding: '20px 32px 32px' }}>
-      <Link to="/" className="back">← Library</Link>
+      <BackLink />
       <Poster family={fam.family} sample={sample} style={previewStyle} />
       <div className="row-between" style={{ alignItems: 'flex-end', gap: 20 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>

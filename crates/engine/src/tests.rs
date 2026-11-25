@@ -1261,3 +1261,4 @@ mod playful;
 mod pairing;
 mod reconcile;
 mod glyph_tools;
+mod select_all;

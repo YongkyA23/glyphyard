@@ -428,6 +428,10 @@ const handlers: Record<string, (a: Args) => unknown> = {
     const all = listFamilies(query ?? {})
     return { items: all.slice(offset, offset + limit), total: all.length }
   },
+  query_targets: ({ query }) => {
+    const all = listFamilies(query ?? {})
+    return { keys: all.map((f) => f.key), hashes: all.flatMap((f) => f.faces.filter((x) => !x.system).map((x) => x.hash)) }
+  },
   library_counts: () => {
     const all = listFamilies({})
     const licenses: Record<string, number> = {}

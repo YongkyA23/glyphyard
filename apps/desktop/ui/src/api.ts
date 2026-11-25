@@ -86,6 +86,8 @@ export type ListFamiliesArgs = {
   /** Only families whose representative face fully covers this language (an id from languageCounts). */ lang?: string
 }
 export type FamilyPage = { items: Family[]; total: number }
+/** Every family a Library query matches: keys for family actions, hashes (system fonts left out) for on/off. */
+export type QueryTargets = { keys: string[]; hashes: string[] }
 /** Local usage statistics (never sent anywhere). `days`: days on which a font of the family was turned on. */
 export type UsageStats = {
   period: 'month' | 'year'; since: string; mostUsed: { key: string; family: string; days: number }[]
@@ -159,6 +161,7 @@ export const api = {
 
   listFamilies: (query: ListFamiliesArgs = {}) => call<Family[]>('list_families', { query }),
   familyPage: (query: ListFamiliesArgs, offset: number, limit: number) => call<FamilyPage>('family_page', { query, offset, limit }),
+  queryTargets: (query: ListFamiliesArgs) => call<QueryTargets>('query_targets', { query }),
   libraryCounts: () => call<LibraryCounts>('library_counts'),
   languageCounts: () => call<LanguageCount[]>('language_counts'),
   getFaces: (hashes: string[]) => call<Face[]>('get_faces', { hashes }),

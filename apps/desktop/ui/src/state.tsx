@@ -75,6 +75,19 @@ export function AppProvider({ main, children }: { main: boolean; children: React
     })
   }, [main, toast])
 
+  // A promise nobody handled: say so once per distinct message instead of failing silently.
+  useEffect(() => {
+    const seen = new Set<string>()
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const msg = errMsg(e.reason)
+      if (seen.has(msg)) return
+      seen.add(msg)
+      toast(`Something didn’t work: ${msg}`)
+    }
+    addEventListener('unhandledrejection', onRejection)
+    return () => removeEventListener('unhandledrejection', onRejection)
+  }, [toast])
+
   const activate = useCallback<Ctx['activate']>(
     async (fn, opts) => {
       const report = (res: ActivationResult[]) => {

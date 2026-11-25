@@ -4,15 +4,24 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
 import { AnimatePresence, motion, useMotionValue } from 'motion/react'
-import { api, tagsOf, type Collection, type Family, type Until } from './api'
+import { api, tagsOf, type Collection, type Family, type ListFamiliesArgs, type Until } from './api'
 import type { MenuItem } from './menu'
 import { spring } from './motion'
 import { useApp } from './state'
 import { andList, collectionTree, Dialog, errMsg, plural, PromptDialog, Spinner } from './ui'
 
+/** "Select all N results": every family matching a Library query. The engine resolves the query when an action runs. */
+export type AllResults = { query: ListFamiliesArgs; count: number }
+/** What a bulk action applies to: the selected families, or all results. */
+export type Targets = Family[] | AllResults
+const isAll = (t: Targets): t is AllResults => !Array.isArray(t)
 const editable = (fams: Family[]) => fams.flatMap((f) => f.faces.filter((x) => !x.system).map((x) => x.hash))
 const allHashes = (fams: Family[]) => fams.flatMap((f) => f.faces.map((x) => x.hash))
-export const famNames = (fams: Family[]) => (fams.length === 1 ? fams[0].family : plural(fams.length, 'family', 'families'))
+/** Family keys and switchable font hashes of the targets. */
+const resolve = (t: Targets) => (isAll(t) ? api.queryTargets(t.query) : Promise.resolve({ keys: t.map((f) => f.key), hashes: editable(t) }))
+export const famNames = (t: Targets) => (isAll(t) ? plural(t.count, 'family', 'families') : t.length === 1 ? t[0].family : plural(t.length, 'family', 'families'))
+/** Why an action is off for all results: it makes no sense for thousands of families at once. */
+export const NOT_ALL = 'Not for all results'
 
 /** `onChanged(clear)`: refetch; `clear` = the selection no longer matches (fonts deleted or regrouped). */
 export function useFontActions(onChanged: (clear: boolean) => void) {
@@ -22,23 +31,27 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
   const [tagging, setTagging] = useState<Family[] | null>(null)
   const [renaming, setRenaming] = useState<Family[] | null>(null)
   const [deleting, setDeleting] = useState<Family[] | null>(null)
-  const [newColl, setNewColl] = useState<Family[] | null>(null)
+  const [newColl, setNewColl] = useState<Targets | null>(null)
   const [busy, setBusy] = useState(false)
   useEffect(() => void api.listCollections().then(setCollections, () => {}), [libVersion])
   const bin = app.platform === 'macos' ? 'Trash' : 'Recycle Bin'
   const mod = app.platform === 'macos' ? '⌘' : 'Ctrl+'
 
-  async function setActive(fams: Family[], on: boolean) {
-    const hashes = editable(fams)
-    if (!hashes.length) return
-    const res = await activate(() => api.setActive(hashes, on))
+  async function setActive(fams: Targets, on: boolean) {
+    if (!isAll(fams) && !editable(fams).length) return
+    const res = await activate(async () => {
+      const { hashes } = await resolve(fams)
+      return hashes.length ? api.setActive(hashes, on) : []
+    })
     if (res?.some((r) => r.ok)) toast(`${on ? 'Turned on' : 'Turned off'} ${famNames(fams)}`)
     onChanged(false)
   }
-  async function setActiveFor(fams: Family[], until: Until) {
-    const hashes = editable(fams)
-    if (!hashes.length) return
-    const res = await activate(() => api.setActiveFor(hashes, until))
+  async function setActiveFor(fams: Targets, until: Until) {
+    if (!isAll(fams) && !editable(fams).length) return
+    const res = await activate(async () => {
+      const { hashes } = await resolve(fams)
+      return hashes.length ? api.setActiveFor(hashes, until) : []
+    })
     if (res?.some((r) => r.ok)) toast(`Turned on ${famNames(fams)} ${until === 'restart' ? 'until you restart Typeshelf' : 'for 2 hours'}`)
     onChanged(false)
   }
@@ -51,16 +64,22 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
       toast(errMsg(e))
     }
   }
-  async function addTo(c: { id: number; name: string }, fams: Family[]) {
+  async function addTo(c: { id: number; name: string }, fams: Targets) {
     try {
-      await api.addToCollection(c.id, fams.map((f) => f.key))
+      await api.addToCollection(c.id, (await resolve(fams)).keys)
       toast(`Added ${famNames(fams)} to ${c.name}`)
       bump()
     } catch (e) {
       toast(errMsg(e))
     }
   }
-  async function createAndAdd(name: string, fams: Family[]) {
+  /** Tags need each family's current tags, so all results come over as families (one list call, no paging). */
+  // ponytail: saving then writes each family's tags one call at a time; add a bulk tag command if thousands feel slow.
+  function openTags(fams: Targets) {
+    if (isAll(fams)) api.listFamilies(fams.query).then(setTagging, (e) => toast(errMsg(e)))
+    else setTagging(fams)
+  }
+  async function createAndAdd(name: string, fams: Targets) {
     try {
       const all = await api.createCollection(name, null)
       const made = all.filter((c) => c.name === name).sort((a, b) => b.id - a.id)[0]
@@ -70,7 +89,7 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
     }
   }
 
-  const collectionItems = (fams: Family[]): MenuItem[] => [
+  const collectionItems = (fams: Targets): MenuItem[] => [
     ...collectionTree(collections).filter(({ c }) => c.builtin !== 'recent')
       .map(({ c, depth }): MenuItem => ({ label: `${' '.repeat(depth)}${c.name}`, onSelect: () => addTo(c, fams) })),
     'sep',
@@ -78,31 +97,36 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
   ]
 
   /** The right-click menu for these families. */
-  const menuItems = (fams: Family[]): MenuItem[] => {
+  const menuItems = (targets: Targets): MenuItem[] => {
+    // All results: on/off, collections and tags reach every match; the rest stay with a page-sized selection.
+    const all = isAll(targets)
+    const fams = all ? [] : targets
     const one = fams.length === 1 ? fams[0] : null
-    const locked = !editable(fams).length
+    const locked = !all && !editable(fams).length
     return [
-      { label: 'Activate', hint: `${mod}Shift+A`, disabled: locked || fams.every((f) => f.activeState === 'all'), onSelect: () => setActive(fams, true) },
-      { label: 'Deactivate', hint: `${mod}Shift+D`, disabled: locked || fams.every((f) => f.activeState === 'none'), onSelect: () => setActive(fams, false) },
+      { label: 'Activate', hint: `${mod}Shift+A`, disabled: locked || (!all && fams.every((f) => f.activeState === 'all')), onSelect: () => setActive(targets, true) },
+      { label: 'Deactivate', hint: `${mod}Shift+D`, disabled: locked || (!all && fams.every((f) => f.activeState === 'none')), onSelect: () => setActive(targets, false) },
       {
         label: 'Turn on for…', disabled: locked, items: [
-          { label: '2 hours', onSelect: () => setActiveFor(fams, { minutes: 120 }) },
-          { label: 'Until I restart Typeshelf', onSelect: () => setActiveFor(fams, 'restart') },
+          { label: '2 hours', onSelect: () => setActiveFor(targets, { minutes: 120 }) },
+          { label: 'Until I restart Typeshelf', onSelect: () => setActiveFor(targets, 'restart') },
         ],
       },
       { label: 'Show in folder', disabled: !fams[0]?.faces[0], onSelect: () => api.showInFolder(fams[0].faces[0].path).catch((e) => toast(errMsg(e))) },
       'sep',
-      fams.every((f) => f.pinned)
-        ? { label: 'Unpin', onSelect: () => setPinned(fams, false) }
-        : { label: 'Pin to top', onSelect: () => setPinned(fams, true) },
-      { label: 'Add to collection', items: collectionItems(fams) },
-      { label: 'Tags…', onSelect: () => setTagging(fams) },
-      { label: one ? 'Rename family…' : 'Show as one family…', onSelect: () => setRenaming(fams) },
+      all
+        ? { label: 'Pin to top', disabled: true, hint: NOT_ALL, onSelect: () => {} }
+        : fams.every((f) => f.pinned)
+          ? { label: 'Unpin', onSelect: () => setPinned(fams, false) }
+          : { label: 'Pin to top', onSelect: () => setPinned(fams, true) },
+      { label: 'Add to collection', items: collectionItems(targets) },
+      { label: 'Tags…', onSelect: () => openTags(targets) },
+      { label: one ? 'Rename family…' : 'Show as one family…', disabled: all, hint: all ? NOT_ALL : undefined, onSelect: () => setRenaming(fams) },
       'sep',
       { label: 'Use as Playground font A', disabled: !one, onSelect: () => navigate(`/playground?a=${encodeURIComponent(fams[0].key)}`) },
       { label: 'Use as Playground font B', disabled: !one, onSelect: () => navigate(`/playground?b=${encodeURIComponent(fams[0].key)}`) },
       'sep',
-      { label: 'Delete from disk…', danger: true, disabled: locked, onSelect: () => setDeleting(fams) },
+      { label: 'Delete from disk…', danger: true, disabled: locked || all, hint: all ? NOT_ALL : undefined, onSelect: () => setDeleting(fams) },
     ]
   }
 
@@ -162,7 +186,7 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
       </Dialog>
     </>
   )
-  return { menuItems, collectionItems, setActive, setPinned, addTo, openTags: setTagging, collections, dialogs }
+  return { menuItems, collectionItems, setActive, setPinned, addTo, openTags, collections, dialogs }
 }
 
 const FONT_FILES = [{ name: 'Fonts', extensions: ['ttf', 'otf', 'ttc', 'otc', 'woff', 'woff2'] }]
