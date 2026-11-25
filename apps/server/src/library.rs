@@ -1,7 +1,7 @@
 //! Shared library: font files stored under `<data>/library/<hash>`, delivered to installs by the admin.
 
 use crate::auth::{Admin, Install};
-use crate::{db, hub, hub::Hub, installs, ApiError, ApiResult, AppState, Page, Paging};
+use crate::{audit, db, hub, hub::Hub, installs, ApiError, ApiResult, AppState, Page, Paging};
 use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::{header, StatusCode};
@@ -147,7 +147,7 @@ fn unique_filename(c: &Connection, name: &str, hash: &str) -> rusqlite::Result<S
     Ok(format!("{stem} ({}){ext}", &hash[..8]))
 }
 
-async fn upload(State(s): State<AppState>, _: Admin, mut form: Multipart) -> ApiResult<Json<Vec<LibraryFile>>> {
+async fn upload(State(s): State<AppState>, admin: Admin, mut form: Multipart) -> ApiResult<Json<Vec<LibraryFile>>> {
     let bad = |e: axum::extract::multipart::MultipartError| ApiError::bad_request("bad_upload", e.body_text());
     let mut files = Vec::new();
     while let Some(field) = form.next_field().await.map_err(bad)? {
@@ -183,11 +183,14 @@ async fn upload(State(s): State<AppState>, _: Admin, mut form: Multipart) -> Api
     let mut added = Vec::new();
     for (name, hash, size, face) in stored {
         let filename = unique_filename(&db, &name, &hash)?;
-        db.execute(
+        let new = db.execute(
             "INSERT OR IGNORE INTO library_files (hash, filename, size, ps_name, family, style, version, uploaded_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![hash, filename, size, face.ps_name, face.family, face.style, face.version, now],
         )?;
+        if new > 0 {
+            audit::record(&db, &admin.email, "font_uploaded", &hash, &filename)?;
+        }
         added.push(load(&db, &hash)?);
     }
     Ok(Json(added))
@@ -198,12 +201,14 @@ struct LicenseBody {
     license: String,
 }
 
-async fn set_license(State(s): State<AppState>, _: Admin, Path(hash): Path<String>, Json(body): Json<LicenseBody>) -> ApiResult<Json<LibraryFile>> {
+async fn set_license(State(s): State<AppState>, admin: Admin, Path(hash): Path<String>, Json(body): Json<LicenseBody>) -> ApiResult<Json<LibraryFile>> {
     if !LICENSES.contains(&body.license.as_str()) {
         return Err(ApiError::bad_request("invalid_license", "license must be licensed, personal, client or unknown"));
     }
     let db = s.db();
-    db.execute("UPDATE library_files SET license = ?1 WHERE hash = ?2", params![body.license, hash])?;
+    if db.execute("UPDATE library_files SET license = ?1 WHERE hash = ?2", params![body.license, hash])? > 0 {
+        audit::record(&db, &admin.email, "license_changed", &hash, &body.license)?;
+    }
     Ok(Json(load(&db, &hash)?))
 }
 
@@ -212,10 +217,11 @@ struct BlockBody {
     blocked: bool,
 }
 
-async fn block(State(s): State<AppState>, _: Admin, Path(hash): Path<String>, Json(body): Json<BlockBody>) -> ApiResult<Json<LibraryFile>> {
+async fn block(State(s): State<AppState>, admin: Admin, Path(hash): Path<String>, Json(body): Json<BlockBody>) -> ApiResult<Json<LibraryFile>> {
     let mut db = s.db();
     let tx = db.transaction()?;
     let file = set_blocked(&tx, &s.hub, &hash, body.blocked)?;
+    audit::record(&tx, &admin.email, if body.blocked { "font_blocked" } else { "font_unblocked" }, &hash, &file.ps_name)?;
     tx.commit()?;
     Ok(Json(file))
 }
@@ -260,10 +266,17 @@ struct DeliverBody {
     activate: Option<bool>,
 }
 
-async fn deliver(State(s): State<AppState>, _: Admin, Path(hash): Path<String>, Json(body): Json<DeliverBody>) -> ApiResult<Json<LibraryFile>> {
+async fn deliver(State(s): State<AppState>, admin: Admin, Path(hash): Path<String>, Json(body): Json<DeliverBody>) -> ApiResult<Json<LibraryFile>> {
     let mut db = s.db();
     let tx = db.transaction()?;
-    let file = set_delivery(&tx, &s.hub, &hash, &body.target, body.activate)?;
+    let activate = body.activate.unwrap_or(db::settings(&tx)?.activate_delivered);
+    let file = set_delivery(&tx, &s.hub, &hash, &body.target, Some(activate))?;
+    let targets = match &body.target {
+        Target::Keyword(k) => k.clone(),
+        Target::Installs(ids) => ids.join(", "),
+    };
+    let on = if activate { ", turned on" } else { "" };
+    audit::record(&tx, &admin.email, "font_delivered", &hash, &format!("{} to {targets}{on}", file.ps_name))?;
     tx.commit()?;
     Ok(Json(file))
 }
@@ -516,7 +529,7 @@ fn quarantine_file(s: &AppState, hash: &str, filename: &str) -> std::io::Result<
 
 /// Applies renames and removals (quarantine/trash move the stored file to `<data>/quarantine/`); grouping,
 /// alternates and skips are advice only.
-async fn organize_apply(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Value>> {
+async fn organize_apply(State(s): State<AppState>, admin: Admin) -> ApiResult<Json<Value>> {
     let changes = library_plan(&s).await?;
     let name = |p: &std::path::Path| p.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
     let mut applied = 0;
@@ -549,6 +562,7 @@ async fn organize_apply(State(s): State<AppState>, _: Admin) -> ApiResult<Json<V
                 _ => {}
             }
         }
+        audit::record(&db, &admin.email, "organize_applied", "", &format!("{applied} changes applied"))?;
     }
     Ok(Json(json!({ "applied": applied })))
 }

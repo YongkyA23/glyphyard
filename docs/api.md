@@ -88,11 +88,20 @@ Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–20
 | POST | `/requests/{id}/reopen` | → 204; 404 if there is no such request |
 | GET | `/settings` | → `Settings` |
 | PUT | `/settings` | `Partial<Settings>` without `install_key` → `Settings` (pushes `PolicyChanged`). 400 `invalid_setting` unless `name_change_days` is 1–3650 and `timeline_retention_days` is null or 1–3650 |
-| POST | `/settings/install-key` | → `{ install_key }` (regenerates) |
-| GET | `/admins` | → `{ email, role, last_login }[]` |
-| POST | `/admins` | `{ email, password }` → 201 |
+| POST | `/settings/install-key` | → `{ install_key }` (regenerates). Owner only |
+| GET | `/admins` | → `{ id, email, role: "owner" \| "admin", last_login }[]` |
+| POST | `/admins` | `{ email, password }` → 201 (role `admin`). Owner only |
+| DELETE | `/admins/{id}` | → 204; ends their sessions. Owner only; 409 `last_owner` for the only owner |
+| PUT | `/admins/{id}/role` | `{ role: "owner" \| "admin" }` → 204. Owner only; 409 `last_owner` when demoting the only owner |
+| POST | `/admins/{id}/password` | `{ password }` → 204; ends their sessions. Owner only, not for yourself (400 `own_password`) |
+| PUT | `/me/password` | `{ current, password }` → 204 + a fresh cookie; ends every other session. 403 `wrong_password` (counts toward the sign-in lock) |
+| GET | `/audit?admin=&action=&offset=&limit=` | → `Page<{ id, at, admin, action, target, detail }> & { admins: string[], actions: string[] }` newest first |
+
+Owner-only routes answer a plain admin with 403 `owner_only`. Roles and sessions are read on every request, so a role
+change, a removal or a password change applies to sessions already signed in on their next request. The audit log
+never stores passwords, tokens or the install key; failed sign-ins are recorded once, when they lock a real admin's email.
 
 Online = WebSocket connected, or `last_seen` within the last 5 minutes. Stale = not seen for 14+ days.
 Possible duplicate = another install had the same name (case-insensitive, ignoring spaces) or a name one is a prefix of the other ("Budi S." ~ "Budi Santoso").
 
-CLI: `typeshelf-server serve [--port 8080] [--data ./data]`, `typeshelf-server create-admin <email>` (prompts for a password).
+CLI: `typeshelf-server serve [--port 8080] [--data ./data]`, `typeshelf-server create-admin <email>` (prompts for a password; the first admin is the owner; for an existing email it sets a new password and ends that admin's sessions).

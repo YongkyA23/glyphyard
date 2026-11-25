@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { api, errorText, type Admin, type Settings } from '../api'
+import { api, errorText, type Admin, type Me, type Role, type Settings } from '../api'
 import { base, fadeRise, fast, row } from '../motion'
 import { ago, Empty, ErrorBox, Loaded, Skel, Spin, Swap, Toggle, useConfirm, useLoad } from '../ui'
 
@@ -23,18 +23,24 @@ const RETENTION: [string, string][] = [['', 'Forever'], ['1095', '3 years'], ['3
 
 export function SettingsPage() {
   const state = useLoad(() => api.settings(), [])
+  const me = useLoad(() => api.me(), [])
+  // undefined while loading, so owner-only controls neither flash on nor show their reason early.
+  const owner = me.data && me.data.role === 'owner'
   return (
     <div className="page">
       <div className="narrow stack-18">
         <h1>Settings</h1>
-        <Loaded state={state} skeleton={skeleton}>{(s) => <Form initial={s} onSaved={(n) => state.setData(() => n)} admins={<Admins />} />}</Loaded>
+        <Loaded state={state} skeleton={skeleton}>{(s) => <Form initial={s} onSaved={(n) => state.setData(() => n)} owner={owner}
+          admins={<><Admins me={me.data} /><OwnPassword /></>} />}</Loaded>
       </div>
     </div>
   )
 }
 
+const OWNER_ONLY = 'Only an owner can add or remove admins, change roles, reset passwords and regenerate the install key.'
+
 // Admins has its own form, so the settings form is an empty <form> that the fields join via `form=`.
-function Form({ initial, onSaved, admins }: { initial: Settings; onSaved: (s: Settings) => void; admins: ReactNode }) {
+function Form({ initial, onSaved, admins, owner }: { initial: Settings; onSaved: (s: Settings) => void; admins: ReactNode; owner?: boolean }) {
   const [s, setS] = useState(initial)
   const [days, setDays] = useState(String(initial.name_change_days))
   const [showKey, setShowKey] = useState(false)
@@ -109,10 +115,12 @@ function Form({ initial, onSaved, admins }: { initial: Settings; onSaved: (s: Se
             <span className="code-box" aria-labelledby="key-label"><Swap>{showKey ? s.install_key : '••••••••••••••••••••'}</Swap></span>
           </div>
           <button type="button" className="btn" aria-pressed={showKey} onClick={() => setShowKey(!showKey)}><Swap>{showKey ? 'Hide' : 'Show'}</Swap></button>
-          <button type="button" className="btn btn-danger" disabled={status === 'regen'} onClick={regenerate}>
+          <button type="button" className="btn btn-danger" disabled={status === 'regen' || !owner} onClick={regenerate}
+            aria-describedby={owner === false ? 'key-owner' : undefined}>
             {status === 'regen' && <Spin />}{status === 'regen' ? 'Regenerating…' : 'Regenerate'}
           </button>
         </div>
+        {owner === false && <span id="key-owner" className="meta">Only an owner can regenerate the install key.</span>}
         <span className="meta lh">Both are built into the installer, so onboarding still asks only for a name. Users can change them later in the app under Settings › Connection, unless you lock that below. Regenerating disconnects apps installed with the old key until they’re updated.</span>
       </motion.section>
 
@@ -155,35 +163,132 @@ function Form({ initial, onSaved, admins }: { initial: Settings; onSaved: (s: Se
   )
 }
 
-function Admins() {
-  const state = useLoad(async () => {
-    const [admins, me] = await Promise.all([api.admins(), api.me()])
-    return { admins, me: me.email }
-  }, [])
+function Admins({ me }: { me?: Me }) {
+  const state = useLoad(() => api.admins(), [])
   const [adding, setAdding] = useState(false)
+  const [resetting, setResetting] = useState<number>()
+  const [error, setError] = useState('')
+  const [confirmDialog, confirm] = useConfirm()
+  const owner = me?.role === 'owner'
+  const act = async (f: () => Promise<void>) => {
+    setError('')
+    try { await f(); await state.reload(true) } catch (err) { setError(errorText(err)) }
+  }
+  const remove = async (a: Admin) => {
+    if (await confirm(`Remove ${a.email}? They are signed out at once and can no longer sign in.`, 'Remove', true)) await act(() => api.removeAdmin(a.id))
+  }
   return (
     <motion.section aria-labelledby="adm" className="card pad-20 stack-10" variants={fadeRise}>
       <div className="row-between">
         <h2 id="adm" className="h2">Admins</h2>
-        <button type="button" className="btn btn-36" aria-expanded={adding} onClick={() => setAdding(!adding)}><Swap>{adding ? 'Cancel' : 'Add admin'}</Swap></button>
+        {owner && <button type="button" className="btn btn-36" aria-expanded={adding} onClick={() => setAdding(!adding)}><Swap>{adding ? 'Cancel' : 'Add admin'}</Swap></button>}
       </div>
+      {me && !owner && <span className="meta">{OWNER_ONLY}</span>}
       <AnimatePresence initial={false}>
         {adding && <AddAdmin onAdded={() => { setAdding(false); void state.reload(true) }} />}
       </AnimatePresence>
-      <Loaded state={state} skeleton={<div className="stack-14">{[0, 1].map((i) => <span key={i} className="stack-6"><Skel w="45%" /><Skel w="30%" h={10} /></span>)}</div>}>{({ admins, me }) => (
+      {error && <ErrorBox message={error} />}
+      <Loaded state={state} skeleton={<div className="stack-14">{[0, 1].map((i) => <span key={i} className="stack-6"><Skel w="45%" /><Skel w="30%" h={10} /></span>)}</div>}>{(admins) => (
         <div>
           {admins.length === 0 && <Empty>No admins.</Empty>}
-          {admins.map((a: Admin, i) => (
-            <motion.div key={a.email} className="admin-row" {...row(i, admins.length)}>
-              <span className="stack-2">
-                <span>{a.email}</span>
-                <span className="meta">{[a.email === me && 'You', a.last_login ? `last sign-in ${ago(a.last_login).toLowerCase()}` : 'Never signed in'].filter(Boolean).join(' · ')}</span>
-              </span>
-              <span className="small mute">{a.role.charAt(0).toUpperCase() + a.role.slice(1)}</span>
-            </motion.div>
-          ))}
+          {admins.map((a: Admin, i) => {
+            const self = a.email === me?.email
+            return (
+              <motion.div key={a.email} className="stack-6" {...row(i, admins.length)}>
+                <div className="admin-row">
+                  <span className="stack-2">
+                    <span>{a.email}</span>
+                    <span className="meta">{[self && 'You', a.last_login ? `last sign-in ${ago(a.last_login).toLowerCase()}` : 'Never signed in'].filter(Boolean).join(' · ')}</span>
+                  </span>
+                  {owner && !self ? (
+                    <span className="row-8">
+                      <select className="input" aria-label={`Role for ${a.email}`} value={a.role} onChange={(e) => void act(() => api.setRole(a.id, e.target.value as Role))}>
+                        <option value="owner">Owner</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                      <button type="button" className="btn btn-sm" aria-expanded={resetting === a.id} onClick={() => setResetting(resetting === a.id ? undefined : a.id)}>Reset password</button>
+                      <button type="button" className="btn btn-sm btn-danger" onClick={() => void remove(a)}>Remove</button>
+                    </span>
+                  ) : <span className="small mute">{a.role.charAt(0).toUpperCase() + a.role.slice(1)}</span>}
+                </div>
+                <AnimatePresence initial={false}>
+                  {resetting === a.id && <ResetPassword admin={a} onDone={() => setResetting(undefined)} />}
+                </AnimatePresence>
+              </motion.div>
+            )
+          })}
         </div>
       )}</Loaded>
+      {confirmDialog}
+    </motion.section>
+  )
+}
+
+function ResetPassword({ admin, onDone }: { admin: Admin; onDone: () => void }) {
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (password.length < 8) return setError('Use a password of at least 8 characters.')
+    setBusy(true)
+    setError('')
+    try {
+      await api.resetPassword(admin.id, password)
+      onDone()
+    } catch (err) {
+      setError(errorText(err))
+      setBusy(false)
+    }
+  }
+  return (
+    <motion.form className="add-admin" onSubmit={submit} noValidate
+      initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0, transition: base }} exit={{ opacity: 0, y: -6, transition: fast }}>
+      <label className="field grow"><span>New password for {admin.email}</span>
+        <input type="password" className="input" autoComplete="new-password" value={password} onChange={(e) => { setPassword(e.target.value); setError('') }} />
+      </label>
+      <button type="submit" className="btn btn-primary" disabled={busy}>{busy && <Spin />}{busy ? 'Saving…' : 'Set password'}</button>
+      {error && <span role="alert" className="form-error full">{error}</span>}
+      <span className="meta full">They are signed out everywhere. Share the new password with them privately.</span>
+    </motion.form>
+  )
+}
+
+function OwnPassword() {
+  const [current, setCurrent] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [status, setStatus] = useState<'' | 'saving' | 'saved'>('')
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!current) return setError('Enter your current password.')
+    if (password.length < 8) return setError('Use a new password of at least 8 characters.')
+    setStatus('saving')
+    setError('')
+    try {
+      await api.changePassword(current, password)
+      setCurrent('')
+      setPassword('')
+      setStatus('saved')
+    } catch (err) {
+      setError(errorText(err))
+      setStatus('')
+    }
+  }
+  return (
+    <motion.section aria-labelledby="pw" className="card pad-20 stack-10" variants={fadeRise}>
+      <h2 id="pw" className="h2">Your password</h2>
+      <form className="add-admin" onSubmit={submit} noValidate>
+        <label className="field grow"><span>Current password</span>
+          <input type="password" className="input" autoComplete="current-password" value={current} onChange={(e) => { setCurrent(e.target.value); setError(''); setStatus('') }} />
+        </label>
+        <label className="field grow"><span>New password</span>
+          <input type="password" className="input" autoComplete="new-password" value={password} onChange={(e) => { setPassword(e.target.value); setError(''); setStatus('') }} />
+        </label>
+        <button type="submit" className="btn btn-primary" disabled={status === 'saving'}>{status === 'saving' && <Spin />}{status === 'saving' ? 'Changing…' : 'Change password'}</button>
+        {error && <span role="alert" className="form-error full">{error}</span>}
+        <span className="meta full" role="status">{status === 'saved' ? 'Password changed. You were signed out everywhere else.' : 'Changing it signs you out on every other browser.'}</span>
+      </form>
     </motion.section>
   )
 }

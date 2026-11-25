@@ -1,14 +1,14 @@
 //! Admin API, `/api/admin`: sign-in, settings and admin accounts. Installs and library live in their own modules.
 
-use crate::auth::{self, Admin, SESSION_COOKIE, SESSION_DAYS};
-use crate::{db, hub, installs, library, ApiError, ApiResult, AppState};
-use axum::extract::State;
+use crate::auth::{self, Admin, Owner, SESSION_COOKIE, SESSION_DAYS};
+use crate::{audit, db, hub, installs, library, ApiError, ApiResult, AppState};
+use axum::extract::{Path, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{AppendHeaders, IntoResponse};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use chrono::{Duration, Utc};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::time::Instant;
@@ -22,6 +22,11 @@ pub fn routes() -> Router<AppState> {
         .route("/settings", get(get_settings).put(put_settings))
         .route("/settings/install-key", post(regenerate_key))
         .route("/admins", get(list_admins).post(create_admin))
+        .route("/admins/{id}", delete(remove_admin))
+        .route("/admins/{id}/role", put(set_role))
+        .route("/admins/{id}/password", post(reset_password))
+        .route("/me/password", put(change_password))
+        .merge(audit::routes())
         .merge(installs::routes())
         .merge(library::admin_routes())
         .merge(crate::requests::routes())
@@ -47,8 +52,8 @@ fn session_cookie(s: &AppState, headers: &HeaderMap, token: &str, max_age: i64) 
     Ok(format!("{SESSION_COOKIE}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={max_age}{flag}"))
 }
 
-async fn login(State(s): State<AppState>, headers: HeaderMap, Json(c): Json<Credentials>) -> ApiResult<impl IntoResponse> {
-    if let Some(left) = s.login_throttle.locked_for(&c.email, Instant::now()) {
+fn too_many_attempts(email: &str, s: &AppState) -> ApiResult<()> {
+    if let Some(left) = s.login_throttle.locked_for(email, Instant::now()) {
         let minutes = left.as_secs().div_ceil(60);
         return Err(ApiError::new(
             StatusCode::TOO_MANY_REQUESTS,
@@ -56,24 +61,42 @@ async fn login(State(s): State<AppState>, headers: HeaderMap, Json(c): Json<Cred
             format!("too many failed sign-ins for this email; try again in {minutes} minutes"),
         ));
     }
-    let found: Option<(i64, String)> = s
+    Ok(())
+}
+
+/// Stores a new session; the caller has already built the cookie (building it locks the database too).
+fn insert_session(c: &Connection, admin_id: i64, token: &str) -> rusqlite::Result<()> {
+    c.execute("DELETE FROM sessions WHERE expires_at <= ?1", [db::now()])?;
+    c.execute(
+        "INSERT INTO sessions (token_hash, admin_id, expires_at) VALUES (?1, ?2, ?3)",
+        params![auth::token_hash(token), admin_id, db::ts(Utc::now() + Duration::days(SESSION_DAYS))],
+    )?;
+    Ok(())
+}
+
+async fn login(State(s): State<AppState>, headers: HeaderMap, Json(c): Json<Credentials>) -> ApiResult<impl IntoResponse> {
+    too_many_attempts(&c.email, &s)?;
+    let found: Option<(i64, String, String)> = s
         .db()
-        .query_row("SELECT id, password_hash FROM admins WHERE email = ?1", [c.email.trim()], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_row("SELECT id, email, password_hash FROM admins WHERE email = ?1", [c.email.trim()], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
         .optional()?;
-    let Some(admin_id) = found.filter(|(_, hash)| auth::verify_password(&c.password, hash)).map(|(id, _)| id) else {
-        s.login_throttle.failed(&c.email, Instant::now());
+    let Some((admin_id, email)) = found.as_ref().filter(|(_, _, hash)| auth::verify_password(&c.password, hash)).map(|(id, e, _)| (*id, e.clone())) else {
+        // Logged once per lock and only for real admins, so failed sign-ins cannot flood the audit log.
+        if s.login_throttle.failed(&c.email, Instant::now()) {
+            if let Some((_, email, _)) = &found {
+                let minutes = auth::LOGIN_WINDOW.as_secs() / 60;
+                audit::record(&s.db(), email, "sign_in_failed", email, &format!("{} failed sign-ins; locked for {minutes} minutes", auth::LOGIN_MAX_FAILURES))?;
+            }
+        }
         return Err(ApiError::new(StatusCode::UNAUTHORIZED, "bad_credentials", "wrong email or password"));
     };
     s.login_throttle.clear(&c.email);
     let token = auth::random_hex(32);
     let cookie = session_cookie(&s, &headers, &token, SESSION_DAYS * 86_400)?; // before `s.db()` below: it locks the database too
     let db = s.db();
-    db.execute("DELETE FROM sessions WHERE expires_at <= ?1", [db::now()])?;
-    db.execute(
-        "INSERT INTO sessions (token_hash, admin_id, expires_at) VALUES (?1, ?2, ?3)",
-        params![auth::token_hash(&token), admin_id, db::ts(Utc::now() + Duration::days(SESSION_DAYS))],
-    )?;
+    insert_session(&db, admin_id, &token)?;
     db.execute("UPDATE admins SET last_login = ?1 WHERE id = ?2", params![db::now(), admin_id])?;
+    audit::record(&db, &email, "sign_in", "", "")?;
     Ok((StatusCode::NO_CONTENT, AppendHeaders([(header::SET_COOKIE, cookie)])))
 }
 
@@ -93,7 +116,7 @@ async fn get_settings(State(s): State<AppState>, _: Admin) -> ApiResult<Json<db:
 }
 
 /// Partial update; `install_key` is ignored here (it has its own endpoint). Pushes the new policy to every install.
-async fn put_settings(State(s): State<AppState>, _: Admin, Json(patch): Json<Map<String, Value>>) -> ApiResult<Json<db::Settings>> {
+async fn put_settings(State(s): State<AppState>, admin: Admin, Json(patch): Json<Map<String, Value>>) -> ApiResult<Json<db::Settings>> {
     let mut db = s.db();
     let tx = db.transaction()?;
     let old = db::settings(&tx)?;
@@ -123,30 +146,163 @@ async fn put_settings(State(s): State<AppState>, _: Admin, Json(patch): Json<Map
             hub::queue(&tx, &s.hub, &id, CommandKind::PolicyChanged { policy: new.policy() })?;
         }
     }
+    // `install_key` never changes here, so it never reaches the log.
+    let (before, after) = (serde_json::to_value(&old)?, serde_json::to_value(&new)?);
+    let changed: Vec<String> = after
+        .as_object()
+        .expect("settings is an object")
+        .iter()
+        .filter(|(k, v)| k.as_str() != "install_key" && before.get(k.as_str()) != Some(v))
+        .map(|(k, v)| format!("{k}: {} → {v}", before[k.as_str()]))
+        .collect();
+    if !changed.is_empty() {
+        audit::record(&tx, &admin.email, "settings_changed", "", &changed.join(", "))?;
+    }
     tx.commit()?;
     Ok(Json(new))
 }
 
-async fn regenerate_key(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Value>> {
-    let db = s.db();
-    let mut settings = db::settings(&db)?;
+async fn regenerate_key(State(s): State<AppState>, Owner(admin): Owner) -> ApiResult<Json<Value>> {
+    let mut db = s.db();
+    let tx = db.transaction()?;
+    let mut settings = db::settings(&tx)?;
     settings.install_key = auth::random_hex(16);
-    db::save_settings(&db, &settings)?;
+    db::save_settings(&tx, &settings)?;
+    audit::record(&tx, &admin.email, "install_key_regenerated", "", "")?;
+    tx.commit()?;
     Ok(Json(json!({ "install_key": settings.install_key })))
 }
 
 async fn list_admins(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Vec<Value>>> {
     let db = s.db();
-    let mut stmt = db.prepare("SELECT email, role, last_login FROM admins ORDER BY email")?;
+    let mut stmt = db.prepare("SELECT id, email, role, last_login FROM admins ORDER BY email")?;
     let rows = stmt
         .query_map([], |r| {
-            Ok(json!({ "email": r.get::<_, String>(0)?, "role": r.get::<_, String>(1)?, "last_login": r.get::<_, Option<String>>(2)? }))
+            Ok(json!({ "id": r.get::<_, i64>(0)?, "email": r.get::<_, String>(1)?, "role": r.get::<_, String>(2)?,
+                       "last_login": r.get::<_, Option<String>>(3)? }))
         })?
         .collect::<Result<_, _>>()?;
     Ok(Json(rows))
 }
 
 pub const MIN_PASSWORD: usize = 8;
+
+fn check_password(password: &str) -> ApiResult<()> {
+    if password.chars().count() < MIN_PASSWORD {
+        return Err(ApiError::bad_request("weak_password", format!("passwords need at least {MIN_PASSWORD} characters")));
+    }
+    Ok(())
+}
+
+/// Sets an admin's password and ends all of their sessions (shared with the `create-admin` CLI).
+pub fn set_password(c: &Connection, admin_id: i64, password_hash: &str) -> rusqlite::Result<()> {
+    c.execute("UPDATE admins SET password_hash = ?1 WHERE id = ?2", params![password_hash, admin_id])?;
+    c.execute("DELETE FROM sessions WHERE admin_id = ?1", [admin_id])?;
+    Ok(())
+}
+
+/// `(email, role)` of an admin, or 404.
+fn find_admin(c: &Connection, id: i64) -> ApiResult<(String, String)> {
+    c.query_row("SELECT email, role FROM admins WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .optional()?
+        .ok_or_else(|| ApiError::not_found("no such admin"))
+}
+
+fn last_owner() -> ApiError {
+    ApiError::new(StatusCode::CONFLICT, "last_owner", "this is the only owner; make another admin an owner first")
+}
+
+fn owner_count(c: &Connection) -> rusqlite::Result<i64> {
+    c.query_row("SELECT COUNT(*) FROM admins WHERE role = 'owner'", [], |r| r.get(0))
+}
+
+/// Removing an admin ends their sessions (they cascade with the row).
+async fn remove_admin(State(s): State<AppState>, Owner(me): Owner, Path(id): Path<i64>) -> ApiResult<StatusCode> {
+    let mut db = s.db();
+    let tx = db.transaction()?;
+    let (email, role) = find_admin(&tx, id)?;
+    if role == "owner" && owner_count(&tx)? <= 1 {
+        return Err(last_owner());
+    }
+    tx.execute("DELETE FROM sessions WHERE admin_id = ?1", [id])?;
+    tx.execute("DELETE FROM admins WHERE id = ?1", [id])?;
+    audit::record(&tx, &me.email, "admin_removed", &email, "")?;
+    tx.commit()?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct RoleBody {
+    role: String,
+}
+
+async fn set_role(State(s): State<AppState>, Owner(me): Owner, Path(id): Path<i64>, Json(body): Json<RoleBody>) -> ApiResult<StatusCode> {
+    if !["owner", "admin"].contains(&body.role.as_str()) {
+        return Err(ApiError::bad_request("invalid_role", "role must be owner or admin"));
+    }
+    let mut db = s.db();
+    let tx = db.transaction()?;
+    let (email, old) = find_admin(&tx, id)?;
+    if old == body.role {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    if old == "owner" && owner_count(&tx)? <= 1 {
+        return Err(last_owner());
+    }
+    tx.execute("UPDATE admins SET role = ?1 WHERE id = ?2", params![body.role, id])?;
+    audit::record(&tx, &me.email, "role_changed", &email, &format!("{old} → {}", body.role))?;
+    tx.commit()?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct NewPassword {
+    password: String,
+}
+
+/// An owner sets another admin's password. Hashing runs before the database is locked.
+async fn reset_password(State(s): State<AppState>, Owner(me): Owner, Path(id): Path<i64>, Json(body): Json<NewPassword>) -> ApiResult<StatusCode> {
+    if id == me.id {
+        return Err(ApiError::bad_request("own_password", "change your own password with your current one, under Your password"));
+    }
+    check_password(&body.password)?;
+    let (email, _) = find_admin(&s.db(), id)?;
+    let hash = auth::hash_password(&body.password);
+    let mut db = s.db();
+    let tx = db.transaction()?;
+    set_password(&tx, id, &hash)?;
+    audit::record(&tx, &me.email, "password_reset", &email, "")?;
+    tx.commit()?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct OwnPassword {
+    current: String,
+    password: String,
+}
+
+/// Every admin can change their own password with the current one. All their sessions end, this one included;
+/// the response carries a fresh cookie so this browser stays signed in. Wrong guesses count toward the sign-in lock.
+async fn change_password(State(s): State<AppState>, me: Admin, headers: HeaderMap, Json(body): Json<OwnPassword>) -> ApiResult<impl IntoResponse> {
+    check_password(&body.password)?;
+    too_many_attempts(&me.email, &s)?;
+    let current: String = s.db().query_row("SELECT password_hash FROM admins WHERE id = ?1", [me.id], |r| r.get(0))?;
+    if !auth::verify_password(&body.current, &current) {
+        s.login_throttle.failed(&me.email, Instant::now());
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "wrong_password", "your current password is not right"));
+    }
+    let hash = auth::hash_password(&body.password);
+    let token = auth::random_hex(32);
+    let cookie = session_cookie(&s, &headers, &token, SESSION_DAYS * 86_400)?;
+    let mut db = s.db();
+    let tx = db.transaction()?;
+    set_password(&tx, me.id, &hash)?;
+    insert_session(&tx, me.id, &token)?;
+    audit::record(&tx, &me.email, "password_changed", &me.email, "")?;
+    tx.commit()?;
+    Ok((StatusCode::NO_CONTENT, AppendHeaders([(header::SET_COOKIE, cookie)])))
+}
 
 /// Shared with the `create-admin` CLI. Returns `false` when the email is taken.
 pub fn insert_admin(c: &rusqlite::Connection, email: &str, password_hash: &str, role: &str) -> rusqlite::Result<bool> {
@@ -157,16 +313,16 @@ pub fn insert_admin(c: &rusqlite::Connection, email: &str, password_hash: &str, 
     Ok(n > 0)
 }
 
-async fn create_admin(State(s): State<AppState>, _: Admin, Json(c): Json<Credentials>) -> ApiResult<StatusCode> {
+async fn create_admin(State(s): State<AppState>, Owner(me): Owner, Json(c): Json<Credentials>) -> ApiResult<StatusCode> {
     if !c.email.contains('@') {
         return Err(ApiError::bad_request("invalid_email", "enter an email address"));
     }
-    if c.password.chars().count() < MIN_PASSWORD {
-        return Err(ApiError::bad_request("weak_password", format!("passwords need at least {MIN_PASSWORD} characters")));
-    }
+    check_password(&c.password)?;
     let hash = auth::hash_password(&c.password);
-    if !insert_admin(&s.db(), &c.email, &hash, "admin")? {
+    let db = s.db();
+    if !insert_admin(&db, &c.email, &hash, "admin")? {
         return Err(ApiError::new(StatusCode::CONFLICT, "admin_exists", "an admin with this email already exists"));
     }
+    audit::record(&db, &me.email, "admin_added", c.email.trim(), "role admin")?;
     Ok(StatusCode::CREATED)
 }

@@ -13,6 +13,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0002_command_fanout.sql"),
     include_str!("../migrations/0003_font_requests.sql"),
     include_str!("../migrations/0004_revoke.sql"),
+    include_str!("../migrations/0005_admin_roles_audit.sql"),
 ];
 
 /// Opens (or creates) the database. `None` = in memory, for tests.

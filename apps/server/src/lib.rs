@@ -1,6 +1,7 @@
 //! Typeshelf admin server: desktop sync API (`/api/v1`), admin API (`/api/admin`) and the admin UI.
 
 pub mod admin;
+pub mod audit;
 pub mod auth;
 pub mod db;
 pub mod desktop;

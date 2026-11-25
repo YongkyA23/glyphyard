@@ -53,18 +53,21 @@ impl LoginThrottle {
         map.values().map(|(_, start)| *start).min().and_then(left)
     }
 
-    pub fn failed(&self, email: &str, now: Instant) {
+    /// Counts a failure; `true` when this one starts the lock (once per email per window).
+    pub fn failed(&self, email: &str, now: Instant) -> bool {
         let mut map = self.map();
         let live = |start: &Instant| now.duration_since(*start) < LOGIN_WINDOW;
         let key = Self::key(email);
         if let Some((n, _)) = map.get_mut(&key).filter(|(_, start)| live(start)) {
             *n += 1;
-            return;
+            return *n == LOGIN_MAX_FAILURES;
         }
         map.retain(|_, (_, start)| live(start));
         if map.len() < LOGIN_MAX_TRACKED || map.contains_key(&key) {
             map.insert(key, (1, now));
+            return LOGIN_MAX_FAILURES == 1;
         }
+        false
     }
 
     pub fn clear(&self, email: &str) {
@@ -183,6 +186,22 @@ impl FromRequestParts<AppState> for Admin {
     }
 }
 
+/// A signed-in admin with the `owner` role. Owner-only handlers take this instead of `Admin`, so the check
+/// cannot be forgotten; the role is read from the database on every request.
+pub struct Owner(pub Admin);
+
+impl FromRequestParts<AppState> for Owner {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
+        let admin = Admin::from_request_parts(parts, state).await?;
+        if admin.role != "owner" {
+            return Err(ApiError::new(StatusCode::FORBIDDEN, "owner_only", "only an owner can do this; ask an owner"));
+        }
+        Ok(Owner(admin))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,10 +218,11 @@ mod tests {
     fn login_lock_ends_with_the_window() {
         let t = LoginThrottle::default();
         let start = Instant::now();
-        for _ in 0..LOGIN_MAX_FAILURES {
+        for i in 1..=LOGIN_MAX_FAILURES {
             assert_eq!(t.locked_for("a@x", start), None);
-            t.failed("A@x ", start);
+            assert_eq!(t.failed("A@x ", start), i == LOGIN_MAX_FAILURES, "only the failure that locks says so");
         }
+        assert!(!t.failed("a@x", start), "later failures in the window do not start it again");
         assert!(t.locked_for("a@x", start + Duration::from_secs(60)).is_some());
         assert_eq!(t.locked_for("a@x", start + LOGIN_WINDOW), None);
         // A failure after the window starts a new count.

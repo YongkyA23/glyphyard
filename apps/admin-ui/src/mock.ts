@@ -1,5 +1,5 @@
 // Dev-only fixtures (?mock=1). Patches fetch for /api/admin so pages render without a server.
-import type { FontRequest, FontState, InstallDetail, InstallSummary, LibraryFile, Overview, Page, Settings } from './api'
+import type { AuditEntry, FontRequest, FontState, InstallDetail, InstallSummary, LibraryFile, Overview, Page, Settings } from './api'
 
 const now = Date.now()
 const t = (mins: number) => new Date(now - mins * 60000).toISOString()
@@ -55,6 +55,16 @@ let settings: Settings = {
   name_change_days: 30, allow_connection_edit: true, deliver_library_to_new: true, activate_delivered: false,
   notify_admin_changes: true, timeline_retention_days: null, server_url: 'https://fonts.example.test/api', install_key: 'tsk_example_key_1234',
 }
+
+const audit: AuditEntry[] = [
+  { id: 6, at: t(4), admin: 'admin@example.test', action: 'font_delivered', target: 'h2', detail: 'SpaceGrotesk-Medium to all' },
+  { id: 5, at: t(40), admin: 'second@example.test', action: 'font_blocked', target: 'h9', detail: 'BebasNeue' },
+  { id: 4, at: t(90), admin: 'second@example.test', action: 'sign_in', target: '', detail: '' },
+  { id: 3, at: t(day), admin: 'admin@example.test', action: 'settings_changed', target: '', detail: 'name_change_days: 14 → 30' },
+  { id: 2, at: t(2 * day), admin: 'admin@example.test', action: 'admin_added', target: 'second@example.test', detail: 'role admin' },
+  { id: 1, at: t(3 * day), admin: 'admin@example.test', action: 'install_key_regenerated', target: '', detail: '' },
+  ...Array.from({ length: 70 }, (_, i): AuditEntry => ({ id: -i, at: t(4 * day + i * 60), admin: 'admin@example.test', action: 'sign_in', target: '', detail: '' })),
+]
 
 // Each overview poll nudges the numbers and, every other poll, adds an event (so live-update motion is visible).
 let polls = 0
@@ -145,7 +155,11 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
   if (p === '/settings' && method === 'PUT') return (settings = { ...settings, ...(body as object) })
   if (p === '/settings') return settings
   if (p === '/settings/install-key') return { install_key: (settings.install_key = 'tsk_' + Math.random().toString(36).slice(2)) }
-  if (p === '/admins' && method === 'GET') return [{ email: 'admin@example.test', role: 'owner', last_login: t(10) }, { email: 'second@example.test', role: 'admin', last_login: null }]
+  if (p === '/admins' && method === 'GET') return [{ id: 1, email: 'admin@example.test', role: 'owner', last_login: t(10) }, { id: 2, email: 'second@example.test', role: 'admin', last_login: null }]
+  if (p === '/audit') {
+    const all = audit.filter((e) => (!sp.get('admin') || e.admin === sp.get('admin')) && (!sp.get('action') || e.action === sp.get('action')))
+    return { ...paged(all, sp), admins: [...new Set(audit.map((e) => e.admin))].sort(), actions: [...new Set(audit.map((e) => e.action))].sort() }
+  }
   return undefined
 }
 

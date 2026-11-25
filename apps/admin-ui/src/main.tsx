@@ -19,6 +19,7 @@ import { Library } from './pages/Library'
 import { Organize } from './pages/Organize'
 import { SettingsPage } from './pages/Settings'
 import { Requests } from './pages/Requests'
+import { Audit } from './pages/Audit'
 
 // Dev-only fixture mode: open any page with ?mock=1 (sticks for the tab session, ?mock=0 turns it off).
 if (import.meta.env.DEV) {
@@ -43,6 +44,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="organize" element={<Organize />} />
             <Route path="requests" element={<Requests />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="audit" element={<Audit />} />
             <Route path="*" element={<p className="empty">Page not found.</p>} />
           </Route>
         </Routes>

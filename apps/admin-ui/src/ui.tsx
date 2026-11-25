@@ -152,6 +152,7 @@ function Sidebar() {
     ['/organize', 'Auto-organize', undefined],
     ['/requests', 'Font requests', counts.data?.requests],
     ['/settings', 'Settings', undefined],
+    ['/audit', 'Audit log', undefined],
   ]
   const signOut = async () => {
     try { await api.logout() } finally { navigate('/login') }

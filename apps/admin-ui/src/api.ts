@@ -43,8 +43,11 @@ export type Overview = {
 /** "I need this font" from a desktop; `install_id`/`install_name` are the person it belongs to now. */
 export type FontRequest = { id: number; install_id: string; install_name: string; font_name: string; note: string | null; at: string; done_at: string | null }
 export type RequestState = 'open' | 'done' | 'all'
-export type Me = { email: string; role: string }
-export type Admin = { email: string; role: string; last_login: string | null }
+export type Role = 'owner' | 'admin'
+export type Me = { email: string; role: Role }
+export type Admin = { id: number; email: string; role: Role; last_login: string | null }
+export type AuditEntry = { id: number; at: string; admin: string; action: string; target: string; detail: string }
+export type AuditPage = Page<AuditEntry> & { admins: string[]; actions: string[] }
 export type OrganizeReport = { install_id: string; name: string; duplicates: number; version_conflicts: number; name_clashes: number; last_organized: string | null }
 /** One page of a server-side list; `total` counts the whole filtered list. */
 export type Page<T> = { items: T[]; total: number }
@@ -145,6 +148,11 @@ export const api = {
   regenerateKey: () => request<{ install_key: string }>('POST', '/settings/install-key'),
   admins: () => request<Admin[]>('GET', '/admins'),
   addAdmin: (email: string, password: string) => request<void>('POST', '/admins', { email, password }),
+  removeAdmin: (adminId: number) => request<void>('DELETE', `/admins/${adminId}`),
+  setRole: (adminId: number, role: Role) => request<void>('PUT', `/admins/${adminId}/role`, { role }),
+  resetPassword: (adminId: number, password: string) => request<void>('POST', `/admins/${adminId}/password`, { password }),
+  changePassword: (current: string, password: string) => request<void>('PUT', '/me/password', { current, password }),
+  audit: (admin = '', action = '', page = 1) => request<AuditPage>('GET', '/audit' + qs({ admin, action, ...paging(page) })),
 }
 
 export const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))

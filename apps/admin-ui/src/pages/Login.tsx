@@ -73,7 +73,7 @@ export function Login() {
           <AnimatePresence>
             {help && (
               <motion.span className="hint" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
-                Ask another admin to add you again from Settings, or run <code>typeshelf-server create-admin</code> on the server.
+                Ask an owner to reset your password from Settings, or run <code>typeshelf-server create-admin</code> with your email on the server.
               </motion.span>
             )}
           </AnimatePresence>

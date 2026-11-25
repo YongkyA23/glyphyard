@@ -1,7 +1,7 @@
 //! Admin views of installs: overview, list, detail, timeline, remote control, name history, merge/split.
 
 use crate::auth::{self, Admin};
-use crate::{db, db::GROUP, hub, hub::Hub, ApiError, ApiResult, AppState, Page, Paging};
+use crate::{audit, db, db::GROUP, hub, hub::Hub, ApiError, ApiResult, AppState, Page, Paging};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::IntoResponse;
@@ -321,7 +321,7 @@ struct FontBody {
 
 /// Queues Activate/Deactivate for the install and its merged installs. The font is looked up on that group first
 /// (as the fonts list shows it), then in the shared library.
-async fn set_font(State(s): State<AppState>, _: Admin, Path(id): Path<String>, Json(body): Json<FontBody>) -> ApiResult<Json<Value>> {
+async fn set_font(State(s): State<AppState>, admin: Admin, Path(id): Path<String>, Json(body): Json<FontBody>) -> ApiResult<Json<Value>> {
     let db = s.db();
     exists(&db, &id)?;
     let font_ref = |r: &rusqlite::Row| Ok(FontRef { hash: body.hash.clone(), ps_name: r.get(0)?, family: r.get(1)?, style: r.get(2)? });
@@ -343,8 +343,10 @@ async fn set_font(State(s): State<AppState>, _: Admin, Path(id): Path<String>, J
     let font = on_install
         .or(in_library.map(|(f, _)| f))
         .ok_or_else(|| ApiError::not_found("this install has never reported that font"))?;
+    let detail = font.ps_name.clone();
     let kind = if body.active { CommandKind::Activate { font } } else { CommandKind::Deactivate { font } };
     let command_id = hub::queue(&db, &s.hub, &id, kind)?;
+    audit::record(&db, &admin.email, if body.active { "font_on" } else { "font_off" }, &id, &detail)?;
     Ok(Json(json!({ "command_id": command_id })))
 }
 
@@ -354,13 +356,15 @@ async fn reset_name_limit(State(s): State<AppState>, admin: Admin, Path(id): Pat
     let now = db::now();
     db.execute("INSERT INTO name_limit_resets (install_id, at, admin_id) VALUES (?1, ?2, ?3)", params![id, now, admin.id])?;
     db::insert_event(&db, &id, "name", "admin", "Admin reset the name-change limit", "{}", &now)?;
+    audit::record(&db, &admin.email, "name_limit_reset", &id, "")?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn organize_request(State(s): State<AppState>, _: Admin, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+async fn organize_request(State(s): State<AppState>, admin: Admin, Path(id): Path<String>) -> ApiResult<Json<Value>> {
     let db = s.db();
     exists(&db, &id)?;
     let command_id = hub::queue(&db, &s.hub, &id, CommandKind::OrganizeRequest)?;
+    audit::record(&db, &admin.email, "organize_requested", &id, "")?;
     Ok(Json(json!({ "command_id": command_id })))
 }
 
@@ -379,7 +383,7 @@ struct MergeBody {
 }
 
 /// The older install always ends up primary; `keep_name` refers to the installs as named in the request.
-async fn merge(State(s): State<AppState>, _: Admin, Json(body): Json<MergeBody>) -> ApiResult<Json<Value>> {
+async fn merge(State(s): State<AppState>, admin: Admin, Json(body): Json<MergeBody>) -> ApiResult<Json<Value>> {
     if body.primary == body.secondary {
         return Err(ApiError::bad_request("same_install", "pick two different installs"));
     }
@@ -417,12 +421,13 @@ async fn merge(State(s): State<AppState>, _: Admin, Json(body): Json<MergeBody>)
         )?;
     }
     db::insert_event(&tx, &primary, "system", "admin", &format!("Merged with install {secondary}"), "{}", &now)?;
+    audit::record(&tx, &admin.email, "installs_merged", &primary, &format!("merged {secondary} into it, name {kept_name}"))?;
     tx.commit()?;
     Ok(Json(install_detail(&db, &s.hub, &primary)?))
 }
 
 /// Undoes a merge within 30 days; `id` is the retired install.
-async fn split(State(s): State<AppState>, _: Admin, Path(id): Path<String>) -> ApiResult<StatusCode> {
+async fn split(State(s): State<AppState>, admin: Admin, Path(id): Path<String>) -> ApiResult<StatusCode> {
     let mut db = s.db();
     let tx = db.transaction()?;
     exists(&tx, &id)?;
@@ -450,6 +455,7 @@ async fn split(State(s): State<AppState>, _: Admin, Path(id): Path<String>) -> A
     let now = db::now();
     db::insert_event(&tx, &primary, "system", "admin", &format!("Split install {id} back out"), "{}", &now)?;
     db::insert_event(&tx, &id, "system", "admin", &format!("Split back out of install {primary}"), "{}", &now)?;
+    audit::record(&tx, &admin.email, "install_split", &id, &format!("out of {primary}"))?;
     tx.commit()?;
     Ok(StatusCode::NO_CONTENT)
 }

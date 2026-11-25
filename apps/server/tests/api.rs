@@ -1071,3 +1071,252 @@ async fn undelivering_drops_queued_deliveries() {
     assert!(s.commands(&b).await.is_empty(), "b is offline and no longer a target");
     assert!(s.commands(&a).await.iter().any(|c| c["kind"] == "deliver"));
 }
+
+/* ---------- admin accounts, roles and the audit log ---------- */
+
+impl Server {
+    /// Signs in and returns the session cookie (`ts_session=...`).
+    async fn sign_in(&self, email: &str, password: &str) -> String {
+        let r = self.send(Method::POST, "/api/admin/login", &[], Some(json!({ "email": email, "password": password }))).await;
+        assert_eq!(r.status, StatusCode::NO_CONTENT, "{}", String::from_utf8_lossy(&r.body));
+        r.headers[header::SET_COOKIE].to_str().unwrap().split(';').next().unwrap().to_string()
+    }
+
+    async fn as_admin(&self, cookie: &str, method: Method, path: &str, body: Option<Value>) -> Reply {
+        self.send(method, &format!("/api/admin{path}"), &[("Cookie", cookie)], body).await
+    }
+
+    /// Adds a plain admin (as the owner) and returns their id and a session cookie.
+    async fn plain_admin(&self, email: &str) -> (i64, String) {
+        let r = self.admin(Method::POST, "/admins", Some(json!({ "email": email, "password": "password-two" }))).await;
+        assert_eq!(r.status, StatusCode::CREATED);
+        let id = self.admin_id(email).await;
+        (id, self.sign_in(email, "password-two").await)
+    }
+
+    async fn admin_id(&self, email: &str) -> i64 {
+        let list = self.admin(Method::GET, "/admins", None).await.json();
+        list.as_array().unwrap().iter().find(|a| a["email"] == email).unwrap()["id"].as_i64().unwrap()
+    }
+
+    async fn audit(&self, query: &str) -> Value {
+        let r = self.admin(Method::GET, &format!("/audit{query}"), None).await;
+        assert_eq!(r.status, StatusCode::OK, "{}", String::from_utf8_lossy(&r.body));
+        r.json()
+    }
+}
+
+fn actions(page: &Value) -> Vec<String> {
+    page["items"].as_array().unwrap().iter().map(|e| e["action"].as_str().unwrap().to_string()).collect()
+}
+
+#[tokio::test]
+async fn migration_makes_the_earliest_admin_the_owner() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("old.db");
+    {
+        // A database from before roles were checked: everyone is "admin".
+        let c = rusqlite::Connection::open(&path).unwrap();
+        c.execute_batch(include_str!("../migrations/0001_init.sql")).unwrap();
+        c.execute_batch(include_str!("../migrations/0002_command_fanout.sql")).unwrap();
+        c.pragma_update(None, "user_version", 2).unwrap();
+        for email in ["first@x.com", "second@x.com"] {
+            admin::insert_admin(&c, email, "hash", "admin").unwrap();
+        }
+    }
+    let c = db::open(Some(&path)).unwrap();
+    let roles: Vec<(String, String)> = c
+        .prepare("SELECT email, role FROM admins ORDER BY id")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let want = [("first@x.com", "owner"), ("second@x.com", "admin")].map(|(e, r)| (e.to_string(), r.to_string()));
+    assert_eq!(roles, want);
+}
+
+#[tokio::test]
+async fn plain_admins_get_403_on_owner_only_routes() {
+    let s = Server::new().await;
+    let (two, cookie) = s.plain_admin("two@example.com").await;
+    let owner = s.admin_id("admin@example.com").await;
+    let forbidden = [
+        (Method::POST, "/admins".to_string(), Some(json!({ "email": "three@example.com", "password": "longenough" }))),
+        (Method::DELETE, format!("/admins/{owner}"), None),
+        (Method::PUT, format!("/admins/{two}/role"), Some(json!({ "role": "owner" }))),
+        (Method::POST, format!("/admins/{owner}/password"), Some(json!({ "password": "taken-over" }))),
+        (Method::POST, "/settings/install-key".to_string(), None),
+    ];
+    for (method, path, body) in forbidden {
+        let r = s.as_admin(&cookie, method.clone(), &path, body).await;
+        assert_eq!(r.status, StatusCode::FORBIDDEN, "{method} {path}");
+        assert_eq!(r.json()["error"], "owner_only", "{method} {path}");
+    }
+    // Nothing changed, and the plain admin can still do everything else.
+    assert_eq!(s.admin(Method::GET, "/me", None).await.json()["role"], "owner");
+    assert_eq!(s.as_admin(&cookie, Method::GET, "/me", None).await.json(), json!({ "email": "two@example.com", "role": "admin" }));
+    assert_eq!(s.as_admin(&cookie, Method::PUT, "/settings", Some(json!({ "name_change_days": 14 }))).await.status, StatusCode::OK);
+    assert_eq!(s.as_admin(&cookie, Method::GET, "/audit", None).await.status, StatusCode::OK);
+    assert_eq!(s.as_admin(&cookie, Method::GET, "/admins", None).await.status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn owners_manage_admins_and_the_last_owner_stays() {
+    let s = Server::new().await;
+    let owner = s.admin_id("admin@example.com").await;
+    let (two, cookie) = s.plain_admin("two@example.com").await;
+
+    // The only owner can be neither demoted nor removed.
+    for (method, path, body) in [(Method::PUT, format!("/admins/{owner}/role"), Some(json!({ "role": "admin" }))), (Method::DELETE, format!("/admins/{owner}"), None)] {
+        let r = s.admin(method, &path, body).await;
+        assert_eq!(r.status, StatusCode::CONFLICT, "{path}");
+        assert_eq!(r.json()["error"], "last_owner");
+    }
+    assert_eq!(s.admin(Method::PUT, &format!("/admins/{two}/role"), Some(json!({ "role": "boss" }))).await.status, StatusCode::BAD_REQUEST);
+    assert_eq!(s.admin(Method::DELETE, "/admins/999", None).await.status, StatusCode::NOT_FOUND);
+
+    // A role change applies to the next request of a session that is already signed in.
+    assert_eq!(s.admin(Method::PUT, &format!("/admins/{two}/role"), Some(json!({ "role": "owner" }))).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(s.as_admin(&cookie, Method::GET, "/me", None).await.json()["role"], "owner");
+    // With a second owner, the first can step down; then they are a plain admin.
+    assert_eq!(s.admin(Method::PUT, &format!("/admins/{owner}/role"), Some(json!({ "role": "admin" }))).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(s.admin(Method::POST, "/settings/install-key", None).await.status, StatusCode::FORBIDDEN);
+
+    // Removing an admin ends their sessions at once.
+    assert_eq!(s.as_admin(&cookie, Method::DELETE, &format!("/admins/{owner}"), None).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(s.admin(Method::GET, "/me", None).await.status, StatusCode::UNAUTHORIZED);
+    let left = s.as_admin(&cookie, Method::GET, "/admins", None).await.json();
+    assert_eq!(left.as_array().unwrap().len(), 1);
+    let r = s.send(Method::POST, "/api/admin/login", &[], Some(json!({ "email": "admin@example.com", "password": "hunter2hunter2" }))).await;
+    assert_eq!(r.status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn password_changes_end_sessions() {
+    let s = Server::new().await;
+    let (two, laptop) = s.plain_admin("two@example.com").await;
+    let phone = s.sign_in("two@example.com", "password-two").await;
+
+    // Changing your own password needs the current one.
+    let wrong = s.as_admin(&laptop, Method::PUT, "/me/password", Some(json!({ "current": "nope", "password": "a-new-password" }))).await;
+    assert_eq!(wrong.status, StatusCode::FORBIDDEN);
+    assert_eq!(wrong.json()["error"], "wrong_password");
+    let weak = s.as_admin(&laptop, Method::PUT, "/me/password", Some(json!({ "current": "password-two", "password": "short" }))).await;
+    assert_eq!(weak.json()["error"], "weak_password");
+    let ok = s.as_admin(&laptop, Method::PUT, "/me/password", Some(json!({ "current": "password-two", "password": "a-new-password" }))).await;
+    assert_eq!(ok.status, StatusCode::NO_CONTENT);
+    // Every old session ends, the one that made the change included; it gets a fresh cookie instead.
+    let fresh = ok.headers[header::SET_COOKIE].to_str().unwrap().split(';').next().unwrap().to_string();
+    assert_eq!(s.as_admin(&laptop, Method::GET, "/me", None).await.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(s.as_admin(&phone, Method::GET, "/me", None).await.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(s.as_admin(&fresh, Method::GET, "/me", None).await.status, StatusCode::OK);
+    s.sign_in("two@example.com", "a-new-password").await;
+
+    // An owner resets another admin's password: that admin's sessions end too.
+    assert_eq!(s.admin(Method::POST, &format!("/admins/{two}/password"), Some(json!({ "password": "x" }))).await.json()["error"], "weak_password");
+    assert_eq!(s.admin(Method::POST, &format!("/admins/{two}/password"), Some(json!({ "password": "reset-by-owner" }))).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(s.as_admin(&fresh, Method::GET, "/me", None).await.status, StatusCode::UNAUTHORIZED);
+    s.sign_in("two@example.com", "reset-by-owner").await;
+    // Owners change their own password with the current one, not by reset.
+    let owner = s.admin_id("admin@example.com").await;
+    let own = s.admin(Method::POST, &format!("/admins/{owner}/password"), Some(json!({ "password": "no-current-needed" }))).await;
+    assert_eq!(own.status, StatusCode::BAD_REQUEST);
+    assert_eq!(s.admin(Method::GET, "/me", None).await.status, StatusCode::OK);
+
+    // The command-line recovery path (create-admin on an existing email) ends sessions the same way.
+    let id = s.admin_id("two@example.com").await;
+    let cookie = s.sign_in("two@example.com", "reset-by-owner").await;
+    admin::set_password(&s.state.db(), id, &auth::hash_password("from-the-cli")).unwrap();
+    assert_eq!(s.as_admin(&cookie, Method::GET, "/me", None).await.status, StatusCode::UNAUTHORIZED);
+    s.sign_in("two@example.com", "from-the-cli").await;
+}
+
+#[tokio::test]
+async fn the_audit_log_records_admin_actions_without_secrets() {
+    let s = Server::new().await;
+    s.register("inst-1", "Budi").await;
+    s.register("inst-2", "Budi S.").await; // before the install key changes below
+    let hash = s.library_font().await;
+    s.admin(Method::PUT, "/settings", Some(json!({ "name_change_days": 9 }))).await;
+    let key = s.admin(Method::POST, "/settings/install-key", None).await.json()["install_key"].as_str().unwrap().to_string();
+    let (two, cookie) = s.plain_admin("two@example.com").await;
+    s.admin(Method::PUT, &format!("/admins/{two}/role"), Some(json!({ "role": "owner" }))).await;
+    s.admin(Method::PUT, &format!("/admins/{two}/role"), Some(json!({ "role": "admin" }))).await;
+    s.admin(Method::POST, &format!("/admins/{two}/password"), Some(json!({ "password": "secret-reset-pw" }))).await;
+    s.as_admin(&cookie, Method::GET, "/me", None).await; // ended by the reset
+    let cookie = s.sign_in("two@example.com", "secret-reset-pw").await;
+    s.as_admin(&cookie, Method::PUT, "/me/password", Some(json!({ "current": "secret-reset-pw", "password": "secret-own-pw" }))).await;
+    s.admin(Method::POST, &format!("/library/{hash}/block"), Some(json!({ "blocked": true }))).await;
+    s.admin(Method::POST, &format!("/library/{hash}/block"), Some(json!({ "blocked": false }))).await;
+    s.admin(Method::POST, &format!("/library/{hash}/deliver"), Some(json!({ "target": ["inst-1"] }))).await;
+    s.admin(Method::PUT, &format!("/library/{hash}"), Some(json!({ "license": "client" }))).await;
+    s.admin(Method::POST, "/installs/inst-1/fonts", Some(json!({ "hash": hash, "active": true }))).await;
+    s.admin(Method::POST, "/installs/inst-1/reset-name-limit", None).await;
+    s.admin(Method::POST, "/installs/inst-1/organize-request", None).await;
+    s.admin(Method::POST, "/installs/merge", Some(json!({ "primary": "inst-1", "secondary": "inst-2", "keep_name": "primary" }))).await;
+    s.admin(Method::POST, "/installs/inst-2/split", None).await;
+    s.admin(Method::POST, "/library/organize/apply", None).await;
+    s.admin(Method::DELETE, &format!("/admins/{two}"), None).await;
+
+    let all = s.audit("?limit=200").await;
+    let mut got = actions(&all);
+    got.reverse();
+    let mut want = vec!["sign_in"]; // Server::new
+    if got.contains(&"font_uploaded".to_string()) {
+        want.push("font_uploaded");
+    }
+    want.extend([
+        "settings_changed", "install_key_regenerated", "admin_added", "sign_in", "role_changed", "role_changed", "password_reset",
+        "sign_in", "password_changed", "font_blocked", "font_unblocked", "font_delivered", "license_changed", "font_on",
+        "name_limit_reset", "organize_requested", "installs_merged", "install_split", "organize_applied", "admin_removed",
+    ]);
+    assert_eq!(got, want);
+    assert_eq!(all["total"], want.len());
+    let first = &all["items"][0];
+    assert_eq!(first["admin"], "admin@example.com");
+    assert_eq!(first["target"], "two@example.com");
+    assert!(first["at"].is_string());
+    let settings = all["items"].as_array().unwrap().iter().find(|e| e["action"] == "settings_changed").unwrap();
+    assert!(settings["detail"].as_str().unwrap().contains("name_change_days"), "{settings}");
+
+    // No password, token or install key is ever stored.
+    let text = all.to_string();
+    for secret in [key.as_str(), s.key.as_str(), "secret-reset-pw", "secret-own-pw", "password-two", "hunter2hunter2"] {
+        assert!(!text.contains(secret), "the audit log contains {secret}");
+    }
+    let cookie_value = s.cookie.split('=').nth(1).unwrap();
+    assert!(!text.contains(cookie_value));
+
+    // Filters and paging; the filter lists come with every page.
+    let by_two = s.audit("?admin=TWO@example.com").await;
+    assert_eq!(actions(&by_two), ["password_changed", "sign_in", "sign_in"]);
+    let roles = s.audit("?action=role_changed&limit=1").await;
+    assert_eq!((roles["total"].as_i64(), roles["items"].as_array().unwrap().len()), (Some(2), 1));
+    assert_eq!(roles["items"][0]["detail"], "owner → admin");
+    assert!(all["admins"].as_array().unwrap().contains(&json!("two@example.com")));
+    assert!(all["actions"].as_array().unwrap().contains(&json!("install_key_regenerated")));
+}
+
+#[tokio::test]
+async fn failed_sign_ins_are_audited_once_throttling_starts() {
+    let s = Server::new().await;
+    let login = |email: &'static str| s.send(Method::POST, "/api/admin/login", &[], Some(json!({ "email": email, "password": "wrong" })));
+    for _ in 0..auth::LOGIN_MAX_FAILURES - 1 {
+        login("admin@example.com").await;
+    }
+    assert_eq!(s.audit("?action=sign_in_failed").await["total"], 0, "ordinary typos are not logged");
+    login("admin@example.com").await; // this one starts the lock
+    for _ in 0..20 {
+        assert_eq!(login("admin@example.com").await.status, StatusCode::TOO_MANY_REQUESTS);
+    }
+    let failed = s.audit("?action=sign_in_failed").await;
+    assert_eq!(failed["total"], 1, "one row per lock, however many attempts follow");
+    assert_eq!(failed["items"][0]["admin"], "admin@example.com");
+    assert!(!failed.to_string().contains("wrong"));
+    // Emails that are not admins never reach the log, so a flood of made-up emails cannot fill it.
+    for _ in 0..auth::LOGIN_MAX_FAILURES + 2 {
+        login("nobody@example.com").await;
+    }
+    assert_eq!(s.audit("?action=sign_in_failed").await["total"], 1);
+}

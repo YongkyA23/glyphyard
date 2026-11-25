@@ -2,7 +2,7 @@ use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use typeshelf_server::{admin, app, auth, db, AppState};
+use typeshelf_server::{admin, app, audit, auth, db, AppState};
 
 #[derive(Parser)]
 #[command(name = "typeshelf-server", version, about = "Typeshelf admin server")]
@@ -85,11 +85,16 @@ async fn main() -> anyhow::Result<()> {
             let conn = open_db(&data)?;
             let hash = auth::hash_password(&password);
             let first: bool = conn.query_row("SELECT NOT EXISTS(SELECT 1 FROM admins)", [], |r| r.get(0))?;
-            if admin::insert_admin(&conn, &email, &hash, if first { "owner" } else { "admin" })? {
-                println!("Created admin {email}.");
+            let role = if first { "owner" } else { "admin" };
+            if admin::insert_admin(&conn, &email, &hash, role)? {
+                audit::record(&conn, "command line", "admin_added", email.trim(), &format!("role {role}"))?;
+                println!("Created admin {email} ({role}).");
             } else {
-                conn.execute("UPDATE admins SET password_hash = ?1 WHERE email = ?2", [&hash, email.trim()])?;
-                println!("Updated the password for {email}.");
+                // The recovery path: a new password, and every session of that admin ends.
+                let id: i64 = conn.query_row("SELECT id FROM admins WHERE email = ?1", [email.trim()], |r| r.get(0))?;
+                admin::set_password(&conn, id, &hash)?;
+                audit::record(&conn, "command line", "password_reset", email.trim(), "")?;
+                println!("Updated the password for {email} and signed them out everywhere.");
             }
         }
     }
