@@ -1,0 +1,15 @@
+.trend-plot { display: grid; grid-template-columns: repeat(30, 1fr); gap: 4px; border-bottom: 1px solid var(--line); }
+.trend-col { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; height: 128px; border-radius: 4px; outline-offset: 1px; cursor: default; }
+.trend-col:hover, .trend-col:focus-visible, .trend-col.on { background: var(--sunken); }
+.trend-col:focus-visible { outline: 2px solid var(--accent); }
+.trend-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok-dot); flex: none; }
+.trend-dot.none { visibility: hidden; }
+.trend-bar { display: block; width: 100%; height: 100px; flex: none; }
+.trend-axis { display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; color: var(--mute); }
+.trend-tip { min-height: 20px; margin: 10px 0 0; font-size: 13px; color: var(--ink); }
+.trend-legend { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 4px; font-size: 13px; color: var(--mute); }
+.trend-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.trend-legend i { width: 10px; height: 10px; border-radius: 2px; background: var(--accent); }
+.trend-legend i.bad { background: var(--bad); }
+.trend-legend i.ok { background: var(--ok-dot); border-radius: 50%; }
+@media (max-width: 700px) { .trend-plot { gap: 1px; } }
