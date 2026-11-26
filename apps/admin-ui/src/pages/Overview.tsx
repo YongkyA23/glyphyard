@@ -1,6 +1,8 @@
 import { Link } from 'react-router'
-import { AnimatePresence, motion } from 'motion/react'
-import { api, type Overview as Data } from '../api'
+import { useState } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { api, type Overview as Data, type TrendDay } from '../api'
+import '../trend.css'
 import { dropIn, easeOut, fadeRise, lift, row, stagger } from '../motion'
 import { ago, Badge, byLabel, byTone, CountUp, Empty, fmtTime, Loaded, plural, Skel, useLoad } from '../ui'
 
@@ -13,6 +15,7 @@ const skeleton = (
         <div key={i} className="card stat"><Skel w="55%" /><Skel w={56} h={30} r={8} /><Skel w="75%" h={10} /></div>
       ))}
     </div>
+    <div className="card pad-20 stack-14"><Skel w={120} h={16} /><Skel h={128} r={8} /></div>
     <div className="split">
       <div className="card pad-20 grow-2 stack-18"><Skel w={140} h={16} />{[80, 65, 72, 58].map((w) => <Skel key={w} w={`${w}%`} />)}</div>
       <div className="card pad-20 grow-1 stack-14"><Skel w={130} h={16} /><Skel h={52} r={10} /><Skel h={52} r={10} /><Skel w={120} h={16} /><Skel h={6} /></div>
@@ -61,10 +64,14 @@ function Body({ o }: { o: Data }) {
           </MotionLink>
         ))}
       </motion.div>
+      <motion.section aria-labelledby="trend" className="card pad-20" variants={fadeRise}>
+        <h2 id="trend" className="h2 mb-10">Last 30 days</h2>
+        <TrendChart days={o.trend} />
+      </motion.section>
       <div className="split">
         <motion.section aria-labelledby="act" className="card pad-20 grow-2" variants={fadeRise}>
           <h2 id="act" className="h2 mb-10">Recent activity</h2>
-          {o.recent.length === 0 && <Empty>No activity yet. Events appear here as desktop apps report in.</Empty>}
+          {o.recent.length === 0 && <Empty><span className="strong">No activity yet</span><br />Events appear here as desktop apps report in.</Empty>}
           {/* New events from polling mount with "hidden" → slide down in at the top; layout pushes the rest down. */}
           <AnimatePresence>
           {o.recent.map((r, i) => (
@@ -102,5 +109,47 @@ function Body({ o }: { o: Data }) {
         </motion.section>
       </div>
     </>
+  )
+}
+
+const dayLabel = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+const dayText = (d: TrendDay) =>
+  `${dayLabel(d.day)}: ${plural(d.activity, 'event')}, ${plural(d.failures, 'failure')}, ${plural(d.new_installs, 'new computer')}`
+
+function TrendChart({ days }: { days: TrendDay[] }) {
+  const reduce = useReducedMotion()
+  const [on, setOn] = useState<number | null>(null)
+  const max = Math.max(...days.map((d) => d.activity), 1)
+  const sum = (k: 'activity' | 'failures' | 'new_installs') => days.reduce((n, d) => n + d[k], 0)
+  const mid = days[Math.floor(days.length / 2)]
+  return (
+    <div onMouseLeave={() => setOn(null)}>
+      <div className="trend-plot" role="group" aria-label="Daily activity for the last 30 days">
+        {days.map((d, i) => {
+          const h = (d.activity / max) * 100
+          const f = (Math.min(d.failures, d.activity) / max) * 100
+          const t = reduce ? { duration: 0 } : { duration: 0.6, ease: easeOut, delay: i * 0.012 }
+          return (
+            <div key={d.day} className={`trend-col ${on === i ? 'on' : ''}`} tabIndex={0} role="img" aria-label={dayText(d)}
+              onMouseEnter={() => setOn(i)} onFocus={() => setOn(i)} onBlur={() => setOn(null)}>
+              <span className={`trend-dot ${d.new_installs ? '' : 'none'}`} aria-hidden="true" />
+              <svg className="trend-bar" viewBox="0 0 10 100" preserveAspectRatio="none">
+                <title>{dayText(d)}</title>
+                {/* Keys are dates, so polls tween heights instead of remounting. */}
+                <motion.rect x={0} width={10} fill="var(--accent)" initial={reduce ? false : { y: 100, height: 0 }} animate={{ y: 100 - h, height: h }} transition={t} />
+                <motion.rect x={0} width={10} fill="var(--bad)" initial={reduce ? false : { y: 100, height: 0 }} animate={{ y: 100 - f, height: f }} transition={t} />
+              </svg>
+            </div>
+          )
+        })}
+      </div>
+      <div className="trend-axis" aria-hidden="true"><span>{dayLabel(days[0].day)}</span><span>{dayLabel(mid.day)}</span><span>Today</span></div>
+      <p className="trend-tip" aria-hidden="true">{on === null ? '' : dayText(days[on])}</p>
+      <div className="trend-legend">
+        <span><i />{plural(sum('activity'), 'event')}</span>
+        <span><i className="bad" />{plural(sum('failures'), 'failure')}</span>
+        <span><i className="ok" />{plural(sum('new_installs'), 'new computer')}</span>
+      </div>
+    </div>
   )
 }
