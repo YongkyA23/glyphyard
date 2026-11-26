@@ -5,6 +5,7 @@ import { animate, AnimatePresence, motion, useAnimate, useReducedMotion } from '
 import { api, errorText, PAGE_SIZE, type By } from './api'
 import { easeOut, fast, page, shakeOpts, shakeX, softSpring, spring, stagger } from './motion'
 import { ErrorBoundary } from './ErrorBoundary'
+import { applyBrand, getThemePref, setThemePref } from './theme'
 
 /* ---------- data ---------- */
 
@@ -145,6 +146,21 @@ function Sidebar() {
     window.addEventListener('requests-changed', on)
     return () => window.removeEventListener('requests-changed', on)
   }, [reloadCounts])
+  // Studio name, logo and colour; Settings announces a save.
+  const brand = useLoad(() => api.settings(), [])
+  const reloadBrand = brand.reload
+  useEffect(() => {
+    const on = () => void reloadBrand(true)
+    window.addEventListener('brand-changed', on)
+    return () => window.removeEventListener('brand-changed', on)
+  }, [reloadBrand])
+  const color = brand.data?.brand_color
+  useEffect(() => { if (color !== undefined) applyBrand(color) }, [color])
+  const [pref, setPref] = useState(getThemePref)
+  // The menu is open for the path it was opened on, so navigating closes it.
+  const { pathname } = useLocation()
+  const [openOn, setOpenOn] = useState<string | null>(null)
+  const menuOpen = openOn === pathname
   const nav: [string, string, number | undefined][] = [
     ['/', 'Overview', undefined],
     ['/users', 'Users', counts.data?.users],
@@ -158,23 +174,37 @@ function Sidebar() {
   const signOut = async () => {
     try { await api.logout() } finally { navigate('/login') }
   }
+  const requests = counts.data?.requests ?? 0
   return (
     <nav aria-label="Admin" className="sidebar">
-      <div className="brand"><span className="brand-name">Glyphyard</span><span className="brand-sub">Admin</span></div>
-      <div className="nav-list">
-        {nav.map(([to, label, count]) => (
-          <NavLink key={to} to={to} end={to === '/'} className="nav-item">
-            {({ isActive }) => <>
-              {isActive && <motion.span layoutId="nav-active" className="nav-pill" transition={spring} />}
-              <span>{label}</span>
-              {count !== undefined && <span className="nav-count fade-in">{count}</span>}
-            </>}
-          </NavLink>
-        ))}
+      <div className="sidebar-bar">
+        <div className="brand">
+          {brand.data?.brand_logo && <img className="brand-logo" src={brand.data.brand_logo} alt="" />}
+          <span className="brand-text">
+            <span className="brand-name">{brand.data?.brand_name || 'Glyphyard'}</span><span className="brand-sub">Admin</span>
+          </span>
+        </div>
+        {requests > 0 && <NavLink to="/requests" className="bar-count" aria-label={`${requests} open font requests`}>{requests}</NavLink>}
+        <button type="button" className="btn btn-sm menu-btn" aria-expanded={menuOpen} aria-controls="admin-nav" onClick={() => setOpenOn(menuOpen ? null : pathname)}>Menu</button>
       </div>
-      <div className="account">
-        <span className="account-email">{me.data?.email ?? '…'}</span>
-        <button type="button" className="link-btn account-out" onClick={signOut}>Sign out</button>
+      <div id="admin-nav" className={menuOpen ? 'sidebar-menu open' : 'sidebar-menu'}>
+        <div className="nav-list">
+          {nav.map(([to, label, count]) => (
+            <NavLink key={to} to={to} end={to === '/'} className="nav-item">
+              {({ isActive }) => <>
+                {isActive && <motion.span layoutId="nav-active" className="nav-pill" transition={spring} />}
+                <span>{label}</span>
+                {count !== undefined && <span className="nav-count fade-in">{count}</span>}
+              </>}
+            </NavLink>
+          ))}
+        </div>
+        <div className="account">
+          <span className="account-email">{me.data?.email ?? '…'}</span>
+          <Chips small label="Theme" value={pref} onChange={(p) => { setThemePref(p); setPref(p) }}
+            options={[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']]} />
+          <button type="button" className="link-btn account-out" onClick={signOut}>Sign out</button>
+        </div>
       </div>
     </nav>
   )
