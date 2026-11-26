@@ -113,8 +113,8 @@ const qs = (params: Record<string, string | number | boolean | undefined>) => {
 }
 const id = encodeURIComponent
 export const PAGE_SIZE = 50
-/** `page` is 1-based. */
 const sortParams = (sort?: Sort<string>) => (sort ? { sort: sort.key, dir: sort.dir } : {})
+/** `page` is 1-based. */
 const paging = (page: number, size = PAGE_SIZE) => ({ offset: (page - 1) * size, limit: size })
 
 export const api = {
