@@ -1,4 +1,4 @@
-//! Temporary activation: fonts turned on "for 2 hours" or "until I restart Typeshelf" turn themselves off.
+//! Temporary activation: fonts turned on "for 2 hours" or "until I restart Glyphyard" turn themselves off.
 //! The expiry per font hash lives in the settings store under `temporary` (`"restart"` or an RFC 3339 time);
 //! every path that turns a font on or off drops its record ([`forget`]), so only the temporary turn-on counts.
 

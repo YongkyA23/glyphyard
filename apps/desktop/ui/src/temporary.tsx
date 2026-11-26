@@ -7,7 +7,7 @@ import { fmtWhen } from './ui'
 export function turnsOff(f: Pick<Family, 'faces'>): string | null {
   const until = f.faces.find((x) => x.active && x.temporaryUntil)?.temporaryUntil
   if (!until) return null
-  return until === 'restart' ? 'Turns off when Typeshelf restarts' : `Turns off ${fmtWhen(until)}`
+  return until === 'restart' ? 'Turns off when Glyphyard restarts' : `Turns off ${fmtWhen(until)}`
 }
 
 /** The clock mark for a row (a plain function, so this file exports no component). */

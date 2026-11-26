@@ -72,8 +72,8 @@ Optional, both off by default:
 - **App updates from this server**: once, on a computer you keep offline,
   `typeshelf-server update-keygen --out update-key.txt` writes the private key (owner-only file on Linux/macOS) and prints the public key. Build with
   `-UpdateKey <public key>`; a build without it never checks for updates and hides Settings › "Update automatically".
-  For each release: `typeshelf-server update-sign dist/Typeshelf-Setup-<version>.exe --key update-key.txt` writes
+  For each release: `typeshelf-server update-sign dist/Glyphyard-Setup-<version>.exe --key update-key.txt` writes
   `<setup>.manifest` and `<setup>.manifest.sig`; upload the three files in admin Settings › App updates. Apps
   check a minute after start and daily, verify the signature and the file, ignore versions that are not newer,
-  and run the setup program with `--silent` when the user quits (not when Typeshelf Setup or the uninstaller is the one closing the app). A release the app refuses shows a notice in its Settings under "Update automatically"; it usually means the release was signed with a different key than the app was built with. Anyone with the private key can ship code to
+  and run the setup program with `--silent` when the user quits (not when Glyphyard Setup or the uninstaller is the one closing the app). A release the app refuses shows a notice in its Settings under "Update automatically"; it usually means the release was signed with a different key than the app was built with. Anyone with the private key can ship code to
   every computer: keep it off the server. Losing it means rebuilding the app with a new key.

@@ -325,7 +325,7 @@ async fn fonts_owned_before_a_restart_are_released_unless_reclaimed() {
     doc(&base, &token, "b.psd", "open", &["Lib-B"]).await;
     handle.shutdown();
 
-    // Typeshelf restarts; the fonts are still on. Only a.psd is re-reported. The window is 3x the short
+    // Glyphyard restarts; the fonts are still on. Only a.psd is re-reported. The window is 3x the short
     // expiry so a slow first request on a loaded machine still lands inside it.
     let handler = fake(true);
     handler.active.lock().unwrap().extend(["Lib-A".to_string(), "Lib-B".to_string()]);
@@ -368,7 +368,7 @@ async fn old_state_file_keeps_its_fonts_until_no_adobe_app_runs() {
     assert_eq!(saved["owned"], json!({}));
 }
 
-/// Lets a plug-in that never saw Typeshelf go away notice it forgot its documents (restart, expiry after sleep).
+/// Lets a plug-in that never saw Glyphyard go away notice it forgot its documents (restart, expiry after sleep).
 #[tokio::test]
 async fn authenticated_ping_reports_the_apps_open_documents() {
     let dir = tempfile::tempdir().unwrap();

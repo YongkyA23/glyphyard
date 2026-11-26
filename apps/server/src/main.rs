@@ -6,7 +6,7 @@ use typeshelf_core::update;
 use typeshelf_server::{admin, app, audit, auth, db, AppState};
 
 #[derive(Parser)]
-#[command(name = "typeshelf-server", version, about = "Typeshelf admin server")]
+#[command(name = "typeshelf-server", version, about = "Glyphyard admin server")]
 struct Cli {
     #[command(subcommand)]
     command: Cmd,
@@ -54,7 +54,7 @@ enum Cmd {
         /// The private key file from `update-keygen`.
         #[arg(long)]
         key: PathBuf,
-        /// The setup program's version; read from a `Typeshelf-Setup-<version>.exe` file name when left out.
+        /// The setup program's version; read from a `Glyphyard-Setup-<version>.exe` (or older `Typeshelf-Setup-…`) file name when left out.
         #[arg(long)]
         version: Option<String>,
     },
@@ -103,9 +103,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::UpdateSign { setup, key, version } => {
             let name = setup.file_name().and_then(|n| n.to_str()).unwrap_or_default();
-            let from_name = name.strip_prefix("Typeshelf-Setup-").and_then(|v| v.strip_suffix(".exe"));
+            let from_name = ["Glyphyard-Setup-", "Typeshelf-Setup-"].iter().find_map(|p| name.strip_prefix(p)).and_then(|v| v.strip_suffix(".exe"));
             let Some(version) = version.as_deref().or(from_name).and_then(update::Version::parse) else {
-                bail!("give the version as major.minor.patch with --version (or name the file Typeshelf-Setup-<version>.exe)");
+                bail!("give the version as major.minor.patch with --version (or name the file Glyphyard-Setup-<version>.exe)");
             };
             let private = std::fs::read_to_string(&key).with_context(|| format!("reading {}", key.display()))?;
             let bytes = std::fs::read(&setup).with_context(|| format!("reading {}", setup.display()))?;

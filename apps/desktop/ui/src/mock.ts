@@ -410,7 +410,7 @@ const handlers: Record<string, (a: Args) => unknown> = {
   complete_onboarding: ({ name, offline }) => {
     if (!name?.trim()) throw err('invalid_name', 'Enter your name to continue.')
     const online = app.serverConfigured && !offline
-    if (online && connection.status !== 'connected') throw err('offline', 'Typeshelf can’t reach your server. Check your connection and try again.')
+    if (online && connection.status !== 'connected') throw err('offline', 'Glyphyard can’t reach your server. Check your connection and try again.')
     app = { ...app, onboarded: true, registered: online, name: name.trim(), nextNameChange: null }
     sessionStorage.setItem('typeshelf-mock-name', app.name)
     if (online) setTimeout(() => emit('admin-change', { action: 'activated', fonts: [{ family: 'Fraunces', style: 'Regular' }, { family: 'Space Grotesk', style: 'Medium' }, { family: 'Syne', style: 'SemiBold' }] }), 1500)

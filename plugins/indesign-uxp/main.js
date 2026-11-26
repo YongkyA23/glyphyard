@@ -1,4 +1,4 @@
-// InDesign (UXP): on document open/close, send the document's fonts (with their status) to Typeshelf.
+// InDesign (UXP): on document open/close, send the document's fonts (with their status) to Glyphyard.
 (() => {
   const indesign = require("indesign");
   const uxp = require("uxp");
@@ -52,7 +52,7 @@
           const f = toDocFont(doc.fonts.item(i));
           if (!fonts.has(f.postscriptName)) fonts.set(f.postscriptName, f);
         } catch (e) {
-          console.error("Typeshelf: unreadable font", e);
+          console.error("Glyphyard: unreadable font", e);
         }
       }
       return [...fonts.values()];
@@ -70,7 +70,7 @@
         try {
           app.addEventListener(event, callback);
         } catch (e) {
-          console.error(`Typeshelf: cannot listen for ${event}`, e);
+          console.error(`Glyphyard: cannot listen for ${event}`, e);
         }
       }
     },

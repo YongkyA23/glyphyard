@@ -1,4 +1,4 @@
-//! Finds Adobe apps and installs/removes the Typeshelf plug-ins built by `bun plugins/build.ts`.
+//! Finds Adobe apps and installs/removes the Glyphyard plug-ins built by `bun plugins/build.ts`.
 //! The commands are the ones documented in `plugins/README.md`.
 
 use std::fs;
@@ -19,7 +19,7 @@ pub struct AdobeApp {
     pub label: &'static str,
     /// Installed versions the plug-in supports, e.g. `["2025", "2026"]`.
     pub versions: Vec<String>,
-    /// The Typeshelf plug-in is installed.
+    /// The Glyphyard plug-in is installed.
     pub installed: bool,
 }
 
@@ -42,11 +42,12 @@ impl App {
         }
     }
 
-    /// The `.ccx` in `dist/` and the name the Unified Plugin Installer Agent lists (manifest `name`).
-    fn uxp(self) -> Option<(&'static str, &'static str)> {
+    /// The `.ccx` in `dist/` and the names the Unified Plugin Installer Agent lists it under (manifest `name`):
+    /// the current one, then the one from before the Typeshelf → Glyphyard rename (older installs).
+    fn uxp(self) -> Option<(&'static str, [&'static str; 2])> {
         match self {
-            App::Photoshop => Some(("typeshelf-photoshop.ccx", "Typeshelf for Photoshop")),
-            App::Indesign => Some(("typeshelf-indesign.ccx", "Typeshelf for InDesign")),
+            App::Photoshop => Some(("typeshelf-photoshop.ccx", ["Glyphyard for Photoshop", "Typeshelf for Photoshop"])),
+            App::Indesign => Some(("typeshelf-indesign.ccx", ["Glyphyard for InDesign", "Typeshelf for InDesign"])),
             App::Illustrator => None,
         }
     }
@@ -75,21 +76,21 @@ pub fn detect_apps() -> Vec<AdobeApp> {
             app,
             label: app.label(),
             versions: versions(app),
-            installed: cep_installed(app) || app.uxp().is_some_and(|(_, name)| uxp_list.contains(name)),
+            installed: cep_installed(app) || app.uxp().is_some_and(|(_, names)| names.iter().any(|n| uxp_list.contains(n))),
         })
         .collect()
 }
 
 pub fn install(app: App, dist_dir: &Path) -> io::Result<()> {
     match app.uxp() {
-        Some((ccx, name)) if upia_path().is_some_and(|p| p.is_file()) => {
+        Some((ccx, names)) if upia_path().is_some_and(|p| p.is_file()) => {
             let ccx = dist_dir.join(ccx);
             if !ccx.is_file() {
                 return Err(io::Error::new(io::ErrorKind::NotFound, format!("{} not found", ccx.display())));
             }
             let out = upia(&["install", &ccx.to_string_lossy()])?;
             // The agent's exit code is not a reliable success signal, so check the result.
-            if !upia(&["list", "all"])?.contains(name) {
+            if !upia(&["list", "all"])?.contains(names[0]) {
                 return Err(io::Error::other(format!("Adobe plug-in installer: {}", out.trim())));
             }
             Ok(())
@@ -112,8 +113,9 @@ pub fn remove(app: App) -> io::Result<()> {
         Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
         _ => {} // PlayerDebugMode stays on: other unsigned extensions may rely on it.
     }
-    if let Some((_, name)) = app.uxp() {
-        if upia(&["list", "all"]).is_ok_and(|list| list.contains(name)) {
+    if let Some((_, names)) = app.uxp() {
+        let list = upia(&["list", "all"]).unwrap_or_default();
+        for name in names.into_iter().filter(|n| list.contains(n)) {
             upia(&["remove", name])?;
         }
     }

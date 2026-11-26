@@ -1,4 +1,4 @@
-//! "Typeshelf" shortcuts in the Start menu and on the desktop (IShellLinkW).
+//! "Glyphyard" shortcuts in the Start menu and on the desktop (IShellLinkW).
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -17,7 +17,11 @@ pub enum Place {
     Desktop,
 }
 
-fn path(place: Place) -> io::Result<PathBuf> {
+/// The shortcut's file name (what Start and the desktop show), then the name it had before the rename:
+/// an update or uninstall removes that one too, and counts it when keeping the user's choices.
+const NAMES: [&str; 2] = ["Glyphyard.lnk", "Typeshelf.lnk"];
+
+fn folder(place: Place) -> io::Result<PathBuf> {
     let id: &GUID = match place {
         Place::StartMenu => &FOLDERID_Programs,
         Place::Desktop => &FOLDERID_Desktop,
@@ -26,12 +30,12 @@ fn path(place: Place) -> io::Result<PathBuf> {
         let p = SHGetKnownFolderPath(id, KNOWN_FOLDER_FLAG(0), None)?;
         let dir = PathBuf::from(p.to_string().map_err(io::Error::other)?);
         CoTaskMemFree(Some(p.0 as _));
-        Ok(dir.join("Typeshelf.lnk"))
+        Ok(dir)
     }
 }
 
 pub fn create(place: Place, target: &Path) -> io::Result<()> {
-    let lnk = path(place)?;
+    let dir = folder(place)?;
     unsafe {
         // Commands run on worker threads; S_FALSE / RPC_E_CHANGED_MODE just mean COM is already up.
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
@@ -40,17 +44,22 @@ pub fn create(place: Place, target: &Path) -> io::Result<()> {
         if let Some(dir) = target.parent() {
             link.SetWorkingDirectory(&HSTRING::from(dir.as_os_str()))?;
         }
-        link.cast::<IPersistFile>()?.Save(&HSTRING::from(lnk.as_os_str()), true)?;
+        link.cast::<IPersistFile>()?.Save(&HSTRING::from(dir.join(NAMES[0]).as_os_str()), true)?;
     }
-    Ok(())
+    NAMES[1..].iter().try_for_each(|n| remove_file(&dir.join(n)))
 }
 
 pub fn exists(place: Place) -> bool {
-    path(place).is_ok_and(|p| p.is_file())
+    folder(place).is_ok_and(|dir| NAMES.iter().any(|n| dir.join(n).is_file()))
 }
 
 pub fn remove(place: Place) -> io::Result<()> {
-    match std::fs::remove_file(path(place)?) {
+    let dir = folder(place)?;
+    NAMES.iter().try_for_each(|n| remove_file(&dir.join(n)))
+}
+
+fn remove_file(path: &Path) -> io::Result<()> {
+    match std::fs::remove_file(path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         other => other,
     }

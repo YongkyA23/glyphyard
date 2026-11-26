@@ -1,4 +1,4 @@
-//! Typeshelf Setup: per-user installer, updater and uninstaller (see docs/setup.md).
+//! Glyphyard Setup: per-user installer, updater and uninstaller (see docs/setup.md).
 
 // No console window in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -38,7 +38,7 @@ impl Error {
     }
 
     pub fn app_running() -> Self {
-        Error::new("app_running", "Typeshelf is running. Close it to continue.")
+        Error::new("app_running", "Glyphyard is running. Close it to continue.")
     }
 }
 
@@ -131,10 +131,11 @@ fn info(state: State<Setup>) -> Info {
     }
 }
 
-/// Returns the picked folder with "Typeshelf" appended (uninstall deletes the whole install folder).
+/// Returns the picked folder with "Typeshelf" appended (uninstall deletes the whole install folder). The
+/// install folder keeps its pre-rename name.
 #[tauri::command]
 async fn pick_dir(app: AppHandle, current: String) -> Option<PathBuf> {
-    let mut dialog = app.dialog().file().set_title("Choose where to install Typeshelf");
+    let mut dialog = app.dialog().file().set_title("Choose where to install Glyphyard");
     if let Some(start) = Path::new(&current).ancestors().find(|p| p.is_dir()) {
         dialog = dialog.set_directory(start);
     }
@@ -214,9 +215,9 @@ fn main() {
 
 fn silent(args: &Args, uninstall_dir: Option<PathBuf>) -> i32 {
     let progress = |pct: u32, step: &str| log(format!("{step} {pct}%"));
-    // Same as the GUI's "Close Typeshelf" button (asks nicely, forces after 5 s).
+    // Same as the GUI's "Close Glyphyard" button (asks nicely, forces after 5 s).
     if process::app_running() {
-        log("closing Typeshelf");
+        log("closing Glyphyard");
         process::close_app();
     }
     let result = match uninstall_dir {
@@ -272,7 +273,7 @@ fn gui(args: Args, uninstall_dir: Option<PathBuf>) {
         })
         .invoke_handler(tauri::generate_handler![info, pick_dir, install, uninstall, close_app, launch_app, quit])
         .build(tauri::generate_context!())
-        .expect("failed to start Typeshelf Setup")
+        .expect("failed to start Glyphyard Setup")
         .run(move |_, event| {
             if let RunEvent::Exit = event {
                 cleanup(&args, true);
@@ -288,9 +289,9 @@ fn find_install(args: &Args) -> PathBuf {
         .or_else(|| registry::installed().map(|i| i.dir))
         .or_else(|| own.filter(|d| install::looks_installed(d)))
         .unwrap_or_else(|| {
-            log("uninstall: Typeshelf is not installed");
+            log("uninstall: Glyphyard is not installed");
             if !args.silent {
-                message_box("Typeshelf is not installed.", false);
+                message_box("Glyphyard is not installed.", false);
             }
             exit(1)
         })
@@ -329,7 +330,7 @@ fn webview2_missing() {
     use windows::core::{w, HSTRING, PCWSTR};
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-    let text = "Typeshelf Setup needs the Microsoft Edge WebView2 Runtime, which isn't installed on this PC.\n\n\
+    let text = "Glyphyard Setup needs the Microsoft Edge WebView2 Runtime, which isn't installed on this PC.\n\n\
                 Open the download page now? Run Setup again once it's installed.";
     if message_box(text, true) {
         unsafe {
@@ -343,5 +344,5 @@ fn message_box(text: &str, ask: bool) -> bool {
     use windows::core::{w, HSTRING};
     use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, IDYES, MB_ICONWARNING, MB_OK, MB_YESNO};
     let buttons = if ask { MB_YESNO } else { MB_OK };
-    unsafe { MessageBoxW(None, &HSTRING::from(text), w!("Typeshelf Setup"), buttons | MB_ICONWARNING) == IDYES }
+    unsafe { MessageBoxW(None, &HSTRING::from(text), w!("Glyphyard Setup"), buttons | MB_ICONWARNING) == IDYES }
 }

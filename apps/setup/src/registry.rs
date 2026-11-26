@@ -32,9 +32,9 @@ pub fn write_uninstall(dir: &Path, version: &str, size_kb: u32) -> io::Result<()
     let uninstaller = dir.join("uninstall.exe");
     let u = uninstaller.display();
     let strings = [
-        ("DisplayName", "Typeshelf".to_string()),
+        ("DisplayName", "Glyphyard".to_string()),
         ("DisplayVersion", version.to_string()),
-        ("Publisher", "Typeshelf".to_string()),
+        ("Publisher", "Glyphyard".to_string()),
         ("DisplayIcon", dir.join(APP_EXE).display().to_string()),
         ("InstallLocation", dir.display().to_string()),
         ("UninstallString", format!("\"{u}\" --uninstall")),
@@ -64,7 +64,7 @@ pub fn remove_login_item() {
     }
 }
 
-/// Font registrations made by Typeshelf: HKCU Fonts values named "<font> (Typeshelf)".
+/// Font registrations made by Glyphyard: HKCU Fonts values named "<font> (Typeshelf)" (the pre-rename name).
 pub fn typeshelf_fonts() -> usize {
     let Ok(key) = CURRENT_USER.open(FONTS) else { return 0 };
     key.values().map_or(0, |values| values.filter(|(name, _)| name.ends_with(" (Typeshelf)")).count())

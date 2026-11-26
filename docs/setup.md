@@ -1,4 +1,4 @@
-# Typeshelf Setup (custom Windows installer)
+# Glyphyard Setup (custom Windows installer)
 
 One program, `typeshelf-setup.exe` (Tauri v2, frameless 760×480 window, plain HTML/CSS/JS UI in `apps/setup/ui`).
 Design: `docs/ui-canvas/Setup*.dc.html`, `docs/ui-canvas/Uninstall*.dc.html`.
@@ -8,7 +8,7 @@ Design: `docs/ui-canvas/Setup*.dc.html`, `docs/ui-canvas/Uninstall*.dc.html`.
 - Copies itself into the install dir as `uninstall.exe`; the uninstall registry entry runs `uninstall.exe --uninstall`.
 - Silent use for admins: `typeshelf-setup.exe --silent [--dir <path>] [--no-start-menu] [--desktop] [--no-start-at-login]`,
   `uninstall.exe --uninstall --silent [--wipe-data]`. Exit code 0 on success. Silent mode closes a running
-  Typeshelf first (asks it to close, forces it after 5 s) instead of stopping with `app_running`.
+  Glyphyard first (asks it to close, forces it after 5 s) instead of stopping with `app_running`.
 - Holds the named mutex `Local\TypeshelfSetupRunning` for its whole run (every mode). The app checks it at quit and
   does not start a pending update while a Setup or uninstall is closing it.
 
@@ -19,8 +19,8 @@ Design: `docs/ui-canvas/Setup*.dc.html`, `docs/ui-canvas/Uninstall*.dc.html`.
 | `info` | → `{ mode: "install" \| "update" \| "uninstall", version, installedVersion: string \| null, defaultDir, serverUrl, sizeMb, fontsActive: number \| null }` |
 | `pick_dir` | `{ current }` → `string \| null` |
 | `install` | `{ dir, startMenu, desktop, startAtLogin }` → `void`; rejects `{ code: "app_running" \| "io" \| "invalid_dir", message }` |
-| `close_app` | → `void` once Typeshelf has exited (asks nicely, forces after 5 s) |
-| `launch_app` | → `void` (starts Typeshelf, then Setup exits) |
+| `close_app` | → `void` once Glyphyard has exited (asks nicely, forces after 5 s) |
+| `launch_app` | → `void` (starts Glyphyard, then Setup exits) |
 | `uninstall` | `{ wipeData }` → `{ fontsTurnedOff, leftoverEntries, fontsKeptIn: string \| null }` (wiping data keeps the font folders that hold files); rejects like `install` |
 | `quit` | → `void` |
 

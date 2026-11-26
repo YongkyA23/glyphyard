@@ -162,7 +162,7 @@ pub(crate) struct FontFile {
     pub full_name: String,
     pub version: String,
     pub family_key: String,
-    /// A copy Typeshelf may register; system font folders never count.
+    /// A copy Glyphyard may register; system font folders never count.
     pub path: Option<PathBuf>,
     /// The OS already has this file installed.
     pub in_system: bool,

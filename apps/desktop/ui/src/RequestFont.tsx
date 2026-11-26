@@ -48,7 +48,7 @@ function RequestForm({ initial, onDone }: { initial: string; onDone: () => void 
   return (
     <form style={{ display: 'contents' }} onSubmit={(e) => (e.preventDefault(), name.trim() && submit())}>
       <p className="muted" style={{ margin: 0 }}>
-        Your request goes to your Typeshelf admin, who can add the font to the shared library for you.
+        Your request goes to your Glyphyard admin, who can add the font to the shared library for you.
         {!online && ' You’re offline right now: it will be sent when this computer is next connected.'}
       </p>
       <label className="field-label">

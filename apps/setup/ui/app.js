@@ -1,5 +1,5 @@
 'use strict';
-// Typeshelf Setup UI. Contract: docs/setup.md. No framework, no build step.
+// Glyphyard Setup UI. Contract: docs/setup.md. No framework, no build step.
 
 const $ = (s) => document.querySelector(s);
 const T = window.__TAURI__ || mockTauri();
@@ -7,7 +7,7 @@ const invoke = T.core.invoke;
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 
 const STEPS = {
-  install: [['copy', 'Copying Typeshelf'], ['webview2', 'Checking WebView2'], ['plugins', 'Preparing Adobe plug-ins'], ['shortcuts', 'Creating shortcuts']],
+  install: [['copy', 'Copying Glyphyard'], ['webview2', 'Checking WebView2'], ['plugins', 'Preparing Adobe plug-ins'], ['shortcuts', 'Creating shortcuts']],
   uninstall: [['fonts', 'Turning fonts off'], ['files', 'Removing files'], ['registry', 'Cleaning up the registry']],
 };
 
@@ -50,10 +50,10 @@ function fill() {
 
   const n = info.fontsActive;
   $('#un-fonts').textContent =
-    n == null ? 'Any fonts Typeshelf turned on are turned off, cleanly.'
-    : n === 0 ? 'No fonts are turned on by Typeshelf right now, so none need turning off.'
-    : n === 1 ? 'The 1 font Typeshelf turned on is turned off, cleanly.'
-    : `The ${n} fonts Typeshelf turned on are turned off, cleanly.`;
+    n == null ? 'Any fonts Glyphyard turned on are turned off, cleanly.'
+    : n === 0 ? 'No fonts are turned on by Glyphyard right now, so none need turning off.'
+    : n === 1 ? 'The 1 font Glyphyard turned on is turned off, cleanly.'
+    : `The ${n} fonts Glyphyard turned on are turned off, cleanly.`;
 }
 
 // ---------- options ----------
@@ -129,8 +129,8 @@ function failed(e) {
   const code = e && e.code;
   if (code === 'app_running') {
     $('#r-lead').textContent = job === 'uninstall'
-      ? 'Setup needs to remove files Typeshelf is using. It closes Typeshelf first, then turns your fonts off cleanly.'
-      : 'Setup needs to replace files Typeshelf is using. Your fonts stay turned on while it restarts. Nothing in your library changes.';
+      ? 'Setup needs to remove files Glyphyard is using. It closes Glyphyard first, then turns your fonts off cleanly.'
+      : 'Setup needs to replace files Glyphyard is using. Your fonts stay turned on while it restarts. Nothing in your library changes.';
     show('running');
     return;
   }
@@ -220,7 +220,7 @@ async function runUninstall() {
   $('#rm-note').textContent = !wipeData
     ? 'Your library data was kept, so reinstalling picks up where you left off.'
     : r.fontsKeptIn
-      ? `Your library data was deleted. Fonts you imported into Typeshelf were kept in ${r.fontsKeptIn}.`
+      ? `Your library data was deleted. Fonts you imported into Glyphyard were kept in ${r.fontsKeptIn}.`
       : 'Your library data was deleted too, so a reinstall starts fresh.';
   setTimeout(() => show('removed'), 500);
 }
@@ -273,13 +273,13 @@ function mockTauri() {
     pick_dir: async () => { await wait(300); return 'D:\\Apps\\Typeshelf'; },
     install: async () => {
       await wait(200);
-      if (takeFail('app_running')) throw { code: 'app_running', message: 'Typeshelf is running' };
+      if (takeFail('app_running')) throw { code: 'app_running', message: 'Glyphyard is running' };
       if (takeFail('invalid_dir')) throw { code: 'invalid_dir', message: 'Setup can’t write to that folder. Pick one inside your user folder.' };
       await run([['copy', 45], ['webview2', 62], ['plugins', 84], ['shortcuts', 101]]);
     },
     uninstall: async ({ wipeData }) => {
       await wait(200);
-      if (takeFail('app_running')) throw { code: 'app_running', message: 'Typeshelf is running' };
+      if (takeFail('app_running')) throw { code: 'app_running', message: 'Glyphyard is running' };
       await run([['fonts', 50], ['files', 85], ['registry', 101]]);
       const fontsKeptIn = wipeData ? 'C:\\Users\\budi\\AppData\\Roaming\\app.typeshelf.desktop' : null;
       return { fontsTurnedOff: fonts ?? 0, leftoverEntries: 0, fontsKeptIn };

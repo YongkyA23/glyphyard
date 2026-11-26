@@ -18,7 +18,7 @@ const APP_TOGGLES: [keyof Settings, string, string][] = [
   ['startAtLogin', 'Start at login', 'Fonts are ready as soon as you sign in to your computer'],
   ['startHidden', 'Start in the tray', 'Open quietly without showing the window'],
   ['autoUpdate', 'Update automatically', 'Install new versions when you restart the app'],
-  ['deactivateOnQuit', 'Turn off all fonts when quitting', 'Leaves no fonts active after Typeshelf closes'],
+  ['deactivateOnQuit', 'Turn off all fonts when quitting', 'Leaves no fonts active after Glyphyard closes'],
   ['playful', 'Playful extras', 'Easter eggs and hidden games. They never change your fonts'],
 ]
 
@@ -77,7 +77,7 @@ function NameSection() {
       </form>
       {error && <p role="alert" style={{ margin: 0, color: 'var(--bad)', fontSize: 13 }}>{error}</p>}
       {local ? (
-        <span className="faint" style={{ fontSize: 12 }}>Your name stays on this computer. If you connect to a server later, Typeshelf joins it with this name.</span>
+        <span className="faint" style={{ fontSize: 12 }}>Your name stays on this computer. If you connect to a server later, Glyphyard joins it with this name.</span>
       ) : locked ? (
         <div className="note neutral">
           <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2, color: 'var(--mute)' }}>
@@ -191,7 +191,7 @@ function HealthSection() {
         )}
       </AnimatePresence>
       <span className="faint" style={{ fontSize: 12, lineHeight: 1.5 }}>
-        Typeshelf checks this every time it starts: it removes leftover entries for fonts that no longer exist and re-registers fonts that went missing. It never needs admin rights.
+        Glyphyard checks this every time it starts: it removes leftover entries for fonts that no longer exist and re-registers fonts that went missing. It never needs admin rights.
       </span>
     </Section>
   )
@@ -214,7 +214,7 @@ function BackupSection() {
   }
   const restore = async () => {
     try {
-      const file = await api.pickFile([{ name: 'Typeshelf backup', extensions: ['typeshelf'] }])
+      const file = await api.pickFile([{ name: 'Glyphyard backup', extensions: ['typeshelf'] }])
       if (!file) return
       const res = await api.backupRestore(file)
       toast(`Restored backup from ${fmtDate(res.at)}`)
@@ -261,7 +261,7 @@ function AppSection() {
         <div key={k} className="setting-row">
           <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span>{label}</span><span className="faint" style={{ fontSize: 12 }}>{hint}</span>
-            {k === 'autoUpdate' && s?.autoUpdate && s.updateReady && <span style={{ fontSize: 12, color: 'var(--accent-ink)' }}>Version {s.updateReady} will be installed when you quit Typeshelf.</span>}
+            {k === 'autoUpdate' && s?.autoUpdate && s.updateReady && <span style={{ fontSize: 12, color: 'var(--accent-ink)' }}>Version {s.updateReady} will be installed when you quit Glyphyard.</span>}
             {k === 'autoUpdate' && s?.autoUpdate && s.updateProblem && <span role="status" style={{ fontSize: 12, color: 'var(--bad)' }}>{s.updateProblem}</span>}
           </span>
           <Switch on={!!s?.[k]} label={label} onClick={() => flip(k)} disabled={!s} />

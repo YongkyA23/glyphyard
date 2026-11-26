@@ -37,7 +37,7 @@ pub struct Policy {
     pub name_change_days: u32,
     pub allow_connection_edit: bool,
     pub notify_admin_changes: bool,
-    /// Admin-set branding; empty = Typeshelf's own. Defaulted so a newer app still reads an older server.
+    /// Admin-set branding; empty = Glyphyard's own. Defaulted so a newer app still reads an older server.
     #[serde(default)]
     pub brand_name: String,
     /// `#rrggbb` or empty.

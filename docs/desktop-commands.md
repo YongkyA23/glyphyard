@@ -45,7 +45,7 @@ type OrganizeChange = { id: number; case: "exact_copy" | "different_version" | "
 type Connection = { status: "connected" | "offline" | "error"; serverUrl: string; installKey: string; editable: boolean;
   lastSync: string | null; installId: string; error: string | null };
 type AppState = { onboarded: boolean; name: string; nextNameChange: string | null; nameChangeDays: number;
-  brandName: string; brandColor: string; brandLogo: string; /* set by the admin; "" = Typeshelf's own. brandColor is "#rrggbb", brandLogo an image data URL */
+  brandName: string; brandColor: string; brandLogo: string; /* set by the admin; "" = Glyphyard's own. brandColor is "#rrggbb", brandLogo an image data URL */
   serverConfigured: boolean; /* false = standalone: no server address, nothing syncs */
   registered: boolean; /* holds a server token: the name rule applies (false after "Continue offline" until it joins) */
   connection: Connection; platform: "windows" | "macos"; appVersion: string };

@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Typeshelf",
+        "title": "Glyphyard",
         "url": "/",
         "width": 1280,
         "height": 800,
@@ -58,7 +58,7 @@
     "resources": {
       "../../../plugins/dist": "plugins"
     },
-    "publisher": "Typeshelf",
+    "publisher": "Glyphyard",
     "shortDescription": "Font manager",
     "category": "GraphicsAndDesign"
   }

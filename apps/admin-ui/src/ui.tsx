@@ -160,7 +160,7 @@ function Sidebar() {
   }
   return (
     <nav aria-label="Admin" className="sidebar">
-      <div className="brand"><span className="brand-name">Typeshelf</span><span className="brand-sub">Admin</span></div>
+      <div className="brand"><span className="brand-name">Glyphyard</span><span className="brand-sub">Admin</span></div>
       <div className="nav-list">
         {nav.map(([to, label, count]) => (
           <NavLink key={to} to={to} end={to === '/'} className="nav-item">

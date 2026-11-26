@@ -32,7 +32,7 @@ export type Settings = {
   name_change_days: number; allow_connection_edit: boolean; deliver_library_to_new: boolean
   activate_delivered: boolean; notify_admin_changes: boolean; timeline_retention_days: number | null
   server_url: string; install_key: string
-  /** Shown in every desktop app; '' = Typeshelf's own. brand_color is '#rrggbb'. */
+  /** Shown in every desktop app; '' = Glyphyard's own. brand_color is '#rrggbb'. */
   brand_name: string; brand_color: string
   /** Image data URL (PNG, JPEG, WebP or SVG, at most 200 KB) or ''. */
   brand_logo: string

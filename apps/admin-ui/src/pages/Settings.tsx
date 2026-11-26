@@ -137,14 +137,14 @@ function Form({ initial, onSaved, admins, owner }: { initial: Settings; onSaved:
         <div className="row-8">
           <label className="inline-field">
             <span>Accent colour</span>
-            {/* A colour input can't be empty: it shows Typeshelf's blue until the admin picks one. */}
+            {/* A colour input can't be empty: it shows Glyphyard's blue until the admin picks one. */}
             <input type="color" form="settings-form" className="input input-color" value={s.brand_color || '#2547d0'}
               onChange={(e) => set('brand_color', e.target.value)} />
           </label>
-          <span className="small mute">{s.brand_color || 'Typeshelf’s own'}</span>
-          {s.brand_color && <button type="button" className="btn btn-sm" onClick={() => set('brand_color', '')}>Use Typeshelf’s colour</button>}
+          <span className="small mute">{s.brand_color || 'Glyphyard’s own'}</span>
+          {s.brand_color && <button type="button" className="btn btn-sm" onClick={() => set('brand_color', '')}>Use Glyphyard’s colour</button>}
         </div>
-        <span className="meta">The logo replaces the Typeshelf mark at the top of the sidebar (without a logo, the name sits beside the mark), and buttons, links and highlights take the colour. A wide logo on a transparent background works best (PNG, JPEG, WebP or SVG, under 150 KB). Leave all three empty for plain Typeshelf.</span>
+        <span className="meta">The logo replaces the Glyphyard mark at the top of the sidebar (without a logo, the name sits beside the mark), and buttons, links and highlights take the colour. A wide logo on a transparent background works best (PNG, JPEG, WebP or SVG, under 150 KB). Leave all three empty for plain Glyphyard.</span>
       </motion.section>
 
       <motion.section aria-labelledby="con" className="card pad-20 stack-12" variants={fadeRise}>
@@ -394,7 +394,7 @@ function Updates({ owner }: { owner?: boolean }) {
         {error && <span role="alert" className="form-error">{error}</span>}
         <span className="small mute" role="status">{done}</span>
       </form>
-      <span className="meta lh">Sign the setup program on the computer that keeps the private key, with <code>typeshelf-server update-sign</code>. Apps built with the matching public key check once a day, check the signature and the file, and install the new version when the user quits Typeshelf. The server refuses a setup program that doesn’t match its manifest.</span>
+      <span className="meta lh">Sign the setup program on the computer that keeps the private key, with <code>typeshelf-server update-sign</code>. Apps built with the matching public key check once a day, check the signature and the file, and install the new version when the user quits Glyphyard. The server refuses a setup program that doesn’t match its manifest.</span>
     </motion.section>
   )
 }

@@ -66,7 +66,7 @@ export type Connection = {
 }
 export type AppState = {
   onboarded: boolean; name: string; nextNameChange: string | null; nameChangeDays: number
-  /** Set by the admin on the server; '' = Typeshelf's own name and colour. brandColor is '#rrggbb'. */
+  /** Set by the admin on the server; '' = Glyphyard's own name and colour. brandColor is '#rrggbb'. */
   brandName: string; brandColor: string
   /** Image data URL set by the admin, or ''. */
   brandLogo: string

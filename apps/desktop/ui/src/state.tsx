@@ -146,7 +146,7 @@ export function AppProvider({ main, children }: { main: boolean; children: React
         on('organize-requested', () => navigate('/organize')),
         on('adobe-pair-request', setPair),
         on('badge-earned', (b) => toast(`Badge earned: ${b.name}. ${b.description}`, { label: 'See badges', run: () => navigate('/stats') })),
-        on('events-dropped', () => toast('Your Typeshelf server didn’t accept some updates from this computer. It may need updating: tell your admin.')),
+        on('events-dropped', () => toast('Your Glyphyard server didn’t accept some updates from this computer. It may need updating: tell your admin.')),
         on('adobe-activated', ({ app: a, document, activated, missing }) =>
           toast(
             `${ADOBE_LABEL[a]} · ${document}: turned on ${plural(activated.length, 'font')}` +
@@ -161,7 +161,7 @@ export function AppProvider({ main, children }: { main: boolean; children: React
   if (bootError)
     return (
       <div className="center-screen">
-        <p role="alert">Typeshelf couldn’t start: {bootError}</p>
+        <p role="alert">Glyphyard couldn’t start: {bootError}</p>
         <button type="button" className="btn" onClick={load}>Try again</button>
       </div>
     )
@@ -180,7 +180,7 @@ export function AppProvider({ main, children }: { main: boolean; children: React
 
       <Dialog open={!!pair} onClose={() => respondPair(false)} title={`Allow ${pair ? ADOBE_LABEL[pair.app] : ''} to turn on fonts automatically?`}>
         <p>
-          {pair && `${ADOBE_LABEL[pair.app]} ${pair.appVersion}`} wants to connect to Typeshelf. When you open a document, it will turn on the fonts
+          {pair && `${ADOBE_LABEL[pair.app]} ${pair.appVersion}`} wants to connect to Glyphyard. When you open a document, it will turn on the fonts
           the document uses from your library. Only allow this if you just installed the plug-in.
         </p>
         <div className="dialog-actions">

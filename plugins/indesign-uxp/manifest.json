@@ -1,7 +1,7 @@
 {
   "manifestVersion": 5,
   "id": "com.typeshelf.indesign",
-  "name": "Typeshelf for InDesign",
+  "name": "Glyphyard for InDesign",
   "version": "0.1.0",
   "main": "index.html",
   "host": { "app": "ID", "minVersion": "18.5.0" },
@@ -9,7 +9,7 @@
     {
       "type": "panel",
       "id": "typeshelfPanel",
-      "label": { "default": "Typeshelf" },
+      "label": { "default": "Glyphyard" },
       "minimumSize": { "width": 220, "height": 160 },
       "preferredDockedSize": { "width": 260, "height": 260 },
       "preferredFloatingSize": { "width": 280, "height": 300 }

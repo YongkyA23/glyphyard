@@ -70,7 +70,7 @@ pub struct Settings {
     pub timeline_retention_days: Option<u32>,
     pub server_url: String,
     pub install_key: String,
-    /// Shown in every desktop app; empty = Typeshelf's own name and colour.
+    /// Shown in every desktop app; empty = Glyphyard's own name and colour.
     pub brand_name: String,
     /// `#rrggbb` or empty.
     pub brand_color: String,

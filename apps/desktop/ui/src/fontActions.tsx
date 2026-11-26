@@ -59,7 +59,7 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
       keys = t.keys
       return t.hashes.length ? api.setActiveFor(t.hashes, until) : []
     })
-    const when = until === 'restart' ? 'until you restart Typeshelf' : 'for 2 hours'
+    const when = until === 'restart' ? 'until you restart Glyphyard' : 'for 2 hours'
     // Fonts already on for good stay on for good (the engine skips them), so the toast names no count then.
     const mixed = isAll(fams) || fams.some((f) => f.activeState !== 'none' && !turnsOff(f))
     if (res?.some((r) => r.ok)) toast(mixed ? `Turned on ${when}; fonts that were already on stay on` : `Turned on ${doneNames(fams, keys)} ${when}`)
@@ -115,7 +115,7 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
       {
         label: 'Turn on for…', disabled: locked, items: [
           { label: '2 hours', onSelect: () => setActiveFor(targets, { minutes: 120 }) },
-          { label: 'Until I restart Typeshelf', onSelect: () => setActiveFor(targets, 'restart') },
+          { label: 'Until I restart Glyphyard', onSelect: () => setActiveFor(targets, 'restart') },
         ],
       },
       { label: 'Show in folder', disabled: !fams[0]?.faces[0], onSelect: () => api.showInFolder(fams[0].faces[0].path).catch((e) => toast(errMsg(e))) },
@@ -169,7 +169,7 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
       <PromptDialog
         open={!!renaming} onClose={() => setRenaming(null)} onSubmit={rename} confirm="Rename"
         title={renaming && renaming.length > 1 ? `Show ${famNames(renaming)} as one family` : 'Rename family'}
-        label="Family name in Typeshelf (the font files don’t change)" initial={renaming?.[0]?.family ?? ''}
+        label="Family name in Glyphyard (the font files don’t change)" initial={renaming?.[0]?.family ?? ''}
       >
         <button type="button" className="btn link" style={{ marginRight: 'auto', paddingLeft: 0 }} onClick={() => rename(null)}>Reset family name</button>
       </PromptDialog>

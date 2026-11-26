@@ -116,7 +116,7 @@ pub async fn run(app: AppHandle) {
             Ok(found) => {
                 *pending.problem.lock().unwrap() = None;
                 if let Some(ready) = found {
-                    tracing::info!(version = %ready.manifest.version, "update downloaded and verified; it installs when Typeshelf quits");
+                    tracing::info!(version = %ready.manifest.version, "update downloaded and verified; it installs when Glyphyard quits");
                     if let Some(old) = pending.ready.lock().unwrap().replace(ready) {
                         let _ = std::fs::remove_file(old.path);
                     }
@@ -197,7 +197,7 @@ pub fn wanted(manifest: &Manifest, current: &str, have: Option<update::Version>)
     manifest.is_newer_than(current) && have != Some(manifest.version)
 }
 
-/// Typeshelf Setup and the uninstaller hold this mutex for their whole run (apps/setup/src/main.rs).
+/// Glyphyard Setup and the uninstaller hold this mutex for their whole run (apps/setup/src/main.rs).
 pub const SETUP_MUTEX: &str = "Local\\TypeshelfSetupRunning";
 
 /// Whether to start the waiting release at quit. Not when a Setup or uninstall is the one closing the app.
@@ -205,7 +205,7 @@ pub fn should_launch(has_key: bool, auto_update: bool, setup_running: bool) -> b
     has_key && auto_update && !setup_running
 }
 
-/// True while a Typeshelf Setup or uninstall runs; also true when that cannot be told (refuse, don't guess).
+/// True while a Glyphyard Setup or uninstall runs; also true when that cannot be told (refuse, don't guess).
 // ponytail: an older Setup without the mutex is not seen; it closes the app and the pending update starts too.
 #[cfg(windows)]
 pub fn setup_running() -> bool {
@@ -239,7 +239,7 @@ fn io(e: std::io::Error) -> UpdateError {
     UpdateError::Io(e.to_string())
 }
 
-/// At quit, from `shutdown`: starts the waiting release when updates are still on and no Typeshelf Setup or
+/// At quit, from `shutdown`: starts the waiting release when updates are still on and no Glyphyard Setup or
 /// uninstall is the one closing the app. Silent Setup updates the registered install folder in place.
 // ponytail: only a real quit installs; with "Start in the tray" on, closing the window only hides it, so a tray-mode
 // user installs the update at their next explicit Quit (the file is kept and reused across starts until then).

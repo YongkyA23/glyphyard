@@ -1,12 +1,14 @@
 <div align="center">
 
-<img src="apps/desktop/src-tauri/icons/128x128.png" width="96" alt="Typeshelf icon">
+<img src="apps/desktop/src-tauri/icons/128x128.png" width="96" alt="Glyphyard icon">
 
-# Typeshelf
+# Glyphyard
 
 **A fast font manager for Windows and macOS, with a self-hosted dashboard for the team that shares the fonts.**
 
 No accounts, no cloud lock-in. Each designer's app reports to a server you run, and one admin keeps the whole studio's fonts in order.
+
+<sub>Glyphyard was previously called Typeshelf; internal names (crates, binaries, folders) still use `typeshelf`.</sub>
 
 ![Rust](https://img.shields.io/badge/Rust-stable-B7410E?logo=rust&logoColor=white)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)
@@ -16,7 +18,7 @@ No accounts, no cloud lock-in. Each designer's app reports to a server you run, 
 
 [Features](#features) · [Screenshots](#screenshots) · [How it works](#how-it-works) · [Getting started](#getting-started) · [Docs](#documentation) · [Roadmap](#roadmap)
 
-<img src="docs/images/library.png" alt="Typeshelf library" width="900">
+<img src="docs/images/library.png" alt="Glyphyard library" width="900">
 
 </div>
 
@@ -77,7 +79,7 @@ flowchart LR
     ADOBE -- "loopback bridge" --> ENG
   end
   subgraph SRV["Your server"]
-    API["Typeshelf server<br/>(Axum + SQLite)"]
+    API["Glyphyard server<br/>(Axum + SQLite)"]
     ADMIN["Admin dashboard<br/>(React)"]
     ADMIN --> API
   end
@@ -119,10 +121,10 @@ TYPESHELF_SERVER_URL=http://localhost:8080 TYPESHELF_INSTALL_KEY=<key from admin
 cargo run -p typeshelf-server -- install-key --data ./data   # the key the apps will carry
 ./scripts/build-windows.ps1 -ServerUrl https://fonts.example.com -InstallKey <key>
 ```
-This produces `dist/Typeshelf-Setup-<version>.exe`, a custom installer ([docs/setup.md](docs/setup.md)) with these properties:
+This produces `dist/Glyphyard-Setup-<version>.exe`, a custom installer ([docs/setup.md](docs/setup.md)) with these properties:
 - **Install:** per-user, with no admin prompt. The server URL and install key are compiled in, and the Adobe plug-in packages are bundled.
-- **Update and uninstall:** it updates an existing install in place. It is also the uninstaller, which turns off every font Typeshelf registered.
-- **Silent install:** `Typeshelf-Setup.exe --silent [--dir <path>] [--desktop]`.
+- **Update and uninstall:** it updates an existing install in place. It is also the uninstaller, which turns off every font Glyphyard registered.
+- **Silent install:** `Glyphyard-Setup.exe --silent [--dir <path>] [--desktop]`.
 
 > [!NOTE]
 > The installer isn't code-signed yet, so Windows SmartScreen shows **More info → Run anyway**. If you regenerate the install key on the server, rebuild the installer.
@@ -159,7 +161,7 @@ cd apps/admin-ui && bunx tsc --noEmit -p tsconfig.app.json
 
 | Document | About |
 |---|---|
-| [docs/design.md](docs/design.md) | What Typeshelf is, its goals, and the design decisions |
+| [docs/design.md](docs/design.md) | What Glyphyard is, its goals, and the design decisions |
 | [docs/desktop-commands.md](docs/desktop-commands.md) | Every command and event between the desktop UI and its backend |
 | [docs/api.md](docs/api.md) | The server's HTTP and WebSocket API |
 | [docs/setup.md](docs/setup.md) | The Windows installer |

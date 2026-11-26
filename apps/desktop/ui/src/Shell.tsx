@@ -259,11 +259,11 @@ function Sidebar() {
     ]
     if (folder)
       items.push({
-        label: 'Remove from Typeshelf',
+        label: 'Remove from Glyphyard',
         onSelect: () => api.removeFolder(folder.id).then((fs) => {
           setFolders(fs)
           bump()
-          toast(`Removed ${node.name} from Typeshelf. The files are still on disk.`)
+          toast(`Removed ${node.name} from Glyphyard. The files are still on disk.`)
           if (sel('path', node.path) || isUnder(params.get('path'), node.path)) navigate('/')
         }, fail),
       })

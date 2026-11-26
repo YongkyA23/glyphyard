@@ -227,7 +227,7 @@ impl Engine {
                 (Vec::new(), Some("Your library is less than 30 days old, so it is too early to tell which fonts go unused.".into()))
             }
             _ if recording_since.as_ref().is_none_or(|s| *s > month_ago) => {
-                (Vec::new(), Some("Typeshelf started counting less than 30 days ago, so it is too early to tell which fonts go unused.".into()))
+                (Vec::new(), Some("Glyphyard started counting less than 30 days ago, so it is too early to tell which fonts go unused.".into()))
             }
             _ => {
                 let mut stmt = db.prepare(&format!(

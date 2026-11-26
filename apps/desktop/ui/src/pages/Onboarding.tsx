@@ -84,7 +84,7 @@ export function Onboarding() {
                 ? `Connected to ${conn.serverUrl}`
                 : conn.status === 'error' && conn.error
                   ? conn.error
-                  : `Can’t reach ${conn.serverUrl}. Continue offline and Typeshelf connects by itself when the server answers.`}
+                  : `Can’t reach ${conn.serverUrl}. Continue offline and Glyphyard connects by itself when the server answers.`}
           </span>
         </div>
       </form>

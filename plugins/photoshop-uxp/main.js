@@ -1,4 +1,4 @@
-// Photoshop (UXP): on document open/close, send the fonts of all text layers to Typeshelf.
+// Photoshop (UXP): on document open/close, send the fonts of all text layers to Glyphyard.
 (() => {
   const { app, action } = require("photoshop");
   const uxp = require("uxp");
@@ -45,7 +45,7 @@
     const layers = textLayers(doc.layers, []);
     if (!layers.length) return [];
     // One batchPlay round trip for all layers; Photoshop keeps the original PostScript name even when the
-    // font is missing, which is exactly what Typeshelf needs.
+    // font is missing, which is exactly what Glyphyard needs.
     const results = await action.batchPlay(
       layers.map((l) => ({
         _obj: "get",
@@ -94,7 +94,7 @@
       try {
         action.addNotificationListener(["open", "close"], callback);
       } catch (e) {
-        console.error("Typeshelf: cannot listen for documents", e);
+        console.error("Glyphyard: cannot listen for documents", e);
       }
     },
   };

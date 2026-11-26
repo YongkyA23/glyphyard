@@ -17,7 +17,7 @@ use crate::{log, registry, Error};
 pub struct Report {
     pub fonts_turned_off: usize,
     pub leftover_entries: usize,
-    /// The data folder still holding fonts imported into Typeshelf after "delete my library data".
+    /// The data folder still holding fonts imported into Glyphyard after "delete my library data".
     pub fonts_kept_in: Option<PathBuf>,
 }
 
@@ -62,7 +62,7 @@ pub fn uninstall(dir: &Path, wipe_data: bool, progress: &dyn Fn(u32, &str)) -> R
     if looks_installed(dir) && !is_protected(dir) {
         remove_dir_retrying(dir)?;
     } else {
-        log(format!("not deleting {}: it doesn't look like a Typeshelf folder", dir.display()));
+        log(format!("not deleting {}: it doesn't look like a Glyphyard install folder", dir.display()));
     }
     let mut fonts_kept_in = None;
     if wipe_data {

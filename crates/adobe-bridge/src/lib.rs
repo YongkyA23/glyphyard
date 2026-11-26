@@ -1,4 +1,4 @@
-//! Loopback-only HTTP bridge between the Adobe plug-ins (`plugins/`) and the Typeshelf app.
+//! Loopback-only HTTP bridge between the Adobe plug-ins (`plugins/`) and the Glyphyard app.
 //!
 //! Unlike an open `0.0.0.0` server with `CORS: *`, every request must come from a loopback peer, name
 //! `127.0.0.1`/`localhost` as Host (defeats DNS rebinding) and carry `X-Typeshelf-Client` (forces a CORS
@@ -54,7 +54,7 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// First port to try; the next `PORT_FALLBACKS` are tried if it is taken. 0 = any (tests).
     pub port: u16,
-    /// Typeshelf version reported by `/v1/ping`.
+    /// Glyphyard version reported by `/v1/ping`.
     pub version: String,
     /// `EXPIRY`; tests shorten it. Also the window after start before fonts owned by the last run may go.
     pub expiry: Duration,

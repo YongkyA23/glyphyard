@@ -1,4 +1,4 @@
-//! Typeshelf admin server: desktop sync API (`/api/v1`), admin API (`/api/admin`) and the admin UI.
+//! Glyphyard admin server: desktop sync API (`/api/v1`), admin API (`/api/admin`) and the admin UI.
 
 pub mod admin;
 pub mod audit;
@@ -51,7 +51,7 @@ pub fn app(state: AppState, static_dir: &Path) -> Router {
         router.fallback_service(ServeDir::new(static_dir).fallback(ServeFile::new(index)))
     } else {
         router.fallback(|| async {
-            Html("<!doctype html><title>Typeshelf</title><p>Typeshelf server is running. The admin UI is not built yet (<code>apps/server/static</code>).</p>")
+            Html("<!doctype html><title>Glyphyard</title><p>Glyphyard server is running. The admin UI is not built yet (<code>apps/server/static</code>).</p>")
         })
     };
     router.layer(TraceLayer::new_for_http()).with_state(state)

@@ -1,5 +1,5 @@
 // CEP panel for Illustrator, Photoshop and InDesign: on document open/switch/close, send the document's
-// fonts to Typeshelf. (Photoshop/InDesign use it when Creative Cloud's UXP installer isn't available.)
+// fonts to Glyphyard. (Photoshop/InDesign use it when Creative Cloud's UXP installer isn't available.)
 // Uses window.__adobe_cep__ directly (what CSInterface.js wraps) so no Adobe library has to be vendored.
 (() => {
   const cep = window.__adobe_cep__;
@@ -48,7 +48,7 @@
     root.setProperty("--muted", light ? "#555" : "#a8a8a8");
   } catch (_) {}
 
-  /** CEP host codes → the app ids the Typeshelf bridge knows. @type {Record<string, "illustrator" | "photoshop" | "indesign">} */
+  /** CEP host codes → the app ids the Glyphyard bridge knows. @type {Record<string, "illustrator" | "photoshop" | "indesign">} */
   const APPS = { ILST: "illustrator", PHXS: "photoshop", PHSP: "photoshop", IDSN: "indesign" };
 
   const app = APPS[String(env.appName)] || "illustrator";
@@ -74,7 +74,7 @@
         try {
           cep.addEventListener(event, callback);
         } catch (e) {
-          console.error(`Typeshelf: cannot listen for ${event}`, e);
+          console.error(`Glyphyard: cannot listen for ${event}`, e);
         }
       }
     },

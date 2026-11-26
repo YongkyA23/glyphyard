@@ -95,7 +95,7 @@ function Detail({ u, reload }: { u: InstallDetail; reload: () => void }) {
           <span className="pills">
             <Badge tone={u.online ? 'ok' : 'outline'}>{u.online ? '● Online' : `Last seen ${ago(u.last_seen).toLowerCase()}`}</Badge>
             <Badge tone="outline">{u.os}</Badge>
-            <Badge tone="outline">Typeshelf {u.app_version}</Badge>
+            <Badge tone="outline">Glyphyard {u.app_version}</Badge>
             <Badge tone="outline" className="mono">{u.id}</Badge>
             <Badge tone="outline">First seen {fmtDate(u.first_seen)}</Badge>
           </span>
@@ -297,7 +297,7 @@ function RemoveComputer({ u }: { u: InstallDetail }) {
   const [busy, setBusy] = useState(false)
   const run = async () => {
     const merged = u.merged_from.length ? ` and the ${plural(u.merged_from.length, 'computer')} merged into it` : ''
-    const text = `Remove ${u.name}’s computer${merged}? It is disconnected at once and disappears from your lists. Its name history stays in the export. If Typeshelf is set up on it again, it shows up as a new user.`
+    const text = `Remove ${u.name}’s computer${merged}? It is disconnected at once and disappears from your lists. Its name history stays in the export. If Glyphyard is set up on it again, it shows up as a new user.`
     if (!(await confirm(text, 'Remove', true))) return
     setBusy(true)
     try {

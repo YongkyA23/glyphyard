@@ -13,7 +13,7 @@ export function VersionGames({ version }: { version: string }) {
   const open = (g: 'kern' | 'name') => void playful().then((on) => (on ? setGame(g) : setShown(false)))
   return (
     <span className="egg-games">
-      <button type="button" className="egg-plain" onClick={tap}>Typeshelf {version}</button>
+      <button type="button" className="egg-plain" onClick={tap}>Glyphyard {version}</button>
       {shown && (
         <>
           {' · Games: '}

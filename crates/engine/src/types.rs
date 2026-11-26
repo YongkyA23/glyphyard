@@ -104,7 +104,7 @@ pub struct Face {
     pub is_variable: bool,
     /// Installed in an OS font folder: always on, cannot be turned off here.
     pub system: bool,
-    /// On temporarily: `"restart"` (until Typeshelf restarts) or the RFC 3339 time it turns off.
+    /// On temporarily: `"restart"` (until Glyphyard restarts) or the RFC 3339 time it turns off.
     pub temporary_until: Option<String>,
 }
 
@@ -572,7 +572,7 @@ pub struct AppState {
     pub name: String,
     pub next_name_change: Option<String>,
     pub name_change_days: u32,
-    /// Set by the admin on the server; empty = Typeshelf's own name and colour.
+    /// Set by the admin on the server; empty = Glyphyard's own name and colour.
     pub brand_name: String,
     pub brand_color: String,
     /// Image data URL, or empty.

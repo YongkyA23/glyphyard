@@ -168,11 +168,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     if !settings.start_hidden {
         show_main(&handle);
     }
-    let open = MenuItem::with_id(app, "open", "Open Typeshelf", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Open Glyphyard", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().ok_or("no app icon")?)
-        .tooltip("Typeshelf")
+        .tooltip("Glyphyard")
         .menu(&Menu::with_items(app, &[&open, &quit])?)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, e| match e.id().as_ref() {
@@ -320,6 +320,7 @@ fn shutdown(app: &AppHandle) {
 }
 
 /// The same login item tauri-plugin-autostart manages (name = productName, path = this exe, no args).
+/// productName stays "Typeshelf" after the rename to Glyphyard: it names the Run value Setup matches.
 fn set_start_at_login(on: bool) -> Result<(), Box<dyn std::error::Error>> {
     let exe = std::env::current_exe()?.display().to_string();
     let item = auto_launch::AutoLaunchBuilder::new().set_app_name("Typeshelf").set_app_path(&exe).build()?;
@@ -335,7 +336,7 @@ fn set_start_at_login(on: bool) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn main() {
-    // Run by the uninstaller: remove every font registration Typeshelf made, so nothing stale is left behind.
+    // Run by the uninstaller: remove every font registration Glyphyard made, so nothing stale is left behind.
     if std::env::args().any(|a| a == "--unregister-fonts") {
         typeshelf_activation::reconcile(&[]);
         return;
@@ -366,7 +367,7 @@ fn main() {
         .on_window_event(on_window_event)
         .invoke_handler(commands::handler())
         .build(tauri::generate_context!())
-        .expect("failed to start Typeshelf")
+        .expect("failed to start Glyphyard")
         .run(|app, event| match event {
             RunEvent::Exit => shutdown(app),
             #[cfg(target_os = "macos")]

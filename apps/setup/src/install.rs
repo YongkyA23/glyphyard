@@ -65,7 +65,7 @@ pub fn install(o: &Options, progress: &dyn Fn(u32, &str)) -> Result<(), Error> {
     progress(85, "webview2");
     match webview2_version() {
         Some(v) => log(format!("WebView2 {v}")),
-        None => log("WebView2 runtime is missing: Typeshelf won't open until it is installed (https://go.microsoft.com/fwlink/p/?LinkId=2124703)"),
+        None => log("WebView2 runtime is missing: Glyphyard won't open until it is installed (https://go.microsoft.com/fwlink/p/?LinkId=2124703)"),
     }
 
     progress(90, "shortcuts");
@@ -92,7 +92,7 @@ pub fn webview2_version() -> Option<String> {
     Some(webview2_com::take_pwstr(version)).filter(|v| !v.is_empty())
 }
 
-/// Absolute, not a system/profile folder, empty or an existing Typeshelf install (uninstall deletes the
+/// Absolute, not a system/profile folder, empty or an existing Glyphyard install (uninstall deletes the
 /// whole folder), and writable.
 pub fn validate_dir(dir: &Path) -> Result<(), Error> {
     let invalid = |msg: &str| Err(Error::new("invalid_dir", msg));
@@ -100,7 +100,7 @@ pub fn validate_dir(dir: &Path) -> Result<(), Error> {
         return invalid("Choose a full folder path, like C:\\Users\\you\\AppData\\Local\\Programs\\Typeshelf.");
     }
     if is_protected(dir) {
-        return invalid("Typeshelf can't be installed directly in a system or user folder. Choose a folder of its own.");
+        return invalid("Glyphyard can't be installed directly in a system or user folder. Choose a folder of its own.");
     }
     if let Ok(entries) = fs::read_dir(dir) {
         // A killed install leaves STAGING/BACKUP, and mid-swap plugins/ next to them: ours to replace.

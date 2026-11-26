@@ -63,7 +63,7 @@ export function Logo({ brand, logo }: { brand?: string; logo?: string }) {
   const custom = /^data:image\//.test(logo ?? '')
   return (
     <>
-      <button type="button" className="egg-logo" aria-label={brand ? `${brand} · Typeshelf` : 'Typeshelf'} onClick={tap}>
+      <button type="button" className="egg-logo" aria-label={brand ? `${brand} · Glyphyard` : 'Glyphyard'} onClick={tap}>
         {custom ? <img className="brand-logo" src={logo} alt="" /> : <>
           <span aria-hidden="true">Aa<span className="g">g</span></span>
           {brand && <span aria-hidden="true" className="brand-name">{brand}</span>}

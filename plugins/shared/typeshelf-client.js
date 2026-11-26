@@ -1,5 +1,5 @@
 // Shared by the Photoshop/InDesign UXP plug-ins and the Illustrator CEP panel; build.ts copies it into each.
-// Talks to the Typeshelf app's loopback bridge (crates/adobe-bridge). Loaded with a plain <script> tag, so the
+// Talks to the Glyphyard app's loopback bridge (crates/adobe-bridge). Loaded with a plain <script> tag, so the
 // two functions below are globals.
 
 /**
@@ -98,7 +98,7 @@ function typeshelfClient({ app, appVersion, transport, storage }) {
     try {
       return await request(p, method, path, body, timeoutMs);
     } catch (e) {
-      port = null; // Typeshelf quit or moved to another port; rediscover next time.
+      port = null; // Glyphyard quit or moved to another port; rediscover next time.
       throw e;
     }
   }
@@ -137,7 +137,7 @@ function typeshelfClient({ app, appVersion, transport, storage }) {
         store.removeItem(tokenKey);
         throw new Error("not_paired");
       }
-      if (res.status !== 200) throw new Error(`Typeshelf answered ${res.status}`);
+      if (res.status !== 200) throw new Error(`Glyphyard answered ${res.status}`);
       return res.json;
     },
   };
@@ -153,14 +153,14 @@ function typeshelfPanel(client, host) {
   const pairBtn = /** @type {HTMLButtonElement} */ (document.getElementById("pair"));
   const checkBtn = /** @type {HTMLButtonElement} */ (document.getElementById("check"));
   const logEl = /** @type {HTMLElement} */ (document.getElementById("log"));
-  const LABELS = { connected: "Connected to Typeshelf", not_paired: "Not paired", offline: "Typeshelf isn't running" };
+  const LABELS = { connected: "Connected to Glyphyard", not_paired: "Not paired", offline: "Glyphyard isn't running" };
   /** @type {Status} */
   let state = "offline";
   /** Documents the bridge has been told about: id -> name sent. */
   const tracked = new Map();
   /** Ids of tracked documents whose fonts were sent with "open" (the bridge only knows these). */
   const reported = new Set();
-  /** Set when Typeshelf may have forgotten our documents; the next sync re-sends every open document. */
+  /** Set when Glyphyard may have forgotten our documents; the next sync re-sends every open document. */
   let reReport = false;
   /** The bridge closes an app's documents when it hasn't heard from it for 60 s and the app has quit. */
   const HEARTBEAT_MS = 15000;
@@ -179,7 +179,7 @@ function typeshelfPanel(client, host) {
 
   async function refresh() {
     state = await client.status();
-    // A restarted Typeshelf has forgotten our documents, and one that didn't hear from us for 60 s while it saw
+    // A restarted Glyphyard has forgotten our documents, and one that didn't hear from us for 60 s while it saw
     // no process of our app closed them: resend them all. Seen as losing the connection, or as a connected bridge
     // with fewer documents than we sent (it keys them by name, so count distinct names). A document event in
     // between re-adds only one, hence "fewer", not "none". `tracked` is kept so closed documents get their "close".
@@ -245,9 +245,9 @@ function typeshelfPanel(client, host) {
   pairBtn.addEventListener("click", () =>
     enqueue(async () => {
       pairBtn.disabled = true;
-      statusEl.textContent = "Allow it in Typeshelf…";
+      statusEl.textContent = "Allow it in Glyphyard…";
       try {
-        log((await client.pair()) ? "Paired with Typeshelf" : "Pairing was declined");
+        log((await client.pair()) ? "Paired with Glyphyard" : "Pairing was declined");
       } finally {
         pairBtn.disabled = false;
       }
@@ -268,7 +268,7 @@ function typeshelfPanel(client, host) {
   host.onChange(scheduleSync);
   enqueue(sync); // documents that were already open
   async function heartbeat() {
-    // Not connected: pick up a Typeshelf that starts after the Adobe app.
+    // Not connected: pick up a Glyphyard that starts after the Adobe app.
     if (state !== "connected") return sync();
     // Connected: an authenticated ping, which also tells us whether the bridge forgot our documents.
     if ((await refresh()) === "connected" && reReport) await sync();

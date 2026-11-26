@@ -108,7 +108,7 @@ export function Stats() {
               <span className="muted">
                 {plural(unused.length, 'family', 'families')} not turned on{' '}
                 {data.year.recordingSince && new Date(data.year.recordingSince).getTime() > yearAgo
-                  ? `since ${fmtDate(data.year.recordingSince)}, when Typeshelf started counting.`
+                  ? `since ${fmtDate(data.year.recordingSince)}, when Glyphyard started counting.`
                   : 'in the last 12 months.'}
               </span>
               <p className="stats-names">

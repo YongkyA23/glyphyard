@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Builds dist/Typeshelf-Setup-<version>.exe (apps/setup) with the server URL and install key baked in.
+  Builds dist/Glyphyard-Setup-<version>.exe (apps/setup) with the server URL and install key baked in.
 .DESCRIPTION
   -UpdateKey: the public key printed by `typeshelf-server update-keygen`. Without it the app never checks for
   updates and hides the "Update automatically" switch.
@@ -106,7 +106,7 @@ $env:TYPESHELF_VERSION = $version
 Run $root 'cargo' @('build', '-p', 'typeshelf-setup', '--release')
 
 New-Item -ItemType Directory -Force "$root/dist" | Out-Null
-$out = "$root/dist/Typeshelf-Setup-$version.exe"
+$out = "$root/dist/Glyphyard-Setup-$version.exe"
 Copy-Item "$root/target/release/typeshelf-setup.exe" $out -Force
 Sign $out
 $updates = if ($UpdateKey -ne '') { 'on' } else { 'off (no -UpdateKey)' }

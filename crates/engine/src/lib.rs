@@ -122,7 +122,7 @@ impl Engine {
         self.ui(UiEvent::LibraryChanged { reason });
     }
 
-    /// Lowercase PostScript names installed outside Typeshelf, read once per run.
+    /// Lowercase PostScript names installed outside Glyphyard, read once per run.
     fn system_names(&self) -> &HashSet<String> {
         self.system_names.get_or_init(|| self.os.installed_ps_names())
     }

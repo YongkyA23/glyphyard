@@ -107,7 +107,7 @@ pub fn reconcile(ledger: &[LedgerEntry]) -> ReconcileReport {
     sys::reconcile(ledger)
 }
 
-/// Lowercase PostScript names of fonts installed outside Typeshelf (system and per-user font
+/// Lowercase PostScript names of fonts installed outside Glyphyard (system and per-user font
 /// folders), used to warn about conflicts.
 pub fn installed_ps_names() -> HashSet<String> {
     sys::installed_ps_names()

@@ -173,7 +173,7 @@ export function Organize() {
         <details className="card notes">
           <summary>
             <span style={{ fontWeight: 500 }}>No action needed · {num(notes.length)}</span>
-            <span className="muted" style={{ fontSize: 13 }}> Fonts kept as alternates, variable + static groups and fonts the system already has. Typeshelf handles these when activating; no file changes.</span>
+            <span className="muted" style={{ fontSize: 13 }}> Fonts kept as alternates, variable + static groups and fonts the system already has. Glyphyard handles these when activating; no file changes.</span>
           </summary>
           <div className="table-wrap" style={{ marginTop: 10 }}>
             <table style={{ minWidth: 760 }}>
@@ -205,7 +205,7 @@ export function Organize() {
 
       <div className="row-between" style={{ paddingTop: 4 }}>
         <span className="muted" style={{ fontSize: 13, maxWidth: 560, lineHeight: 1.5 }}>
-          Renames change the file name and the name shown in Typeshelf. The font’s internal name is never edited. You can undo this run from Settings › History.
+          Renames change the file name and the name shown in Glyphyard. The font’s internal name is never edited. You can undo this run from Settings › History.
         </span>
         <span style={{ display: 'flex', gap: 8 }}>
           <button type="button" className="btn big-ish" onClick={() => navigate(-1)}>Cancel</button>

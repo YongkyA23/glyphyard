@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Template: build.ts fills {{ID}}, {{HOST}} and {{MIN}} once per app (Illustrator, Photoshop, InDesign). -->
 <ExtensionManifest Version="7.0" ExtensionBundleId="{{ID}}" ExtensionBundleVersion="0.1.0"
-  ExtensionBundleName="Typeshelf" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  ExtensionBundleName="Glyphyard" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ExtensionList>
     <Extension Id="{{ID}}.panel" Version="0.1.0" />
   </ExtensionList>
@@ -38,7 +38,7 @@
         </Lifecycle>
         <UI>
           <Type>Panel</Type>
-          <Menu>Typeshelf</Menu>
+          <Menu>Glyphyard</Menu>
           <Geometry>
             <Size>
               <Height>300</Height>

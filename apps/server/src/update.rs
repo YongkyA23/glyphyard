@@ -62,7 +62,7 @@ async fn file(State(s): State<AppState>, _: Install) -> ApiResult<Response> {
     let bytes = read(&s, FILE).await?.ok_or_else(no_release)?;
     Ok(Response::builder()
         .header(header::CONTENT_TYPE, "application/octet-stream")
-        .header(header::CONTENT_DISPOSITION, "attachment; filename=\"Typeshelf-Setup.exe\"")
+        .header(header::CONTENT_DISPOSITION, "attachment; filename=\"Glyphyard-Setup.exe\"")
         .body(Body::from(bytes))
         .expect("valid response"))
 }

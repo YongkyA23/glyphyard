@@ -1,7 +1,7 @@
-# Typeshelf — design
+# Glyphyard — design
 
 Status: agreed in conversation on 2026-10-27. UI reference: the "Typeshelf UI" design canvas (desktop app + web admin pages).
-"Typeshelf" is a placeholder product name.
+The product is called Glyphyard (it was called Typeshelf, a placeholder name; internal names such as crates, binaries and folders still use `typeshelf`).
 
 ## 1. What it is
 
