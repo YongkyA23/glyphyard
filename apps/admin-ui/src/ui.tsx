@@ -382,10 +382,6 @@ export function Pager({ page, total, size = PAGE_SIZE, onPage, label = 'Pages' }
 /** A header cell: plain content, or content plus its `aria-sort` for sortable columns. */
 export type HeadItem = ReactNode | { node: ReactNode; sort?: 'ascending' | 'descending' | 'none' }
 
-/** `aria-sort` value for column `k`, for a Table head item. */
-export const sortAria = <K extends string>(sort: Sort<K>, k: K): 'ascending' | 'descending' | 'none' =>
-  sort?.key === k ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'
-
 /** Sort button for a column header. Click cycles default direction, the other direction, then back to the server's order. */
 export function SortHead<K extends string>({ label, k, sort, onSort, defaultDir }: {
   label: string; k: K; sort: Sort<K>; onSort: (s: Sort<K>) => void; defaultDir: SortDir

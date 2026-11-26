@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { motion } from 'motion/react'
-import { api, errorText, type FontRequest, type RequestSort, type RequestState, type Sort } from '../api'
+import { api, sortAria, errorText, type FontRequest, type RequestSort, type RequestState, type Sort } from '../api'
 import { row } from '../motion'
 import { toast } from '../toast'
-import { Chips, Empty, ErrorBox, fmtDate, Loaded, PageHeader, Pager, SortHead, sortAria, Table, TableSkeleton, useLoad, usePage } from '../ui'
+import { Chips, Empty, ErrorBox, fmtDate, Loaded, PageHeader, Pager, SortHead, Table, TableSkeleton, useLoad, usePage } from '../ui'
 
 const HEAD = ['Asked', 'Font', 'Note', 'Who', '']
 const STATES: [RequestState, string][] = [['open', 'Open'], ['done', 'Done'], ['all', 'All']]

@@ -39,6 +39,9 @@ export type Settings = {
 }
 export type SortDir = 'asc' | 'desc'
 export type Sort<K extends string> = { key: K; dir: SortDir } | null
+/** `aria-sort` value for column `k`, for a Table head item. */
+export const sortAria = <K extends string>(sort: Sort<K>, k: K): 'ascending' | 'descending' | 'none' =>
+  sort?.key === k ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'
 export type InstallSort = 'name' | 'last_seen' | 'fonts'
 export type LibrarySort = 'family' | 'uploaded' | 'size'
 export type RequestSort = 'at' | 'font'

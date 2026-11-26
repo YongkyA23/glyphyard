@@ -1,11 +1,11 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { api, ApiError, errorText, type BulkAction, type LibraryFile, type LibrarySort, type License, type Page, type Sort } from '../api'
+import { api, sortAria, ApiError, errorText, type BulkAction, type LibraryFile, type LibrarySort, type License, type Page, type Sort } from '../api'
 import { base, fadeRise, fast, row, spring } from '../motion'
 import { toast } from '../toast'
 import {
-  Badge, Dialog, Empty, ErrorBox, fmtDate, Loaded, PageHeader, Pager, plural, Skel, SortHead, sortAria, Spin, Swap, Table, TableSkeleton, useConfirm, useDebounced, useLoad, usePage,
+  Badge, Dialog, Empty, ErrorBox, fmtDate, Loaded, PageHeader, Pager, plural, Skel, SortHead, Spin, Swap, Table, TableSkeleton, useConfirm, useDebounced, useLoad, usePage,
 } from '../ui'
 
 const HEAD = ['Family', 'License', 'Delivered to', 'Active on', 'Added', 'Size', 'Status', <span className="sr-only">Actions</span>]

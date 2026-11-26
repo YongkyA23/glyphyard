@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { api, type Flag, type InstallFilter, type InstallSort, type Sort } from '../api'
+import { api, sortAria, type Flag, type InstallFilter, type InstallSort, type Sort } from '../api'
 import { pop, press, row } from '../motion'
-import { ago, Badge, Chips, Empty, fmtDate, Loaded, Pager, SortHead, sortAria, Table, TableSkeleton, useDebounced, useLoad, usePage, type Tone } from '../ui'
+import { ago, Badge, Chips, Empty, fmtDate, Loaded, Pager, SortHead, Table, TableSkeleton, useDebounced, useLoad, usePage, type Tone } from '../ui'
 
 const MotionLink = motion.create(Link)
 const HEAD = [<span className="sr-only">Select</span>, 'Name', 'Install ID', 'Computer', 'Active fonts', 'Last seen', 'Next name change']
