@@ -1,1 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#1c1917"/><path d="M9 10h14M16 10v13" stroke="#c7d2fe" stroke-width="3" stroke-linecap="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>Glyphyard app icon</title>
+  <rect rx="190" fill="#FFFDF9"/>
+  <path transform="translate(180.8 192) scale(6.4)" fill="#101010" d="M12 0H91.5A7 50 0 0 0 91.5 100H12V74.8C18.9 83.5 29.8 88.4 42.5 88.4C61.8 88.4 74.1 75.3 74.1 55V49.3H45.8V61H59.4C58.4 69.2 53.1 75.6 44 75.6C32.6 75.6 26 65.6 26 50.2C26 35.8 32.2 25.2 43.5 25.2C51.4 25.2 57.2 30.5 59.1 38.1H70.3V13.7H60.3V17.8C55.5 14.2 49.4 12 41.8 12C29.2 12 19.4 16.7 12 25.8Z"/>
+</svg>

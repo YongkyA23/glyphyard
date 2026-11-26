@@ -173,22 +173,23 @@ function Sidebar() {
   const { pathname } = useLocation()
   const [openOn, setOpenOn] = useState<string | null>(null)
   const menuOpen = openOn === pathname
+  const menuBtn = useRef<HTMLButtonElement>(null)
   const countOf: Record<string, number | undefined> = { '/users': counts.data?.users, '/library': counts.data?.library, '/requests': counts.data?.requests }
   const signOut = async () => {
     try { await api.logout() } finally { navigate('/login') }
   }
   const requests = counts.data?.requests ?? 0
   return (
-    <nav aria-label="Admin" className="sidebar">
+    <nav aria-label="Admin" className="sidebar" onKeyDown={(e) => { if (e.key === 'Escape' && menuOpen) { setOpenOn(null); menuBtn.current?.focus() } }}>
       <div className="sidebar-bar">
         <div className="brand">
-          {brand.data?.brand_logo && <img className="brand-logo" src={brand.data.brand_logo} alt="" />}
+          {brand.data?.brand_logo ? <img className="brand-logo" src={brand.data.brand_logo} alt="" /> : brand.data && <span className="gy-mark" aria-hidden="true" />}
           <span className="brand-text">
             <span className="brand-name">{brand.data?.brand_name || 'Glyphyard'}</span><span className="brand-sub">Admin</span>
           </span>
         </div>
         {requests > 0 && <NavLink to="/requests" className="bar-count" aria-label={`${requests} open font requests`}>{requests}</NavLink>}
-        <button type="button" className="btn btn-sm menu-btn" aria-expanded={menuOpen} aria-controls="admin-nav" onClick={() => setOpenOn(menuOpen ? null : pathname)}>Menu</button>
+        <button ref={menuBtn} type="button" className="btn btn-sm menu-btn" aria-expanded={menuOpen} aria-controls="admin-nav" onClick={() => setOpenOn(menuOpen ? null : pathname)}>Menu</button>
       </div>
       <div id="admin-nav" className={menuOpen ? 'sidebar-menu open' : 'sidebar-menu'}>
         <div className="nav-list">
@@ -289,7 +290,13 @@ export const Spin = () => <span aria-hidden="true" className="spin" />
 /** Modal <dialog> that springs open and fades out. Render inside <AnimatePresence>; close by unmounting. */
 export function Dialog({ onClose, labelledBy, small, children }: { onClose: () => void; labelledBy: string; small?: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null)
-  useEffect(() => { const d = ref.current; if (d && !d.open) d.showModal() }, [])
+  // Hand focus back to what opened the dialog once it has unmounted (after the exit animation).
+  const from = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    const d = ref.current
+    if (d && !d.open) { from.current = document.activeElement as HTMLElement | null; d.showModal() }
+    return () => from.current?.focus?.()
+  }, [])
   return (
     <motion.dialog ref={ref} className={small ? 'dialog dialog-sm' : 'dialog'} aria-labelledby={labelledBy}
       // Esc: keep it open so the exit animation can play; the parent unmounts it.

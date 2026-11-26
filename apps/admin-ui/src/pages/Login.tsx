@@ -37,7 +37,7 @@ export function Login() {
   return (
     <div className="signin">
       <motion.div className="signin-art" initial="hidden" animate="show" variants={stagger(0.06, 0.1)}>
-        <motion.span className="brand-name" variants={fadeRise}>Glyphyard <span className="brand-sub-inline">Admin</span></motion.span>
+        <motion.span className="brand-name brand-lock" variants={fadeRise}><span className="gy-mark" aria-hidden="true" />Glyphyard <span className="brand-sub-inline">Admin</span></motion.span>
         <motion.div className="signin-hero" variants={stagger(0.07)}>
           <Words text="Every font," /><br /><em><Words text="on every desk." /></em>
         </motion.div>
