@@ -398,6 +398,7 @@ tr:has(> td > .check:checked) td { background: var(--accent-wash); }
 }
 
 @media (max-width: 700px) {
+  .shell { align-content: flex-start; } /* else the free height stretches the top-bar line */
   .main { padding: 20px 16px; }
   /* The sidebar becomes a sticky top bar; the nav and account drop down under it. */
   .sidebar { flex: 1 1 100%; position: sticky; top: 0; z-index: 20; gap: 0; padding: 8px 16px; }
