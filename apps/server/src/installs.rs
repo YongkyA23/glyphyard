@@ -1,7 +1,7 @@
 //! Admin views of installs: overview, list, detail, timeline, remote control, name history, merge/split.
 
 use crate::auth::{self, Admin};
-use crate::{audit, db, db::GROUP, hub, hub::Hub, ApiError, ApiResult, AppState, Page, Paging};
+use crate::{audit, db, db::GROUP, library, hub, hub::Hub, ApiError, ApiResult, AppState, Page, Paging};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::IntoResponse;
@@ -23,6 +23,8 @@ pub fn routes() -> Router<AppState> {
         .route("/installs/{id}", get(detail).delete(revoke))
         .route("/installs/{id}/timeline", get(timeline))
         .route("/installs/{id}/fonts", get(fonts).post(set_font))
+        .route("/installs/{id}/families", get(families))
+        .route("/installs/{id}/fonts/bulk", post(bulk_fonts))
         .route("/installs/{id}/reset-name-limit", post(reset_name_limit))
         .route("/installs/{id}/organize-request", post(organize_request))
         .route("/installs/{id}/split", post(split))
@@ -201,9 +203,12 @@ struct FontState {
     active: bool,
     source: String,
     overridden: bool,
+    updated_at: String,
+    in_library: bool,
+    blocked: bool,
 }
 
-const FONT_COLUMNS: &str = "hash, ps_name, family, style, active, source, overridden_at IS NOT NULL";
+const FONT_COLUMNS: &str = "hash, ps_name, family, style, active, source, overridden, updated_at, in_library, blocked";
 
 fn font_row(r: &rusqlite::Row) -> rusqlite::Result<FontState> {
     Ok(FontState {
@@ -214,41 +219,216 @@ fn font_row(r: &rusqlite::Row) -> rusqlite::Result<FontState> {
         active: r.get(4)?,
         source: r.get(5)?,
         overridden: r.get(6)?,
+        updated_at: r.get(7)?,
+        in_library: r.get(8)?,
+        blocked: r.get(9)?,
     })
 }
 
-#[derive(Deserialize)]
-struct FontsQuery {
+const SOURCES: [&str; 4] = ["user", "admin", "library", "project_set"];
+
+/// The filters shared by the font list, the family list and bulk actions.
+#[derive(Deserialize, Default)]
+struct FontFilter {
     q: Option<String>,
     active: Option<bool>,
+    source: Option<String>,
+    overridden: Option<bool>,
+    family: Option<String>,
 }
 
-/// The fonts reported by the install and every install merged into it, active first: one row per font, on if any
-/// of them has it on, the other fields from the newest report.
+/// One filtered view of an install's fonts: the install and every install merged into it, one row per hash (on if
+/// any has it on, the other fields from the newest report). `fonts`, `families` and `bulk_fonts` all read it, so
+/// they can't disagree. Binds `?1`..`?6`; callers add their own from `?7`.
+struct Scope<'a> {
+    id: &'a str,
+    filter: &'a FontFilter,
+    needle: String,
+}
+
+impl<'a> Scope<'a> {
+    const SQL: &'static str = "WITH g AS (
+        SELECT s.hash, s.ps_name, s.family, s.style, s.source, s.overridden_at IS NOT NULL AS overridden, s.updated_at,
+               s.any_active AS active, l.hash IS NOT NULL AS in_library, COALESCE(l.blocked, 0) AS blocked
+        FROM (SELECT *, MAX(active) OVER (PARTITION BY hash) AS any_active,
+                     ROW_NUMBER() OVER (PARTITION BY hash ORDER BY updated_at DESC, install_id) AS newest
+              FROM font_states WHERE install_id IN (SELECT id FROM installs WHERE id = ?1 OR merged_into = ?1)) s
+        LEFT JOIN library_files l ON l.hash = s.hash
+        WHERE s.newest = 1
+      ), f AS (
+        SELECT * FROM g
+        WHERE instr(lower(family || ' ' || style || ' ' || ps_name), ?2) > 0 AND (?3 IS NULL OR active = ?3)
+          AND (?4 IS NULL OR source = ?4) AND (?5 IS NULL OR overridden = ?5) AND (?6 IS NULL OR family = ?6 COLLATE NOCASE)
+      )";
+
+    fn new(id: &'a str, filter: &'a FontFilter) -> ApiResult<Self> {
+        if filter.source.as_deref().is_some_and(|s| !SOURCES.contains(&s)) {
+            return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid_source", "source must be user, admin, library or project_set"));
+        }
+        Ok(Self { id, filter, needle: filter.q.as_deref().unwrap_or_default().trim().to_lowercase() })
+    }
+
+    fn args(&self) -> Vec<&dyn rusqlite::ToSql> {
+        let f = self.filter;
+        vec![&self.id, &self.needle, &f.active, &f.source, &f.overridden, &f.family]
+    }
+}
+
+/// Active first, then family; `?7`/`?8` are limit and offset.
 async fn fonts(
     State(s): State<AppState>,
     _: Admin,
     Path(id): Path<String>,
-    Query(q): Query<FontsQuery>,
+    Query(q): Query<FontFilter>,
     Query(paging): Query<Paging>,
 ) -> ApiResult<Json<Page<FontState>>> {
     let db = s.db();
     exists(&db, &id)?;
     let (offset, limit) = paging.window(Paging::DEFAULT, Paging::MAX);
-    let needle = q.q.unwrap_or_default().trim().to_lowercase();
-    let group = format!(
-        "WITH g AS (SELECT hash, ps_name, family, style, source, overridden_at,
-                           MAX(active) OVER (PARTITION BY hash) AS active,
-                           ROW_NUMBER() OVER (PARTITION BY hash ORDER BY updated_at DESC, install_id) AS newest
-                    FROM font_states WHERE install_id IN {GROUP})"
-    );
-    let filter = "newest = 1 AND instr(lower(family || ' ' || style || ' ' || ps_name), ?2) > 0 AND (?3 IS NULL OR active = ?3)";
-    let total: i64 = db.query_row(&format!("{group} SELECT COUNT(*) FROM g WHERE {filter}"), params![id, needle, q.active], |r| r.get(0))?;
+    let scope = Scope::new(&id, &q)?;
+    let sql = Scope::SQL;
+    let total: i64 = db.query_row(&format!("{sql} SELECT COUNT(*) FROM f"), scope.args().as_slice(), |r| r.get(0))?;
     let mut stmt = db.prepare(&format!(
-        "{group} SELECT {FONT_COLUMNS} FROM g WHERE {filter} ORDER BY active DESC, family COLLATE NOCASE, style, hash LIMIT ?4 OFFSET ?5"
+        "{sql} SELECT {FONT_COLUMNS} FROM f ORDER BY active DESC, family COLLATE NOCASE, style, hash LIMIT ?7 OFFSET ?8"
     ))?;
-    let items = stmt.query_map(params![id, needle, q.active, limit, offset], font_row)?.collect::<Result<_, _>>()?;
+    let mut args = scope.args();
+    args.extend([&limit as &dyn rusqlite::ToSql, &offset]);
+    let items = stmt.query_map(args.as_slice(), font_row)?.collect::<Result<_, _>>()?;
     Ok(Json(Page { items, total }))
+}
+
+#[derive(Deserialize)]
+struct FamiliesQuery {
+    sort: Option<String>,
+}
+
+#[derive(Serialize)]
+struct FamilyRow {
+    family: String,
+    styles: i64,
+    on: i64,
+    sources: Vec<String>,
+    overridden: i64,
+    in_library: i64,
+    updated_at: String,
+}
+
+/// Fonts grouped by family (case-insensitive) over the same scope as `fonts`; `total` counts families, `fonts` the
+/// matching styles.
+async fn families(
+    State(s): State<AppState>,
+    _: Admin,
+    Path(id): Path<String>,
+    Query(q): Query<FontFilter>,
+    Query(fq): Query<FamiliesQuery>,
+    Query(paging): Query<Paging>,
+) -> ApiResult<Json<Value>> {
+    let order = match fq.sort.as_deref() {
+        None | Some("name") => "family COLLATE NOCASE",
+        Some("recent") => "updated_at DESC, family COLLATE NOCASE",
+        Some(_) => return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid_sort", "sort must be name or recent")),
+    };
+    let db = s.db();
+    exists(&db, &id)?;
+    let (offset, limit) = paging.window(Paging::DEFAULT, Paging::MAX);
+    let scope = Scope::new(&id, &q)?;
+    let sql = Scope::SQL;
+    let (total, fonts): (i64, i64) = db.query_row(
+        &format!("{sql} SELECT COUNT(DISTINCT family COLLATE NOCASE), COUNT(*) FROM f"),
+        scope.args().as_slice(),
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let mut stmt = db.prepare(&format!(
+        "{sql} SELECT MIN(family), COUNT(*), SUM(active), group_concat(DISTINCT source), SUM(overridden), SUM(in_library), MAX(updated_at) AS updated_at
+         FROM f GROUP BY family COLLATE NOCASE ORDER BY {order} LIMIT ?7 OFFSET ?8"
+    ))?;
+    let mut args = scope.args();
+    args.extend([&limit as &dyn rusqlite::ToSql, &offset]);
+    let items: Vec<FamilyRow> = stmt
+        .query_map(args.as_slice(), |r| {
+            Ok(FamilyRow {
+                family: r.get(0)?,
+                styles: r.get(1)?,
+                on: r.get(2)?,
+                sources: r.get::<_, String>(3)?.split(',').map(str::to_string).collect(),
+                overridden: r.get(4)?,
+                in_library: r.get(5)?,
+                updated_at: r.get(6)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    Ok(Json(json!({ "items": items, "total": total, "fonts": fonts })))
+}
+
+#[derive(Deserialize)]
+struct BulkBody {
+    action: String,
+    families: Option<Vec<String>>,
+    hashes: Option<Vec<String>>,
+    all: Option<bool>,
+    #[serde(flatten)]
+    filter: FontFilter,
+}
+
+/// Turns fonts on, off or blocks them in one batch: the chosen families, hashes or everything, narrowed by the same
+/// filters as the lists. `on` skips blocked library fonts and `block` skips fonts that are not in the library; both
+/// count them in `skipped`. Fonts already in the wanted state are left alone and not counted.
+async fn bulk_fonts(State(s): State<AppState>, admin: Admin, Path(id): Path<String>, Json(body): Json<BulkBody>) -> ApiResult<Json<Value>> {
+    if !["on", "off", "block"].contains(&body.action.as_str()) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid_action", "action must be on, off or block"));
+    }
+    let all = body.all == Some(true);
+    if usize::from(body.families.is_some()) + usize::from(body.hashes.is_some()) + usize::from(all) != 1 {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid_selection", "choose exactly one of families, hashes or all"));
+    }
+    let mut db = s.db();
+    exists(&db, &id)?;
+    let scope = Scope::new(&id, &body.filter)?;
+    let (pick, list) = match (&body.families, &body.hashes) {
+        (Some(f), _) => ("EXISTS (SELECT 1 FROM json_each(?7) WHERE value = family COLLATE NOCASE)", json!(f).to_string()),
+        (_, Some(h)) => ("hash IN (SELECT value FROM json_each(?7))", json!(h).to_string()),
+        _ => ("?7 IS NOT NULL", String::new()),
+    };
+    let sql = Scope::SQL;
+    let mut args = scope.args();
+    args.push(&list);
+    let rows: Vec<FontState> = db
+        .prepare(&format!("{sql} SELECT {FONT_COLUMNS} FROM f WHERE {pick} ORDER BY family COLLATE NOCASE, style, hash"))?
+        .query_map(args.as_slice(), font_row)?
+        .collect::<Result<_, _>>()?;
+
+    let tx = db.transaction()?;
+    let (mut changed, mut skipped) = (Vec::new(), 0);
+    for f in rows {
+        let wanted = match body.action.as_str() {
+            "on" if f.blocked => {
+                skipped += 1;
+                continue;
+            }
+            "on" => !f.active,
+            "off" => f.active,
+            _ if !f.in_library => {
+                skipped += 1;
+                continue;
+            }
+            _ => !f.blocked,
+        };
+        if !wanted {
+            continue;
+        }
+        let font = FontRef { hash: f.hash.clone(), ps_name: f.ps_name, family: f.family, style: f.style };
+        match body.action.as_str() {
+            "on" => drop(hub::queue(&tx, &s.hub, &id, CommandKind::Activate { font })?),
+            "off" => drop(hub::queue(&tx, &s.hub, &id, CommandKind::Deactivate { font })?),
+            _ => drop(library::set_blocked(&tx, &s.hub, &f.hash, true)?),
+        }
+        changed.push(f.hash);
+    }
+    if !changed.is_empty() {
+        audit::record(&tx, &admin.email, &format!("fonts_bulk_{}", body.action), &id, &format!("{} fonts", changed.len()))?;
+    }
+    tx.commit()?;
+    Ok(Json(json!({ "changed": changed, "skipped": skipped })))
 }
 
 fn install_detail(c: &Connection, hub: &Hub, id: &str) -> ApiResult<Value> {
@@ -270,11 +450,13 @@ fn install_detail(c: &Connection, hub: &Hub, id: &str) -> ApiResult<Value> {
         .collect();
 
     let mut stmt = c.prepare(&format!(
-        "SELECT {FONT_COLUMNS}, admin_at, overridden_at FROM font_states
+        "SELECT {FONT_COLUMNS}, admin_at, overridden_at FROM (
+           SELECT fs.*, fs.overridden_at IS NOT NULL AS overridden, l.hash IS NOT NULL AS in_library, COALESCE(l.blocked, 0) AS blocked
+           FROM font_states fs LEFT JOIN library_files l ON l.hash = fs.hash)
          WHERE install_id = ?1 AND admin_at IS NOT NULL AND overridden_at IS NOT NULL ORDER BY family COLLATE NOCASE, style"
     ))?;
     let overrides: Vec<Value> = stmt
-        .query_map([id], |r| Ok(json!({ "font": font_row(r)?, "admin_at": r.get::<_, String>(7)?, "user_at": r.get::<_, String>(8)? })))?
+        .query_map([id], |r| Ok(json!({ "font": font_row(r)?, "admin_at": r.get::<_, String>(10)?, "user_at": r.get::<_, String>(11)? })))?
         .collect::<Result<_, _>>()?;
 
     let mut out = serde_json::to_value(&summary)?;

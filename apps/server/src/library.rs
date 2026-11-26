@@ -241,7 +241,7 @@ async fn block(State(s): State<AppState>, admin: Admin, Path(hash): Path<String>
 }
 
 /// Sets `blocked` and pushes Block/Unblock to every install.
-fn set_blocked(c: &Connection, hub: &Hub, hash: &str, blocked: bool) -> ApiResult<LibraryFile> {
+pub(crate) fn set_blocked(c: &Connection, hub: &Hub, hash: &str, blocked: bool) -> ApiResult<LibraryFile> {
     let file = load(c, hash)?;
     c.execute("UPDATE library_files SET blocked = ?1 WHERE hash = ?2", params![blocked, hash])?;
     // Desktops unblock by name, which also clears other files with that name: block those again after it.

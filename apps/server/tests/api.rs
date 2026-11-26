@@ -1571,3 +1571,111 @@ async fn overview_trend_has_thirty_utc_days() {
     let today = &s.admin(Method::GET, "/overview", None).await.json()["trend"][29];
     assert_eq!((today["new_installs"].clone(), today["activity"].clone()), (json!(0), json!(0)));
 }
+
+fn font_of(hash: &str, family: &str, style: &str) -> Value {
+    json!({ "hash": hash, "ps_name": format!("{family}-{style}"), "family": family, "style": style })
+}
+
+impl Server {
+    /// Reports three Inter styles (Bold turned off afterwards) and one Roboto style.
+    async fn report_inter(&self, token: &str) {
+        let active: Vec<Value> = [("i1", "Inter", "Regular"), ("i2", "Inter", "Bold"), ("i3", "Inter", "Italic"), ("r1", "Roboto", "Regular")]
+            .iter()
+            .map(|(h, f, s)| json!({ "hash": h, "ps_name": format!("{f}-{s}"), "family": f, "style": s, "source": "user" }))
+            .collect();
+        assert_eq!(self.desktop(Method::PUT, "/me/fonts", token, Some(json!({ "active": active }))).await.status, StatusCode::NO_CONTENT);
+        let off = event(json!({ "kind": "font_deactivated", "font": font_of("i2", "Inter", "Bold"), "source": "user", "was_admin": false }));
+        assert_eq!(self.desktop(Method::POST, "/me/events", token, Some(off)).await.status, StatusCode::NO_CONTENT);
+    }
+}
+
+#[tokio::test]
+async fn families_group_and_count() {
+    let s = Server::new().await;
+    let t = s.register("a", "Ana").await;
+    s.report_inter(&t).await;
+    let all = s.admin(Method::GET, "/installs/a/families", None).await.json();
+    assert_eq!((all["total"].as_i64(), all["fonts"].as_i64()), (Some(2), Some(4)));
+    let inter = &all["items"][0];
+    assert_eq!((inter["family"].as_str(), inter["styles"].as_i64(), inter["on"].as_i64()), (Some("Inter"), Some(3), Some(2)));
+    assert_eq!(inter["sources"], json!(["user"]));
+    assert_eq!(s.admin(Method::GET, "/installs/a/families?q=robo", None).await.json()["total"], 1);
+    assert_eq!(s.admin(Method::GET, "/installs/a/families?active=true", None).await.json()["items"][0]["styles"], 2);
+    let r = s.admin(Method::GET, "/installs/a/families?sort=bad", None).await;
+    assert_eq!((r.status, r.json()["error"].clone()), (StatusCode::BAD_REQUEST, json!("invalid_sort")));
+    let r = s.admin(Method::GET, "/installs/a/families?source=bad", None).await;
+    assert_eq!((r.status, r.json()["error"].clone()), (StatusCode::BAD_REQUEST, json!("invalid_source")));
+    assert_eq!(s.admin(Method::GET, "/installs/a/families?sort=recent", None).await.status, StatusCode::OK);
+    assert_eq!(s.admin(Method::GET, "/installs/a/fonts?family=inter", None).await.json()["items"].as_array().unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn families_cover_the_merged_group() {
+    let s = Server::new().await;
+    let a = s.register("a", "Ana").await;
+    let b = s.register("b", "Ana S.").await;
+    let on = json!({ "kind": "font_activated", "font": font_of("i2", "Inter", "Bold"), "source": "user" });
+    let off = json!({ "kind": "font_deactivated", "font": font_of("i2", "Inter", "Bold"), "source": "user", "was_admin": false });
+    for (t, e) in [(&a, on.clone()), (&b, on), (&b, off)] {
+        assert_eq!(s.desktop(Method::POST, "/me/events", t, Some(event(e))).await.status, StatusCode::NO_CONTENT);
+    }
+    assert_eq!(s.admin(Method::POST, "/installs/merge", Some(json!({ "primary": "a", "secondary": "b", "keep_name": "primary" }))).await.status, StatusCode::OK);
+    let f = s.admin(Method::GET, "/installs/a/families", None).await.json();
+    assert_eq!((f["items"][0]["styles"].as_i64(), f["items"][0]["on"].as_i64(), f["fonts"].as_i64()), (Some(1), Some(1), Some(1)));
+}
+
+#[tokio::test]
+async fn bulk_respects_filters() {
+    let s = Server::new().await;
+    let t = s.register("a", "Ana").await;
+    s.report_inter(&t).await;
+    s.ack_all(&t).await;
+    let before = s.admin(Method::GET, "/audit", None).await.json()["total"].as_i64().unwrap();
+    let r = s.admin(Method::POST, "/installs/a/fonts/bulk", Some(json!({ "action": "off", "families": ["Inter"], "active": true }))).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", String::from_utf8_lossy(&r.body));
+    let j = r.json();
+    assert_eq!((j["changed"].as_array().unwrap().len(), j["skipped"].as_i64()), (2, Some(0)));
+    assert_eq!(s.ack_all(&t).await, ["deactivate", "deactivate"]);
+    let audit = s.admin(Method::GET, "/audit", None).await.json();
+    assert_eq!(audit["total"].as_i64().unwrap(), before + 1);
+    let row = &audit["items"][0];
+    assert_eq!((row["action"].as_str(), row["target"].as_str(), row["detail"].as_str()), (Some("fonts_bulk_off"), Some("a"), Some("2 fonts")));
+}
+
+#[tokio::test]
+async fn bulk_on_skips_blocked() {
+    let s = Server::new().await;
+    let t = s.register("a", "Ana").await;
+    let hash = s.library_font().await;
+    let off = event(json!({ "kind": "font_deactivated", "font": font_of(&hash, "Fake", "Regular"), "source": "user", "was_admin": false }));
+    assert_eq!(s.desktop(Method::POST, "/me/events", &t, Some(off)).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(s.admin(Method::POST, &format!("/library/{hash}/block"), Some(json!({ "blocked": true }))).await.status, StatusCode::OK);
+    s.ack_all(&t).await;
+    let r = s.admin(Method::POST, "/installs/a/fonts/bulk", Some(json!({ "action": "on", "hashes": [hash] }))).await.json();
+    assert_eq!((r["changed"].clone(), r["skipped"].as_i64()), (json!([]), Some(1)));
+    assert!(s.commands(&t).await.is_empty());
+}
+
+#[tokio::test]
+async fn bulk_selection_is_validated() {
+    let s = Server::new().await;
+    s.register("a", "Ana").await;
+    for (body, code) in [
+        (json!({ "action": "on" }), "invalid_selection"),
+        (json!({ "action": "on", "all": true, "hashes": [] }), "invalid_selection"),
+        (json!({ "action": "zap", "all": true }), "invalid_action"),
+    ] {
+        let r = s.admin(Method::POST, "/installs/a/fonts/bulk", Some(body)).await;
+        assert_eq!((r.status, r.json()["error"].clone()), (StatusCode::BAD_REQUEST, json!(code)));
+    }
+}
+
+#[tokio::test]
+async fn fonts_rows_carry_library_and_time() {
+    let s = Server::new().await;
+    let t = s.register("a", "Ana").await;
+    s.report_inter(&t).await;
+    let item = s.admin(Method::GET, "/installs/a/fonts", None).await.json()["items"][0].clone();
+    assert!(!item["updated_at"].as_str().unwrap().is_empty());
+    assert_eq!((item["in_library"].clone(), item["blocked"].clone()), (json!(false), json!(false)));
+}
