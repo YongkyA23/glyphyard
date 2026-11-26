@@ -52,6 +52,16 @@ No accounts, no cloud lock-in. Each designer's app reports to a server you run, 
 - **Remote control:** turn fonts on or off on someone's computer, block a font everywhere, and see when a user overrides you.
 - **Shared library:** upload fonts once and deliver them to one person, a few, or everyone, including people who install later.
 - **Housekeeping:** merge duplicate installs, enforce the name-change interval (default 30 days), organize the shared library, and export the name history as CSV.
+- **Branding:** set a studio name, an accent colour and a logo (PNG, JPEG, SVG or WebP, up to about 150 KB) in Settings. Every connected app picks them up, and the logo replaces the Glyphyard mark in the sidebar.
+
+### Playful extras
+Small surprises, all switched off by one setting (Settings › Playful extras) and quiet under reduced motion:
+- **Font roulette:** click the sidebar logo five times quickly.
+- **Two hidden games**, *Kern it* and *Name that font*: click the version number in Settings three times.
+- **Breathing previews:** after three idle minutes, variable fonts slowly move through their weight.
+- And a few more for you to find: try the Konami code, or search for `comic sans`.
+
+Handy everywhere: Ctrl+scroll resizes a preview, Shift+scroll moves a variable font's weight, `:time`, `:date` and `:name` work in the sample text, and on a family page you can hold Space for a poster, hold Alt for glyph anatomy, or right-click a glyph to copy it as SVG.
 
 ## Screenshots
 
