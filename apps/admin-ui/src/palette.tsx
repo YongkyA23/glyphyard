@@ -20,7 +20,8 @@ export function Palette() {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        if (open) close(); else show()
+        if (open) close()
+        else if (!document.querySelector('dialog[open]')) show() // not over another dialog
       } else if (!e.ctrlKey && !e.metaKey && !e.altKey && !isTyping(e.target)) {
         if (e.key === '/') {
           const s = document.querySelector<HTMLInputElement>('.main input[type=search]')
@@ -28,7 +29,7 @@ export function Palette() {
         } else if (e.key === '?') { e.preventDefault(); setHelp(true) }
       }
     }
-    const onOpen = () => { if (!open) show() }
+    const onOpen = () => { if (!open && !document.querySelector('dialog[open]')) show() }
     window.addEventListener('keydown', onKey)
     window.addEventListener(OPEN_PALETTE, onOpen)
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener(OPEN_PALETTE, onOpen) }
