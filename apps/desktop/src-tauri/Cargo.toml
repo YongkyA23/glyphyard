@@ -27,7 +27,7 @@ tokio = { version = "1.54.1", features = ["sync", "time"] }
 tracing = "0.1.44"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-typeshelf-activation = { version = "0.1.0", path = "../../../crates/activation" }
+typeshelf-activation = { path = "../../../crates/activation" }
 typeshelf-adobe-bridge = { path = "../../../crates/adobe-bridge" }
 typeshelf-core.workspace = true
 typeshelf-engine = { path = "../../../crates/engine" }

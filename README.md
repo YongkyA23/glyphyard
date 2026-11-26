@@ -12,7 +12,7 @@ No accounts, no cloud lock-in. Each designer's app reports to a server you run, 
 ![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white)
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-555)
-![Version](https://img.shields.io/badge/version-0.1.2-2563EB)
+![Version](https://img.shields.io/badge/version-0.2.0-2563EB)
 
 [Features](#features) · [Screenshots](#screenshots) · [How it works](#how-it-works) · [Getting started](#getting-started) · [Docs](#documentation) · [Roadmap](#roadmap)
 
