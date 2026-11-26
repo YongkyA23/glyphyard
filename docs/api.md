@@ -37,7 +37,10 @@ type InstallSummary = {
   flags: ("new" | "possible_duplicate" | "override" | "failures" | "stale")[];
 };
 type FontState = { hash: string; ps_name: string; family: string; style: string; active: boolean;
-  source: "user" | "admin" | "project_set" | "library"; overridden: boolean };
+  source: "user" | "admin" | "project_set" | "library"; overridden: boolean;
+  updated_at: string; in_library: boolean; blocked: boolean };
+type FamilyRow = { family: string; styles: number; on: number; sources: FontState["source"][]; overridden: number;
+  in_library: number; updated_at: string };
 type InstallDetail = InstallSummary & {
   first_seen: string; merged_from: string[];
   name_history: { name: string; from: string; to: string | null }[];
@@ -67,7 +70,9 @@ Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–20
 | GET | `/overview` | → `{ installs, online, os: {windows, macos}, name_changes_month, overrides_week, failures_week, recent: Activity[], attention: { overrides, failures, possible_duplicates, stale, requests }, top_fonts: { family, users }[], trend: { day, activity, failures, new_installs }[] }`. `trend` is the last 30 UTC days, oldest first, today last, zero-filled: events (`activity`, `failures`) and new installs per day |
 | GET | `/installs?q=&filter=all\|online\|overrides\|duplicates\|stale&sort=name\|last_seen\|fonts&dir=asc\|desc&offset=&limit=` | → `Page<InstallSummary>` sorted by name unless `sort` is set (defaults: `name` asc, others desc; ties by name; `dir` alone is ignored; unknown values are 400 `invalid_sort`) (q matches current name, old names, install id) |
 | GET | `/installs/{id}` | → `InstallDetail` (fonts are paged separately) |
-| GET | `/installs/{id}/fonts?q=&active=true\|false&offset=&limit=` | → `Page<FontState>` active first, then family (q matches family, style, PostScript name). Covers the install and every install merged into it: one row per font, `active` if on in any of them |
+| GET | `/installs/{id}/fonts?q=&active=true\|false&family=&source=user\|admin\|library\|project_set&overridden=true&offset=&limit=` | → `Page<FontState>` active first, then family (q matches family, style, PostScript name; `family` is an exact, case-insensitive match; unknown `source` is 400 `invalid_source`). Covers the install and every install merged into it: one row per font, `active` if on in any of them |
+| GET | `/installs/{id}/families?q=&active=&source=&overridden=&sort=name\|recent&offset=&limit=` | → `Page<FamilyRow> & { fonts: number }`: the same fonts grouped by family (case-insensitive). `total` counts families, `fonts` the matching styles, `on` the styles on. By family name unless `sort=recent` (newest report first); bad `sort` is 400 `invalid_sort`, bad `source` 400 `invalid_source` |
+| POST | `/installs/{id}/fonts/bulk` | `{ action: "on"\|"off"\|"block", families?: string[], hashes?: string[], all?: true, q?, active?, source?, overridden? }` → `{ changed: string[], skipped: number }`. Exactly one of `families`, `hashes`, `all` (else 400 `invalid_selection`; bad action 400 `invalid_action`); the filters narrow it like the lists. Queues Activate/Deactivate per changed hash; `block` blocks the library file everywhere. Blocked fonts are skipped by `on`, fonts not in the library by `block` (counted in `skipped`); fonts already in the wanted state are left out. One audit row per batch (`fonts_bulk_on`, `fonts_bulk_off`, `fonts_bulk_block`, detail "N fonts") |
 | GET | `/installs/{id}/timeline?kind=all\|names\|fonts\|overrides\|failures&offset=&limit=` | → `Page<TimelineEvent>` newest first (limit default 100, max 500) |
 | POST | `/installs/{id}/fonts` | `{ hash, active }` → `{ command_id }` (queues Activate/Deactivate for the install and every install merged into it, pushes over WS; `command_id` is the one for `{id}`) |
 | POST | `/installs/{id}/reset-name-limit` | → 204 |
