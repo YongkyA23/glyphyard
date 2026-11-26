@@ -196,4 +196,10 @@ Built with [Tauri](https://tauri.app), [Axum](https://github.com/tokio-rs/axum),
 
 ## License
 
-No license has been chosen yet. Until one is added, all rights are reserved.
+Glyphyard is free software under the [GNU Affero General Public License v3.0](LICENSE). You can use, change and share it. If you run a modified version for other people, including as a hosted service, you must share your changes under the same license.
+
+**Commercial license:** if the AGPL doesn't suit your organisation, for example because you want to ship a closed-source fork or a hosted offering, a commercial license is available. Contact the maintainer through GitHub.
+
+**Contributing:** contributions are welcome. Because Glyphyard is also offered under a commercial license, pull requests are accepted only after you agree that your contribution may be distributed under both the AGPL and the commercial license.
+
+"Glyphyard" and its logo are not covered by the license; please don't use them for your own fork.
