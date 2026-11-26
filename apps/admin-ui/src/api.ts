@@ -9,7 +9,11 @@ export type InstallSummary = {
   flags: Flag[]
 }
 export type FontSource = 'user' | 'admin' | 'project_set' | 'library'
-export type FontState = { hash: string; ps_name: string; family: string; style: string; active: boolean; source: FontSource; overridden: boolean }
+export type FamilyRow = { family: string; styles: number; on: number; sources: FontSource[]; overridden: number; in_library: number; updated_at: string }
+export type FontFilter = { q?: string; active?: boolean; source?: FontSource; overridden?: boolean }
+export type FontSelection = { families: string[] } | { hashes: string[] } | { all: true }
+export type FamilySort = 'name' | 'recent'
+export type FontState = { hash: string; ps_name: string; family: string; style: string; active: boolean; source: FontSource; overridden: boolean; updated_at: string; in_library: boolean; blocked: boolean }
 export type InstallDetail = InstallSummary & {
   first_seen: string; merged_from: string[]
   name_history: { name: string; from: string; to: string | null }[]
@@ -128,8 +132,12 @@ export const api = {
   installs: (q = '', filter: InstallFilter = 'all', page = 1, sort?: Sort<InstallSort>) =>
     request<Page<InstallSummary>>('GET', '/installs' + qs({ q, filter, ...sortParams(sort), ...paging(page) })),
   install: (installId: string) => request<InstallDetail>('GET', `/installs/${id(installId)}`),
-  fonts: (installId: string, q = '', page = 1, active?: boolean) =>
-    request<Page<FontState>>('GET', `/installs/${id(installId)}/fonts` + qs({ q, active, ...paging(page) })),
+  fonts: (installId: string, q = '', page = 1, active?: boolean, extra: { family?: string; source?: FontSource; overridden?: boolean; size?: number } = {}) =>
+    request<Page<FontState>>('GET', `/installs/${id(installId)}/fonts` + qs({ q, active, family: extra.family, source: extra.source, overridden: extra.overridden || undefined, ...paging(page, extra.size) })),
+  families: (installId: string, f: FontFilter, sort: FamilySort, page = 1) =>
+    request<Page<FamilyRow> & { fonts: number }>('GET', `/installs/${id(installId)}/families` + qs({ q: f.q, active: f.active, source: f.source, overridden: f.overridden || undefined, sort, ...paging(page) })),
+  bulkFonts: (installId: string, action: 'on' | 'off' | 'block', sel: FontSelection, f: FontFilter) =>
+    request<{ changed: string[]; skipped: number }>('POST', `/installs/${id(installId)}/fonts/bulk`, { action, ...sel, ...f }),
   timeline: (installId: string, kind: TimelineFilter = 'all', page = 1, size = PAGE_SIZE) =>
     request<Page<TimelineEvent>>('GET', `/installs/${id(installId)}/timeline` + qs({ kind, ...paging(page, size) })),
   setFont: (installId: string, hash: string, active: boolean) =>

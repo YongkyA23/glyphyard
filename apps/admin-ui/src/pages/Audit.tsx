@@ -18,6 +18,7 @@ const LABELS: Record<string, string> = {
   installs_merged: 'Merged installs', install_split: 'Split an install back out',
   install_revoked: 'Removed a computer', font_undelivered: 'Stopped delivering a font', font_deleted: 'Deleted a font',
   bulk_deliver: 'Delivered fonts in bulk', bulk_block: 'Blocked fonts in bulk', bulk_unblock: 'Unblocked fonts in bulk', bulk_delete: 'Deleted fonts in bulk',
+  fonts_bulk_on: 'Turned fonts on in bulk', fonts_bulk_off: 'Turned fonts off in bulk', fonts_bulk_block: 'Blocked fonts in bulk',
   font_request_done: 'Marked a font request done', font_request_reopened: 'Reopened a font request',
   release_uploaded: 'Uploaded an app release',
 }

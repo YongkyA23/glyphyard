@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { api, errorText, type FontState, type InstallDetail, type TimelineEvent, type TimelineFilter } from '../api'
+import { api, errorText, type InstallDetail, type TimelineEvent, type TimelineFilter } from '../api'
 import { dropIn, fadeRise, row } from '../motion'
 import { toast } from '../toast'
+import { InstallFonts } from './InstallFonts'
+import { useFontToggle } from './useFontToggle'
 import {
-  ago, Badge, byLabel, byTone, Chips, downloadCsv, Empty, ErrorBox, fmtDate, fmtShort, firstName, Loaded, PageHeader, Pager, plural, Skel, Spin, Swap, Toggle,
-  useConfirm, useDebounced, useLoad, usePage,
+  ago, Badge, byLabel, byTone, Chips, downloadCsv, Empty, ErrorBox, fmtDate, fmtShort, firstName, Loaded, PageHeader, Pager, plural, Skel, Spin, Swap,
+  useConfirm, useLoad, usePage,
 } from '../ui'
 
 const eventsSkeleton = (
@@ -35,7 +37,6 @@ const detailSkeleton = (
 )
 
 const KINDS: [TimelineFilter, string][] = [['all', 'All'], ['names', 'Names'], ['fonts', 'Fonts'], ['overrides', 'Overrides'], ['failures', 'Failures']]
-const fontsSkeleton = <div className="stack-10">{[60, 45, 70].map((w) => <Skel key={w} w={`${w}%`} h={18} />)}</div>
 
 export function UserDetail() {
   const id = useParams().id!
@@ -108,7 +109,7 @@ function Detail({ u, reload }: { u: InstallDetail; reload: () => void }) {
         <Timeline id={u.id} />
         <div className="side">
           {u.overrides.length > 0 && <Overrides u={u} who={who} />}
-          <Fonts u={u} who={who} />
+          <InstallFonts u={u} who={who} />
           <motion.section aria-labelledby="nh" className="card pad-18 stack-8" variants={fadeRise}>
             <h2 id="nh" className="h2 h2-sm mb-4">Name history</h2>
             {history.map((n) => (
@@ -159,48 +160,6 @@ function Timeline({ id }: { id: string }) {
   )
 }
 
-/** A font toggle is only a request: the desktop applies it later. `pending` holds the requested state per font until a poll confirms it or PENDING_MS passes. */
-const PENDING_MS = 120_000
-
-function useFontToggle(installId: string) {
-  const [error, setError] = useState('')
-  const [sent, setSent] = useState<Record<string, boolean>>({})
-  const [shakes, setShakes] = useState<Record<string, number>>({})
-  const [pending, setPending] = useState<Record<string, boolean>>({})
-  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
-  const drop = useCallback((hash: string) => {
-    clearTimeout(timers.current.get(hash))
-    timers.current.delete(hash)
-    setPending((p) => { if (!(hash in p)) return p; const { [hash]: _, ...rest } = p; return rest })
-  }, [])
-  useEffect(() => { const t = timers.current; return () => { t.forEach(clearTimeout); t.clear() } }, [])
-  /** Throws on failure (after clearing the pending state); the toast Undo uses it so a failure shows an error toast. */
-  const send = async (hash: string, active: boolean) => {
-    setPending((p) => ({ ...p, [hash]: active }))
-    timers.current.set(hash, setTimeout(() => drop(hash), PENDING_MS))
-    try {
-      await api.setFont(installId, hash, active)
-      setSent((s) => ({ ...s, [hash]: true }))
-    } catch (e) {
-      drop(hash)
-      throw e
-    }
-  }
-  /** `announce`: toast text for the request, with an Undo that sends the opposite request. */
-  const set = async (hash: string, active: boolean, announce?: string) => {
-    if (timers.current.has(hash)) return
-    setError('')
-    try {
-      await send(hash, active)
-      if (announce) toast(announce, { undo: () => { drop(hash); return send(hash, !active) } })
-    } catch (e) {
-      setShakes((s) => ({ ...s, [hash]: (s[hash] ?? 0) + 1 }))
-      setError(errorText(e))
-    }
-  }
-  return { set, error, sent, shakes, pending, drop }
-}
-
 function Overrides({ u, who }: { u: InstallDetail; who: string }) {
   const { set, error, sent } = useFontToggle(u.id)
   return (
@@ -223,60 +182,6 @@ function Overrides({ u, who }: { u: InstallDetail; who: string }) {
         )
       })}
       {error && <span role="alert" className="form-error">{error}</span>}
-    </motion.section>
-  )
-}
-
-const sourceText = (f: FontState, who: string) =>
-  f.overridden ? `Turned on by admin · turned off by ${who}`
-    : f.source === 'admin' ? 'Turned on by admin'
-    : f.source === 'project_set' ? 'Project set'
-    : f.source === 'library' ? 'Shared library'
-    : f.active ? `Turned on by ${who}` : `Turned off by ${who}`
-
-function Fonts({ u, who }: { u: InstallDetail; who: string }) {
-  const [q, setQ] = useState('')
-  const query = useDebounced(q.trim(), 150)
-  const [page, setPage] = usePage(query)
-  const state = useLoad(() => api.fonts(u.id, query, page), [u.id, query, page], 10_000)
-  const { set, error, shakes, pending, drop } = useFontToggle(u.id)
-  // A poll that reports the requested state ends the wait.
-  useEffect(() => {
-    state.data?.items.forEach((f) => { if (pending[f.hash] === f.active) drop(f.hash) })
-  }, [state.data, pending, drop])
-  return (
-    <motion.section aria-labelledby="af" className="card pad-18 stack-10" variants={fadeRise}>
-      <div className="row-between">
-        <h2 id="af" className="h2 h2-sm">Active fonts · {u.active_fonts}</h2>
-        <Link to="/library" className="small">Turn on fonts…</Link>
-      </div>
-      <label htmlFor="fsearch" className="sr-only">Search this user's fonts</label>
-      <input id="fsearch" type="search" className="input input-38" placeholder={`Search ${who}’s fonts`} value={q} onChange={(e) => setQ(e.target.value)} />
-      {error && <span role="alert" className="form-error">{error}</span>}
-      <Loaded state={state} skeleton={fontsSkeleton}>{({ items, total }) => {
-        // Active first, like the server; toggling re-sorts this page so rows glide to their new place.
-        const shown = items.map((f) => (f.hash in pending ? { ...f, active: pending[f.hash] } : f)).sort((a, b) => Number(b.active) - Number(a.active))
-        return <>
-      {total === 0 && <Empty>{query ? 'No fonts match.' : 'No fonts reported by this computer yet.'}</Empty>}
-      <AnimatePresence>
-      {shown.map((f, i) => {
-        const name = `${f.family} ${f.style}`
-        return (
-          <motion.div key={f.hash} className="font-row" {...row(i, shown.length)}>
-            <span className="font-info">
-              <span className="font-name ellipsis" style={{ fontFamily: `'${f.family}', var(--font-ui)` }}>{name}</span>
-              <span className="meta">{f.hash in pending ? 'Waiting for this computer' : sourceText(f, who)}</span>
-            </span>
-            <Toggle on={f.active} label={`${f.active ? 'Turn off' : 'Turn on'} ${name} for ${who}`} onChange={() => set(f.hash, !f.active, `Turning ${name} ${f.active ? 'off' : 'on'} on ${who}’s computer.`)} disabled={f.hash in pending}
-              shakeKey={shakes[f.hash]} />
-          </motion.div>
-        )
-      })}
-      </AnimatePresence>
-      <Pager label="Font pages" page={page} total={total} onPage={setPage} />
-        </>
-      }}</Loaded>
-      <span className="meta">Changes reach {who}’s computer within seconds while online.</span>
     </motion.section>
   )
 }

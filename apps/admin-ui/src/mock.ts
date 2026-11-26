@@ -1,5 +1,5 @@
 // Dev-only fixtures (?mock=1). Patches fetch for /api/admin so pages render without a server.
-import type { AuditEntry, FontRequest, FontState, InstallDetail, InstallSummary, LibraryFile, Overview, Page, Settings } from './api'
+import type { AuditEntry, FamilyRow, FontRequest, FontState, InstallDetail, InstallSummary, LibraryFile, Overview, Page, Settings } from './api'
 
 const now = Date.now()
 const t = (mins: number) => new Date(now - mins * 60000).toISOString()
@@ -17,19 +17,28 @@ const installs: InstallSummary[] = [
     app_version: '1.0.0', active_fonts: (i * 7) % 90, last_seen: t(i * 37), online: i % 4 === 0, next_name_change: null, flags: i % 11 ? [] : ['stale'],
   })),
 ]
+const FAMILIES = ['Sample Sans', 'Aster Serif', 'Boreal Mono', 'Cinder', 'Dovetail', 'Ember Display', 'Fjord', 'Gable', 'Harbor Slab', 'Iris', 'Juniper', 'Kestrel', 'Lumen', 'Marlow', 'Nimbus', 'Onyx Condensed', 'Pavilion', 'Quarry', 'Reed', 'Saffron', 'Tundra', 'Umber', 'Vesper', 'Willow', 'Yarrow']
+const STYLES = ['Regular', 'Italic', 'Bold', 'Bold Italic', 'Light', 'Medium', 'SemiBold', 'Black']
+const SOURCES: FontState['source'][] = ['user', 'user', 'admin', 'library', 'project_set']
+const mk = (hash: string, family: string, style: string, active: boolean, source: FontState['source'], mins: number, overridden = false, in_library = false, blocked = false): FontState =>
+  ({ hash, ps_name: `${family.replace(/ /g, '')}-${style.replace(/ /g, '')}`, family, style, active, source, overridden, updated_at: t(mins), in_library, blocked })
 const fonts: FontState[] = [
-  { hash: 'h1', ps_name: 'Fraunces-Regular', family: 'Fraunces', style: 'Regular', active: false, source: 'admin', overridden: true },
-  { hash: 'h2', ps_name: 'SpaceGrotesk-Medium', family: 'Space Grotesk', style: 'Medium', active: true, source: 'admin', overridden: false },
-  { hash: 'h3', ps_name: 'IBMPlexMono-Medium', family: 'IBM Plex Mono', style: 'Medium', active: true, source: 'user', overridden: false },
-  { hash: 'h4', ps_name: 'Syne-SemiBold', family: 'Syne', style: 'SemiBold', active: true, source: 'project_set', overridden: false },
-  ...Array.from({ length: 160 }, (_, i): FontState => ({
-    hash: `hf${i}`, ps_name: `Sample${i}-Regular`, family: `Sample Sans ${i + 1}`, style: 'Regular', active: i % 3 !== 0, source: 'user', overridden: false,
-  })),
+  mk('h1', 'Fraunces', 'Regular', false, 'admin', 1440, true),
+  mk('h2', 'Space Grotesk', 'Medium', true, 'admin', 30, false, true),
+  mk('h3', 'IBM Plex Mono', 'Medium', true, 'user', 90),
+  mk('h4', 'Syne', 'SemiBold', true, 'project_set', 200, false, true),
+  ...Array.from({ length: 160 }, (_, i) => {
+    const fam = i % FAMILIES.length
+    const n = 4 + (fam % 5)
+    const style = STYLES[Math.floor(i / FAMILIES.length) % n]
+    const source = SOURCES[(fam + i) % SOURCES.length]
+    return mk(`hf${i}`, FAMILIES[fam], style, i % 3 !== 0, source, 5 + ((i * 53) % 4000), source === 'admin' && i % 7 === 0, source === 'library', source === 'library' && i % 6 === 0)
+  }),
 ]
 const detail = (s: InstallSummary): InstallDetail => ({
   ...s, first_seen: t(26 * day), merged_from: [],
   name_history: [{ name: s.name, from: t(15 * day), to: null }, ...s.previous_names.map((n) => ({ name: n, from: t(26 * day), to: t(15 * day) }))],
-  overrides: s.flags.includes('override') ? [{ font: { hash: 'h1', ps_name: 'Fraunces-Regular', family: 'Fraunces', style: 'Regular', active: false, source: 'admin', overridden: true }, admin_at: t(day), user_at: t(5) }] : [],
+  overrides: s.flags.includes('override') ? [{ font: fonts[0], admin_at: t(day), user_at: t(5) }] : [],
 })
 const library: LibraryFile[] = [
   { hash: 'h2', filename: 'SpaceGrotesk-Medium.otf', ps_name: 'SpaceGrotesk-Medium', family: 'Space Grotesk', style: 'Medium', version: '2.0', license: 'licensed', size: 84000, delivered_to: 'all', active_on: 41, blocked: false, uploaded_at: t(9 * day) },
@@ -101,6 +110,14 @@ function paged<T>(list: T[], sp: URLSearchParams, text: (x: T) => string = () =>
   return { items: hits.slice(offset, offset + limit), total: hits.length }
 }
 
+const fontText = (f: FontState) => `${f.family} ${f.style} ${f.ps_name}`
+/** The state / source / override / search filters shared by /fonts, /families and /fonts/bulk. */
+function matches(f: FontState, sp: URLSearchParams): boolean {
+  const active = sp.get('active'), source = sp.get('source'), q = (sp.get('q') ?? '').toLowerCase()
+  return (active === null || f.active === (active === 'true')) && (!source || f.source === source)
+    && (sp.get('overridden') !== 'true' || f.overridden) && (!q || fontText(f).toLowerCase().includes(q))
+}
+
 function route(method: string, p: string, sp: URLSearchParams, body: unknown): unknown {
   const m = (re: RegExp) => p.match(re)
   if (p === '/me') return { email: 'admin@example.test', role: 'owner' }
@@ -118,6 +135,7 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
       else if (b.action === 'deliver') f.delivered_to = b.target ?? 'none'
       else f.blocked = b.action === 'block'
     }
+    if (b.hashes && (b.action === 'block' || b.action === 'unblock')) for (const x of fonts) if (x.in_library && b.hashes.includes(x.hash)) { x.blocked = b.action === 'block'; if (x.blocked) x.active = false }
     return { changed: hit.length, skipped: 0, failed: 0 }
   }
   if (p === '/overview') return livePoll()
@@ -128,7 +146,44 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
       fonts: (a, b) => a.active_fonts - b.active_fonts,
     })
   }
-  if (m(/^\/installs\/[^/]+\/fonts$/) && method === 'GET') return paged(fonts, sp, (f) => `${f.family} ${f.style} ${f.ps_name}`)
+  if (m(/^\/installs\/[^/]+\/fonts$/) && method === 'GET') {
+    const fam = sp.get('family')?.toLowerCase()
+    return paged(fonts.filter((f) => matches(f, sp) && (!fam || f.family.toLowerCase() === fam)), sp, fontText)
+  }
+  if (m(/^\/installs\/[^/]+\/families$/)) {
+    const hits = fonts.filter((f) => matches(f, sp))
+    const fams = new Map<string, FamilyRow>()
+    for (const f of hits) {
+      const k = f.family.toLowerCase()
+      const r = fams.get(k) ?? { family: f.family, styles: 0, on: 0, sources: [], overridden: 0, in_library: 0, updated_at: f.updated_at }
+      r.styles++; r.on += +f.active; r.overridden += +f.overridden; r.in_library += +f.in_library
+      if (!r.sources.includes(f.source)) r.sources.push(f.source)
+      if (f.updated_at > r.updated_at) r.updated_at = f.updated_at
+      fams.set(k, r)
+    }
+    const rows = [...fams.values()].sort((a, b) => sp.get('sort') === 'recent' ? b.updated_at.localeCompare(a.updated_at) || a.family.localeCompare(b.family) : a.family.localeCompare(b.family, undefined, { sensitivity: 'base' }))
+    const offset = Number(sp.get('offset') ?? 0)
+    return { items: rows.slice(offset, offset + Math.min(200, Number(sp.get('limit') ?? 50))), total: rows.length, fonts: hits.length }
+  }
+  if (m(/^\/installs\/[^/]+\/fonts\/bulk$/)) {
+    const b = body as { action: 'on' | 'off' | 'block'; families?: string[]; hashes?: string[]; all?: true } & Record<string, unknown>
+    const fams = b.families?.map((x) => x.toLowerCase())
+    const scope = new URLSearchParams(Object.entries(b).filter(([k, v]) => ['q', 'active', 'source', 'overridden'].includes(k) && v !== undefined).map(([k, v]) => [k, String(v)]))
+    const hit = fonts.filter((f) => (b.hashes ? b.hashes.includes(f.hash) : matches(f, scope) && (!fams || fams.includes(f.family.toLowerCase()))))
+    const changed: string[] = []
+    let skipped = 0
+    for (const f of hit) {
+      if (b.action === 'block') {
+        if (!f.in_library || f.blocked) { skipped++; continue }
+        f.blocked = true; f.active = false
+      } else if (b.action === 'on' && f.blocked) { skipped++; continue }
+      else if (f.active === (b.action === 'on')) continue
+      else f.active = b.action === 'on'
+      f.updated_at = new Date().toISOString()
+      changed.push(f.hash)
+    }
+    return { changed, skipped }
+  }
   if (m(/^\/installs\/[^/]+\/timeline$/)) return paged([
     { id: 1, at: t(5), by: 'user', kind: 'override', text: 'Turned off Fraunces' },
     { id: 2, at: t(day), by: 'admin', kind: 'font', text: 'Fraunces turned on remotely' },

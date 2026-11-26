@@ -237,9 +237,9 @@ export function PageHeader({ title, sub, actions, back, align = 'center', childr
 
 /* ---------- small components ---------- */
 
-/** Switch with a spring knob. Bump `shakeKey` to shake it (e.g. after a failed request snapped it back). */
-export function Toggle({ on, label, onChange, disabled, shakeKey }: {
-  on: boolean; label: string; onChange: () => void; disabled?: boolean; shakeKey?: number
+/** Switch with a spring knob; `mixed` parks the knob mid-track (some of a group are on). Bump `shakeKey` to shake it (e.g. after a failed request snapped it back). */
+export function Toggle({ on, mixed, label, onChange, disabled, shakeKey }: {
+  on: boolean; mixed?: boolean; label: string; onChange: () => void; disabled?: boolean; shakeKey?: number
 }) {
   const [scope, animateEl] = useAnimate<HTMLButtonElement>()
   const reduce = useReducedMotion()
@@ -247,9 +247,9 @@ export function Toggle({ on, label, onChange, disabled, shakeKey }: {
     if (shakeKey && !reduce) void animateEl(scope.current, { x: shakeX }, shakeOpts)
   }, [shakeKey, reduce, animateEl, scope])
   return (
-    <motion.button ref={scope} type="button" className="toggle" aria-pressed={on} aria-label={label} onClick={onChange} disabled={disabled}
+    <motion.button ref={scope} type="button" className="toggle" aria-pressed={mixed ? 'mixed' : on} aria-label={label} onClick={onChange} disabled={disabled}
       whileTap={disabled ? undefined : { scale: 0.94 }}>
-      <motion.span className="toggle-knob" initial={false} animate={{ x: on ? 18 : 0 }} transition={spring} />
+      <motion.span className="toggle-knob" initial={false} animate={{ x: mixed ? 9 : on ? 18 : 0 }} transition={spring} />
     </motion.button>
   )
 }
