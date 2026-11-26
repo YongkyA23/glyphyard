@@ -20,3 +20,6 @@ docs/deploy.local.md
 
 # Agent worktrees: hold unredacted copies of the deploy guide
 .claude/worktrees/
+
+# Agent workflow scratch (plans ledgers, reports)
+.superpowers/
