@@ -61,7 +61,7 @@ export function Audit() {
               </motion.tr>
             ))}
           </Table>
-          {total === 0 && <Empty>{admin || action ? 'Nothing matches these filters.' : 'Nothing has been recorded yet.'}</Empty>}
+          {total === 0 && (admin || action ? <Empty>Nothing matches these filters.</Empty> : <Empty title="Nothing has been recorded yet" />)}
           <Pager label="Audit log pages" page={page} total={total} onPage={setPage} />
         </>
       )}</Loaded>

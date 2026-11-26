@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { api, type Flag, type InstallFilter } from '../api'
+import { api, type Flag, type InstallFilter, type InstallSort, type Sort } from '../api'
 import { pop, press, row } from '../motion'
-import { ago, Badge, Chips, Empty, fmtDate, Loaded, Pager, Table, TableSkeleton, useDebounced, useLoad, usePage, type Tone } from '../ui'
+import { ago, Badge, Chips, Empty, fmtDate, Loaded, Pager, SortHead, sortAria, Table, TableSkeleton, useDebounced, useLoad, usePage, type Tone } from '../ui'
 
 const MotionLink = motion.create(Link)
 const HEAD = [<span className="sr-only">Select</span>, 'Name', 'Install ID', 'Computer', 'Active fonts', 'Last seen', 'Next name change']
@@ -21,9 +21,18 @@ export function Users() {
   const filter = (FILTERS.find(([k]) => k === params.get('filter'))?.[0] ?? 'all') as InstallFilter
   const [q, setQ] = useState('')
   const query = useDebounced(q.trim(), 150)
-  const [page, setPage] = usePage(`${query}|${filter}`)
+  const [sort, setSort] = useState<Sort<InstallSort>>(null)
+  const [page, setPage] = usePage(`${query}|${filter}|${sort?.key}|${sort?.dir}`)
   const [selected, setSelected] = useState<string[]>(() => params.getAll('select'))
-  const state = useLoad(() => api.installs(query, filter, page), [query, filter, page])
+  const state = useLoad(() => api.installs(query, filter, page, sort), [query, filter, page, sort])
+  const head = [
+    HEAD[0],
+    { node: <SortHead label="Name" k="name" sort={sort} onSort={setSort} defaultDir="asc" />, sort: sortAria(sort, 'name') },
+    'Install ID', 'Computer',
+    { node: <SortHead label="Active fonts" k="fonts" sort={sort} onSort={setSort} defaultDir="desc" />, sort: sortAria(sort, 'fonts') },
+    { node: <SortHead label="Last seen" k="last_seen" sort={sort} onSort={setSort} defaultDir="desc" />, sort: sortAria(sort, 'last_seen') },
+    HEAD[6],
+  ]
 
   const toggle = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
@@ -54,7 +63,7 @@ export function Users() {
       </div>
       <Loaded state={state} skeleton={<TableSkeleton head={HEAD} minWidth={960} />}>{({ items: rows, total }) => (
         <>
-          <Table caption="Installs" minWidth={960} head={HEAD}>
+          <Table caption="Installs" minWidth={960} head={head}>
             {rows.map((u, i) => {
               const flag = FLAGS.find(([f]) => u.flags.includes(f))
               return (
@@ -80,7 +89,11 @@ export function Users() {
               )
             })}
           </Table>
-          {total === 0 && <Empty>{query || filter !== 'all' ? 'No installs match.' : 'No installs yet. They appear when the desktop app connects for the first time.'}</Empty>}
+          {total === 0 && (query || filter !== 'all'
+            ? <Empty>No installs match.</Empty>
+            : <Empty title="No computers yet" action={<Link className="btn btn-primary" to="/settings">Show install key</Link>}>
+                Install Glyphyard on a computer and enter this server’s address and install key.
+              </Empty>)}
           <Pager label="Install pages" page={page} total={total} onPage={setPage} />
         </>
       )}</Loaded>

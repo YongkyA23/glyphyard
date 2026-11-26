@@ -1,18 +1,24 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { motion } from 'motion/react'
-import { api, errorText, type FontRequest, type RequestState } from '../api'
+import { api, errorText, type FontRequest, type RequestSort, type RequestState, type Sort } from '../api'
 import { row } from '../motion'
 import { toast } from '../toast'
-import { Chips, Empty, ErrorBox, fmtDate, Loaded, PageHeader, Pager, Table, TableSkeleton, useLoad, usePage } from '../ui'
+import { Chips, Empty, ErrorBox, fmtDate, Loaded, PageHeader, Pager, SortHead, sortAria, Table, TableSkeleton, useLoad, usePage } from '../ui'
 
 const HEAD = ['Asked', 'Font', 'Note', 'Who', '']
 const STATES: [RequestState, string][] = [['open', 'Open'], ['done', 'Done'], ['all', 'All']]
 
 export function Requests() {
   const [state, setState] = useState<RequestState>('open')
-  const [page, setPage] = usePage(state)
-  const list = useLoad(() => api.fontRequests(state, page), [state, page])
+  const [sort, setSort] = useState<Sort<RequestSort>>(null)
+  const [page, setPage] = usePage(`${state}|${sort?.key}|${sort?.dir}`)
+  const list = useLoad(() => api.fontRequests(state, page, sort), [state, page, sort])
+  const head = [
+    { node: <SortHead label="Asked" k="at" sort={sort} onSort={setSort} defaultDir="desc" />, sort: sortAria(sort, 'at') },
+    { node: <SortHead label="Font" k="font" sort={sort} onSort={setSort} defaultDir="asc" />, sort: sortAria(sort, 'font') },
+    ...HEAD.slice(2),
+  ]
   const [busy, setBusy] = useState<number | null>(null)
   const [error, setError] = useState('')
 
@@ -43,7 +49,7 @@ export function Requests() {
       {error && <ErrorBox message={error} />}
       <Loaded state={list} skeleton={<TableSkeleton head={HEAD} minWidth={820} />}>{({ items, total }) => (
         <>
-          <Table caption="Font requests" minWidth={820} head={HEAD}>
+          <Table caption="Font requests" minWidth={820} head={head}>
             {items.map((r, i) => (
               <motion.tr key={r.id} {...row(i, items.length)}>
                 <td className="ink-2 nowrap">{fmtDate(r.at)}</td>
@@ -60,7 +66,9 @@ export function Requests() {
               </motion.tr>
             ))}
           </Table>
-          {total === 0 && <Empty>{state === 'open' ? 'No open requests.' : 'No requests yet.'}</Empty>}
+          {total === 0 && (state === 'open'
+            ? <Empty title="No open requests">When someone asks for a font in the desktop app, it shows up here.</Empty>
+            : <Empty>No requests yet.</Empty>)}
           <Pager label="Font request pages" page={page} total={total} onPage={setPage} />
         </>
       )}</Loaded>

@@ -56,7 +56,7 @@ export function Names() {
               </motion.tr>
             ))}
           </Table>
-          {total === 0 && <Empty>{query ? 'No names match.' : 'No name changes in this period.'}</Empty>}
+          {total === 0 && (query ? <Empty>No names match.</Empty> : <Empty title="No name changes in this period" />)}
           <Pager label="Name history pages" page={page} total={total} onPage={setPage} />
         </>
       )}</Loaded>

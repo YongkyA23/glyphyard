@@ -2,7 +2,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type DependencyList, type ReactNode } from 'react'
 import { Link, NavLink, useLocation, useNavigate, useOutlet } from 'react-router'
 import { animate, AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
-import { api, errorText, PAGE_SIZE, type By } from './api'
+import { api, errorText, PAGE_SIZE, type By, type Sort, type SortDir } from './api'
 import { easeOut, fast, page, shakeOpts, shakeX, softSpring, spring, stagger } from './motion'
 import { ErrorBoundary } from './ErrorBoundary'
 import { applyBrand, getThemePref, setThemePref } from './theme'
@@ -92,7 +92,7 @@ export const Skel = ({ w = '100%', h = 12, r }: { w?: number | string; h?: numbe
   <span aria-hidden="true" className="skel" style={{ width: w, height: h, borderRadius: r }} />
 
 /** Table-shaped skeleton: same header as the real table, shimmer cells. */
-export function TableSkeleton({ head, minWidth, rows = 5, inset }: { head: ReactNode[]; minWidth: number; rows?: number; inset?: boolean }) {
+export function TableSkeleton({ head, minWidth, rows = 5, inset }: { head: HeadItem[]; minWidth: number; rows?: number; inset?: boolean }) {
   const widths = ['70%', '55%', '80%', '45%', '65%']
   return (
     <Table caption="Loading" minWidth={minWidth} head={head} inset={inset}>
@@ -112,7 +112,16 @@ export function ErrorBox({ message, retry }: { message: string; retry?: () => vo
   )
 }
 
-export const Empty = ({ children }: { children: ReactNode }) => <p className="empty">{children}</p>
+export function Empty({ title, children, action }: { title?: string; children?: ReactNode; action?: ReactNode }) {
+  if (!title) return <p className="empty">{children}</p>
+  return (
+    <div className="empty empty-card">
+      <strong>{title}</strong>
+      {children && <span>{children}</span>}
+      {action}
+    </div>
+  )
+}
 
 /* ---------- layout ---------- */
 
@@ -370,14 +379,38 @@ export function Pager({ page, total, size = PAGE_SIZE, onPage, label = 'Pages' }
   )
 }
 
+/** A header cell: plain content, or content plus its `aria-sort` for sortable columns. */
+export type HeadItem = ReactNode | { node: ReactNode; sort?: 'ascending' | 'descending' | 'none' }
+
+/** `aria-sort` value for column `k`, for a Table head item. */
+export const sortAria = <K extends string>(sort: Sort<K>, k: K): 'ascending' | 'descending' | 'none' =>
+  sort?.key === k ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'
+
+/** Sort button for a column header. Click cycles default direction, the other direction, then back to the server's order. */
+export function SortHead<K extends string>({ label, k, sort, onSort, defaultDir }: {
+  label: string; k: K; sort: Sort<K>; onSort: (s: Sort<K>) => void; defaultDir: SortDir
+}) {
+  const dir = sort?.key === k ? sort.dir : null
+  const other: SortDir = defaultDir === 'asc' ? 'desc' : 'asc'
+  const next: Sort<K> = dir === null ? { key: k, dir: defaultDir } : dir === defaultDir ? { key: k, dir: other } : null
+  return (
+    <button type="button" className="sort-head" onClick={() => onSort(next)}>
+      {label}<span aria-hidden="true" className="sort-arrow">{dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : ''}</span>
+    </button>
+  )
+}
+
 export function Table({ caption, minWidth, head, children, inset }: {
-  caption: string; minWidth: number; head: ReactNode[]; children: ReactNode; inset?: boolean
+  caption: string; minWidth: number; head: HeadItem[]; children: ReactNode; inset?: boolean
 }) {
   return (
     <div className={inset ? 'table-wrap table-inset' : 'table-wrap'}>
       <table style={{ minWidth }}>
         <caption className="sr-only">{caption}</caption>
-        <thead><tr>{head.map((h, i) => <th key={i}>{h}</th>)}</tr></thead>
+        <thead><tr>{head.map((h, i) => {
+          const sorted = typeof h === 'object' && h !== null && 'node' in h
+          return <th key={i} aria-sort={sorted ? h.sort : undefined}>{sorted ? h.node : (h as ReactNode)}</th>
+        })}</tr></thead>
         <tbody><AnimatePresence>{children}</AnimatePresence></tbody>
       </table>
     </div>

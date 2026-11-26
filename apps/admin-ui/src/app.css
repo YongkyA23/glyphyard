@@ -408,3 +408,9 @@ tr:has(> td > .check:checked) td { background: var(--accent-wash); }
   .account { margin-top: 0; }
   .signin-art { padding: 32px 24px; }
 }
+
+.sort-head { display: inline-flex; align-items: center; gap: 4px; border: 0; padding: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.sort-head:hover { color: var(--ink); }
+.sort-arrow { display: inline-block; min-width: 1ch; color: var(--accent); }
+.empty-card { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 28px 0; }
+.empty-card strong { color: var(--ink); font-size: 15px; font-weight: 600; }
