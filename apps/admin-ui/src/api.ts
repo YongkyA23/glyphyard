@@ -48,7 +48,7 @@ export type RequestSort = 'at' | 'font'
 export type TrendDay = { day: string; activity: number; failures: number; new_installs: number }
 export type Overview = {
   /** Last 30 UTC days, oldest first, today last. */
-  trend: TrendDay[]
+  trend?: TrendDay[] // absent from older servers
   installs: number; online: number; os: { windows: number; macos: number }
   name_changes_month: number; overrides_week: number; failures_week: number
   recent: Activity[]

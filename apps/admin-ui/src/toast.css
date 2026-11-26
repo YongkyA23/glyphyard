@@ -1,6 +1,10 @@
+:root { --toast-bad: #ff8f84; }
+:root[data-theme="dark"] { --toast-bad: #b42318; }
 .toasts { position: fixed; right: 20px; bottom: 20px; z-index: 60; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; }
 .toast { pointer-events: auto; display: flex; align-items: center; gap: 14px; max-width: min(420px, calc(100vw - 32px)); padding: 10px 14px; border-radius: 10px; background: var(--ink); color: var(--on-ink); font-size: 13.5px; line-height: 1.4; box-shadow: 0 8px 24px rgb(0 0 0 / 0.2), 0 2px 6px rgb(0 0 0 / 0.18); }
-.toast-bad { border-left: 3px solid var(--toast-link); }
+.toast-bad { border-left: 4px solid var(--toast-bad); }
+.toast-flag { flex: none; display: grid; place-items: center; width: 18px; height: 18px; margin-right: -4px; border-radius: 50%; background: var(--toast-bad); color: var(--ink); font-size: 12px; font-weight: 700; line-height: 1; }
+:root[data-theme="dark"] .toast-flag { color: #fff; }
 .toast-text { overflow-wrap: anywhere; }
 .toast-undo { flex: none; background: none; border: 0; padding: 2px 4px; margin: -2px -4px; font: inherit; font-weight: 600; color: var(--toast-link); cursor: pointer; border-radius: 4px; }
 .toast-undo:hover { text-decoration: underline; }

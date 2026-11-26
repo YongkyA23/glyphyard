@@ -66,12 +66,12 @@ function Body({ o }: { o: Data }) {
       </motion.div>
       <motion.section aria-labelledby="trend" className="card pad-20" variants={fadeRise}>
         <h2 id="trend" className="h2 mb-10">Last 30 days</h2>
-        <TrendChart days={o.trend} />
+        {o.trend?.length ? <TrendChart days={o.trend} /> : null}
       </motion.section>
       <div className="split">
         <motion.section aria-labelledby="act" className="card pad-20 grow-2" variants={fadeRise}>
           <h2 id="act" className="h2 mb-10">Recent activity</h2>
-          {o.recent.length === 0 && <Empty><span className="strong">No activity yet</span><br />Events appear here as desktop apps report in.</Empty>}
+          {o.recent.length === 0 && <Empty title="No activity yet">Events appear here as desktop apps report in.</Empty>}
           {/* New events from polling mount with "hidden" → slide down in at the top; layout pushes the rest down. */}
           <AnimatePresence>
           {o.recent.map((r, i) => (
@@ -119,19 +119,27 @@ const dayText = (d: TrendDay) =>
 function TrendChart({ days }: { days: TrendDay[] }) {
   const reduce = useReducedMotion()
   const [on, setOn] = useState<number | null>(null)
+  const [tab, setTab] = useState(days.length - 1) // the one tab stop; arrows move it
   const max = Math.max(...days.map((d) => d.activity), 1)
   const sum = (k: 'activity' | 'failures' | 'new_installs') => days.reduce((n, d) => n + d[k], 0)
   const mid = days[Math.floor(days.length / 2)]
   return (
     <div onMouseLeave={() => setOn(null)}>
-      <div className="trend-plot" role="group" aria-label="Daily activity for the last 30 days">
+      <div className="trend-plot" role="group" aria-label="Daily activity for the last 30 days (arrow keys move between days)"
+        onKeyDown={(e) => {
+          const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
+          const to = e.key === 'Home' ? 0 : e.key === 'End' ? days.length - 1 : Math.min(Math.max(tab + step, 0), days.length - 1)
+          if (!step && e.key !== 'Home' && e.key !== 'End') return
+          e.preventDefault()
+          ;(e.currentTarget.children[to] as HTMLElement).focus()
+        }}>
         {days.map((d, i) => {
           const h = (d.activity / max) * 100
           const f = (Math.min(d.failures, d.activity) / max) * 100
           const t = reduce ? { duration: 0 } : { duration: 0.6, ease: easeOut, delay: i * 0.012 }
           return (
-            <div key={d.day} className={`trend-col ${on === i ? 'on' : ''}`} tabIndex={0} role="img" aria-label={dayText(d)}
-              onMouseEnter={() => setOn(i)} onFocus={() => setOn(i)} onBlur={() => setOn(null)}>
+            <div key={d.day} className={`trend-col ${on === i ? 'on' : ''}`} tabIndex={i === tab ? 0 : -1} role="img" aria-label={dayText(d)}
+              onMouseEnter={() => setOn(i)} onFocus={() => { setOn(i); setTab(i) }} onBlur={() => setOn(null)}>
               <span className={`trend-dot ${d.new_installs ? '' : 'none'}`} aria-hidden="true" />
               <svg className="trend-bar" viewBox="0 0 10 100" preserveAspectRatio="none">
                 <title>{dayText(d)}</title>

@@ -1,7 +1,7 @@
 .trend-plot { display: grid; grid-template-columns: repeat(30, 1fr); gap: 4px; border-bottom: 1px solid var(--line); }
 .trend-col { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; height: 128px; border-radius: 4px; outline-offset: 1px; cursor: default; }
 .trend-col:hover, .trend-col:focus-visible, .trend-col.on { background: var(--sunken); }
-.trend-col:focus-visible { outline: 2px solid var(--accent); }
+.trend-col:focus-visible { outline: 2px solid var(--accent-ink); }
 .trend-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok-dot); flex: none; }
 .trend-dot.none { visibility: hidden; }
 .trend-bar { display: block; width: 100%; height: 100px; flex: none; }

@@ -29,13 +29,14 @@ const dismiss = (id: number) => {
 function ToastView({ t, reduced }: { t: Item; reduced: boolean | null }) {
   const [hover, setHover] = useState(false)
   // Hovering pauses the timer; leaving resumes with the time that was left.
-  const left = useRef(t.undo ? 8000 : 5000)
+  const [focus, setFocus] = useState(false)
+  const left = useRef(t.undo || t.tone === 'bad' ? 8000 : 5000)
   useEffect(() => {
-    if (hover) return
+    if (hover || focus) return
     const start = Date.now()
     const h = window.setTimeout(() => dismiss(t.id), left.current)
     return () => { clearTimeout(h); left.current = Math.max(0, left.current - (Date.now() - start)) }
-  }, [hover, t.id])
+  }, [hover, focus, t.id])
   const undo = async () => {
     if (!t.undo) return
     dismiss(t.id)
@@ -47,10 +48,12 @@ function ToastView({ t, reduced }: { t: Item; reduced: boolean | null }) {
     }
   }
   return (
-    <motion.div className={`toast${t.tone === 'bad' ? ' toast-bad' : ''}`} role={t.tone === 'bad' ? 'alert' : undefined} layout={!reduced}
+    <motion.div className={`toast${t.tone === 'bad' ? ' toast-bad' : ''}`} layout={!reduced}
       initial={reduced ? false : { opacity: 0, y: 16, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1, transition: spring }}
       exit={reduced ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, scale: 0.96, transition: fast }}
-      onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)}>
+      onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)}
+      onFocus={() => setFocus(true)} onBlur={() => setFocus(false)}>
+      {t.tone === 'bad' && <span className="toast-flag" aria-hidden="true">!</span>}
       <span className="toast-text">{t.text}</span>
       {t.undo && <button type="button" className="toast-undo" onClick={() => void undo()}>Undo</button>}
     </motion.div>

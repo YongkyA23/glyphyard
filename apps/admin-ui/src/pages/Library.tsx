@@ -5,10 +5,10 @@ import { api, sortAria, ApiError, errorText, type BulkAction, type LibraryFile, 
 import { base, fadeRise, fast, row, spring } from '../motion'
 import { toast } from '../toast'
 import {
-  Badge, Dialog, Empty, ErrorBox, fmtDate, Loaded, PageHeader, Pager, plural, Skel, SortHead, Spin, Swap, Table, TableSkeleton, useConfirm, useDebounced, useLoad, usePage,
+  Badge, Chips, Dialog, Empty, ErrorBox, Loaded, PageHeader, Pager, plural, Skel, SortHead, Spin, Swap, Table, TableSkeleton, useConfirm, useDebounced, useLoad, usePage,
 } from '../ui'
 
-const HEAD = ['Family', 'License', 'Delivered to', 'Active on', 'Added', 'Size', 'Status', <span className="sr-only">Actions</span>]
+const HEAD = ['Family', 'License', 'Delivered to', 'Active on', 'Status', <span className="sr-only">Actions</span>]
 const SKELETON_HEAD = [<span key="sel" className="sr-only">Select</span>, ...HEAD]
 type Upload = { name: string; state: 'busy' | 'done' | 'error' }
 /** Picked files for this search: hashes on any page, or `all` = every result of the search. */
@@ -18,13 +18,18 @@ const DONE: Record<BulkAction, string> = { deliver: 'Delivered', block: 'Blocked
 const LICENSES: [License, string][] = [['licensed', 'Licensed'], ['personal', 'Personal use'], ['client', 'Client-provided'], ['unknown', 'Unknown']]
 const ACCEPT = '.otf,.ttf,.ttc,.otc,.woff,.woff2'
 
+const SORTS: [LibrarySort, string][] = [['family', 'Family A–Z'], ['uploaded', 'Newest'], ['size', 'Largest']]
 const deliveredText = (t: LibraryFile['delivered_to']) =>
   t === 'all' ? 'Everyone' : t === 'none' || t.length === 0 ? 'Nobody' : plural(t.length, 'user')
 const kb = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`)
 
 export function Library() {
   const [params] = useSearchParams()
-  const [q, setQ] = useState(params.get('q') ?? '')
+  const urlQ = params.get('q') ?? ''
+  const [q, setQ] = useState(urlQ)
+  // The palette can change ?q= while this page stays mounted.
+  const [lastUrlQ, setLastUrlQ] = useState(urlQ)
+  if (urlQ !== lastUrlQ) { setLastUrlQ(urlQ); setQ(urlQ) }
   const query = useDebounced(q.trim(), 150)
   const [sort, setSort] = useState<Sort<LibrarySort>>(null)
   const [page, setPage] = usePage(`${query}|${sort?.key}|${sort?.dir}`)
@@ -150,6 +155,8 @@ export function Library() {
       <div className="toolbar">
         <label htmlFor="lsearch" className="sr-only">Search the shared library</label>
         <input id="lsearch" type="search" className="input grow" placeholder="Search family, style or file name" value={q} onChange={(e) => setQ(e.target.value)} />
+        <Chips label="Sort" options={SORTS} value={sort?.key ?? 'family'}
+          onChange={(k) => setSort({ key: k, dir: k === 'family' ? 'asc' : 'desc' })} />
       </div>
       <AnimatePresence>
         {uploads.length > 0 && (
@@ -188,14 +195,12 @@ export function Library() {
       )}
       <Loaded state={state} skeleton={<TableSkeleton head={SKELETON_HEAD} minWidth={1020} rows={3} />}>{({ items: shown, total }) => (
           <>
-            <Table caption="Font files in the shared library" minWidth={1180} head={[
+            <Table caption="Font files in the shared library" minWidth={1020} head={[
               <input key="sel" type="checkbox" className="check" aria-label="Select every file on this page"
                 checked={shown.length > 0 && shown.every((f) => isSelected(f.hash))} onChange={() => togglePage(shown)} />,
               { node: <SortHead label="Family" k="family" sort={sort} onSort={setSort} defaultDir="asc" />, sort: sortAria(sort, 'family') },
               ...HEAD.slice(1, 4),
-              { node: <SortHead label="Added" k="uploaded" sort={sort} onSort={setSort} defaultDir="desc" />, sort: sortAria(sort, 'uploaded') },
-              { node: <SortHead label="Size" k="size" sort={sort} onSort={setSort} defaultDir="desc" />, sort: sortAria(sort, 'size') },
-              ...HEAD.slice(6),
+              ...HEAD.slice(4),
             ]}>
               {shown.map((f, i) => (
                 <motion.tr key={f.hash} {...row(i, shown.length)}>
@@ -205,7 +210,7 @@ export function Library() {
                   <td>
                     <span className="stack-2">
                       <span className={f.blocked ? 'lib-name lib-blocked' : 'lib-name'}>{f.family}</span>
-                      <span className="meta">{f.style} · v{f.version} · {f.filename}</span>
+                      <span className="meta">{f.style} · v{f.version} · {f.filename} · {kb(f.size)}</span>
                     </span>
                   </td>
                   <td>
@@ -217,8 +222,6 @@ export function Library() {
                   </td>
                   <td>{deliveredText(f.delivered_to)}</td>
                   <td>{plural(f.active_on, 'user')}</td>
-                  <td className="ink-2 nowrap">{fmtDate(f.uploaded_at)}</td>
-                  <td className="ink-2 nowrap">{kb(f.size)}</td>
                   <td>
                     {/* Block/unblock cross-fades the status badge. */}
                     <AnimatePresence mode="popLayout" initial={false}>

@@ -42,12 +42,28 @@ export function onAccent(hex: string): '#000' | '#fff' {
   return (L + 0.05) / 0.05 >= 1.05 / (L + 0.05) ? '#000' : '#fff'
 }
 
+const hex = (c: number[]) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
+const ratio = (a: number[], b: number[]) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05) }
+
+/** `hex` stepped toward black (light) or white (dark) until it reads as text (4.5:1) on the page background. */
+export function textInk(color: string, isDark: boolean): string {
+  const bg = isDark ? [0x1c, 0x19, 0x17] : [255, 255, 255]
+  const end = isDark ? 255 : 0
+  const base = rgb(color)
+  for (let t = 0; t <= 1; t += 0.02) {
+    const c = base.map((v) => v + (end - v) * t)
+    if (ratio(c, bg) >= 4.5) return hex(c)
+  }
+  return hex([end, end, end])
+}
+
 /** Sets the studio colour on <html> ('' clears it). In dark mode the CSS lightens the accent, so the text colour is checked against that. */
 export function applyBrand(color: string): void {
   brand = /^#[0-9a-f]{6}$/i.test(color) ? color : ''
   if (!brand) {
     root.style.removeProperty('--brand')
     root.style.removeProperty('--on-accent')
+    root.style.removeProperty('--accent-ink')
     return
   }
   // ponytail: sRGB mix approximates the CSS oklab mix; the black/white pick only differs near the luminance boundary
@@ -56,8 +72,10 @@ export function applyBrand(color: string): void {
     : brand
   root.style.setProperty('--brand', brand)
   root.style.setProperty('--on-accent', onAccent(accent))
+  root.style.setProperty('--accent-ink', textInk(brand, root.dataset.theme === 'dark'))
 }
 
 if (import.meta.env.DEV) {
   console.assert(onAccent('#ffff00') === '#000' && onAccent('#2547d0') === '#fff' && onAccent('#777777') === '#000')
+  console.assert(ratio(rgb(textInk('#ffff00', false)), [255, 255, 255]) >= 4.5)
 }

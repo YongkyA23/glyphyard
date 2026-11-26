@@ -317,7 +317,7 @@ function RemoveComputer({ u }: { u: InstallDetail }) {
       toast(`Removed ${u.name}’s computer.`)
       navigate('/users')
     } catch (e) {
-      alert(errorText(e))
+      toast(errorText(e), { tone: 'bad' })
       setBusy(false)
     }
   }
@@ -341,7 +341,7 @@ function ExportCsv({ u }: { u: InstallDetail }) {
       }
       downloadCsv(`${u.name} timeline.csv`, [['Date', 'By', 'Kind', 'Event'], ...events.map((e) => [e.at, e.by, e.kind, e.text])])
     } catch (e) {
-      alert(errorText(e))
+      toast(errorText(e), { tone: 'bad' })
     } finally {
       setBusy(false)
     }

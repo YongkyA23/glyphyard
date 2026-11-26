@@ -1,5 +1,5 @@
 // Command palette (Ctrl/⌘+K) and global keyboard shortcuts.
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router'
 import { AnimatePresence } from 'motion/react'
 import { api } from './api'
@@ -13,9 +13,8 @@ const GROUPS = ['Pages', 'Users', 'Fonts'] as const
 export function Palette() {
   const [open, setOpen] = useState(false)
   const [help, setHelp] = useState(false)
-  const from = useRef<HTMLElement | null>(null)
-  const show = () => { from.current = document.activeElement as HTMLElement | null; setOpen(true) }
-  const close = () => { setOpen(false); from.current?.focus?.() }
+  const show = () => setOpen(true)
+  const close = () => setOpen(false)
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
