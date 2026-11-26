@@ -45,7 +45,7 @@ code, .mono { font-family: var(--font-mono); font-size: 12px; }
 }
 .sidebar-menu { display: contents; }
 .sidebar-bar { display: flex; align-items: center; gap: 10px; }
-.menu-btn, .bar-count { display: none; }
+.sidebar .menu-btn, .sidebar .bar-count { display: none; }
 .bar-count { min-width: 22px; height: 22px; padding: 0 6px; align-items: center; justify-content: center; border-radius: 11px; font-size: 12px; text-decoration: none; background: var(--accent); color: var(--on-accent); }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; min-width: 0; }
 .brand-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -400,9 +400,9 @@ tr:has(> td > .check:checked) td { background: var(--accent-wash); }
   .sidebar { flex: 1 1 100%; position: sticky; top: 0; z-index: 20; gap: 0; padding: 8px 16px; }
   .sidebar-bar { min-height: 44px; }
   .sidebar-bar .brand { flex: 1; padding: 0; }
-  .menu-btn { display: inline-flex; background: transparent; color: #e7e5e4; border-color: #57534e; }
-  .menu-btn:hover:not(:disabled) { background: #292524; }
-  .bar-count { display: inline-flex; }
+  .sidebar .menu-btn { display: inline-flex; background: transparent; color: #e7e5e4; border-color: #57534e; }
+  .sidebar .menu-btn:hover:not(:disabled) { background: #292524; }
+  .sidebar .bar-count { display: inline-flex; }
   .sidebar-menu { display: none; max-height: calc(100vh - 60px); overflow-y: auto; padding: 8px 0; flex-direction: column; gap: 16px; }
   .sidebar-menu.open { display: flex; }
   .account { margin-top: 0; }
