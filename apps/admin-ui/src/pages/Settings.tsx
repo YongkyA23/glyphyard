@@ -19,6 +19,8 @@ const TOGGLES: [Flags, string, string][] = [
   ['activate_delivered', 'Also turn those fonts on', 'Otherwise they arrive turned off'],
   ['notify_admin_changes', 'Tell users when an admin changes their fonts', 'Shows a short banner in the app'],
 ]
+const LOGO_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml']
+const LOGO_MAX = 200 * 1024
 const RETENTION: [string, string][] = [['', 'Forever'], ['1095', '3 years'], ['365', '1 year']]
 
 export function SettingsPage() {
@@ -51,6 +53,7 @@ function Form({ initial, onSaved, admins, owner }: { initial: Settings; onSaved:
   const daysValid = Number.isInteger(daysNum) && daysNum >= 1 && daysNum <= 365
   const dirty = daysNum !== initial.name_change_days || TOGGLES.some(([k]) => s[k] !== initial[k])
     || s.timeline_retention_days !== initial.timeline_retention_days
+    || s.brand_name.trim() !== initial.brand_name || s.brand_color !== initial.brand_color || s.brand_logo !== initial.brand_logo
 
   const save = async (e: FormEvent) => {
     e.preventDefault()
@@ -87,6 +90,20 @@ function Form({ initial, onSaved, admins, owner }: { initial: Settings; onSaved:
 
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => { setS((x) => ({ ...x, [k]: v })); setStatus('') }
 
+  const pickLogo = (file: File | undefined) => {
+    if (!file) return
+    setError('')
+    if (!LOGO_TYPES.includes(file.type)) return setError('Choose a PNG, JPEG, WebP or SVG image for the logo.')
+    const reader = new FileReader()
+    reader.onload = () => {
+      const url = String(reader.result)
+      // The server caps the data URL (base64 is a third bigger than the file).
+      if (url.length > LOGO_MAX) return setError('The logo is too big: keep it under 150 KB.')
+      set('brand_logo', url)
+    }
+    reader.readAsDataURL(file)
+  }
+
   return (
     <div className="stack-18">
       <form id="settings-form" onSubmit={save} noValidate />
@@ -101,6 +118,33 @@ function Form({ initial, onSaved, admins, owner }: { initial: Settings; onSaved:
         </label>
         {!daysValid && <span id="days-err" role="alert" className="form-error">Enter a whole number of days from 1 to 365.</span>}
         <span className="meta">The limit is checked on the server, so it can’t be bypassed by editing files on a computer. You can reset it for one person from their page.</span>
+      </motion.section>
+
+      <motion.section aria-labelledby="brd" className="card pad-20 stack-12" variants={fadeRise}>
+        <h2 id="brd" className="h2">Branding</h2>
+        <label className="field"><span>Name shown in the desktop app</span>
+          <input type="text" form="settings-form" className="input" maxLength={40} placeholder="e.g. your studio’s name" value={s.brand_name}
+            onChange={(e) => set('brand_name', e.target.value)} />
+        </label>
+        <div className="row-8">
+          <span className="logo-box">{s.brand_logo ? <img src={s.brand_logo} alt="Current logo" /> : <span className="meta">No logo</span>}</span>
+          <label className="btn btn-sm">
+            {s.brand_logo ? 'Replace logo…' : 'Upload logo…'}
+            <input type="file" className="sr-only" accept={LOGO_TYPES.join(',')} onChange={(e) => { pickLogo(e.target.files?.[0]); e.target.value = '' }} />
+          </label>
+          {s.brand_logo && <button type="button" className="btn btn-sm" onClick={() => set('brand_logo', '')}>Remove logo</button>}
+        </div>
+        <div className="row-8">
+          <label className="inline-field">
+            <span>Accent colour</span>
+            {/* A colour input can't be empty: it shows Typeshelf's blue until the admin picks one. */}
+            <input type="color" form="settings-form" className="input input-color" value={s.brand_color || '#2547d0'}
+              onChange={(e) => set('brand_color', e.target.value)} />
+          </label>
+          <span className="small mute">{s.brand_color || 'Typeshelf’s own'}</span>
+          {s.brand_color && <button type="button" className="btn btn-sm" onClick={() => set('brand_color', '')}>Use Typeshelf’s colour</button>}
+        </div>
+        <span className="meta">The logo replaces the Typeshelf mark at the top of the sidebar (without a logo, the name sits beside the mark), and buttons, links and highlights take the colour. A wide logo on a transparent background works best (PNG, JPEG, WebP or SVG, under 150 KB). Leave all three empty for plain Typeshelf.</span>
       </motion.section>
 
       <motion.section aria-labelledby="con" className="card pad-20 stack-12" variants={fadeRise}>

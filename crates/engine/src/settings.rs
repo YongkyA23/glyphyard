@@ -6,7 +6,7 @@ use serde_json::Value;
 use typeshelf_protocol::Policy;
 
 fn default_policy() -> Policy {
-    Policy { name_change_days: 30, allow_connection_edit: true, notify_admin_changes: true }
+    Policy { name_change_days: 30, allow_connection_edit: true, notify_admin_changes: true, brand_name: String::new(), brand_color: String::new(), brand_logo: String::new() }
 }
 
 impl Engine {
@@ -120,6 +120,9 @@ impl Engine {
             name,
             next_name_change: next.map(|d| d.to_rfc3339()),
             name_change_days: policy.name_change_days,
+            brand_name: policy.brand_name,
+            brand_color: policy.brand_color,
+            brand_logo: policy.brand_logo,
             connection,
             platform: if cfg!(target_os = "macos") { Platform::Macos } else { Platform::Windows },
             app_version: env!("CARGO_PKG_VERSION").into(),

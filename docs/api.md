@@ -52,7 +52,9 @@ type OrganizeChange = { case: string; action: { op: string; [k: string]: unknown
 type Page<T> = { items: T[]; total: number }; // total = size of the whole filtered list
 type Settings = { name_change_days: number; allow_connection_edit: boolean; deliver_library_to_new: boolean;
   activate_delivered: boolean; notify_admin_changes: boolean; timeline_retention_days: number | null;
-  server_url: string; install_key: string };
+  server_url: string; install_key: string;
+  brand_name: string; brand_color: string /* "#rrggbb" or "" */;
+  brand_logo: string /* "data:image/(png|jpeg|webp|svg+xml);base64,…" up to 200 KB, or ""; all three ride `Policy` */ };
 ```
 
 Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–200 unless noted) and return `Page<T>`.
@@ -89,7 +91,7 @@ Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–20
 | POST | `/requests/{id}/done` | → 204 (an already done request keeps its first `done_at`); 404 if there is no such request |
 | POST | `/requests/{id}/reopen` | → 204; 404 if there is no such request |
 | GET | `/settings` | → `Settings` |
-| PUT | `/settings` | `Partial<Settings>` without `install_key` → `Settings` (pushes `PolicyChanged`). 400 `invalid_setting` unless `name_change_days` is 1–3650 and `timeline_retention_days` is null or 1–3650 |
+| PUT | `/settings` | `Partial<Settings>` without `install_key` → `Settings` (pushes `PolicyChanged`). 400 `invalid_setting` unless `name_change_days` is 1–3650 and `timeline_retention_days` is null or 1–3650, `brand_name` is at most 40 characters `brand_color` is `#rrggbb` or empty and `brand_logo` is an image data URL of at most 200 KB or empty |
 | POST | `/settings/install-key` | → `{ install_key }` (regenerates). Owner only |
 | GET | `/update` | → `{ version, size } \| null`: the current app release |
 | POST | `/update` | multipart (at most 100 MB, else 413 `bad_upload`), fields `file` (setup program), `manifest` and `signature` (from `typeshelf-server update-sign`) → `{ version, size }`; replaces the current release. 400 `missing_field`, `bad_manifest`, `bad_signature` (not 128 hex characters) or `file_mismatch` (size or hash differs from the manifest). The server cannot check whose key signed it; the apps do. Owner only |

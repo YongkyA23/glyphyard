@@ -70,6 +70,13 @@ pub struct Settings {
     pub timeline_retention_days: Option<u32>,
     pub server_url: String,
     pub install_key: String,
+    /// Shown in every desktop app; empty = Typeshelf's own name and colour.
+    pub brand_name: String,
+    /// `#rrggbb` or empty.
+    pub brand_color: String,
+    /// `data:image/(png|jpeg|webp|svg+xml);base64,...` or empty.
+    // ponytail: kept inline in settings and in every policy push; a served file plus a hash if logos ever grow past the cap.
+    pub brand_logo: String,
 }
 
 impl Default for Settings {
@@ -83,6 +90,9 @@ impl Default for Settings {
             timeline_retention_days: None,
             server_url: String::new(),
             install_key: String::new(),
+            brand_name: String::new(),
+            brand_color: String::new(),
+            brand_logo: String::new(),
         }
     }
 }
@@ -93,6 +103,9 @@ impl Settings {
             name_change_days: self.name_change_days,
             allow_connection_edit: self.allow_connection_edit,
             notify_admin_changes: self.notify_admin_changes,
+            brand_name: self.brand_name.clone(),
+            brand_color: self.brand_color.clone(),
+            brand_logo: self.brand_logo.clone(),
         }
     }
 }

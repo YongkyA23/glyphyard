@@ -54,6 +54,7 @@ const fontRequests: FontRequest[] = [
 let settings: Settings = {
   name_change_days: 30, allow_connection_edit: true, deliver_library_to_new: true, activate_delivered: false,
   notify_admin_changes: true, timeline_retention_days: null, server_url: 'https://fonts.example.test/api', install_key: 'tsk_example_key_1234',
+  brand_name: '', brand_color: '', brand_logo: '',
 }
 
 const audit: AuditEntry[] = [

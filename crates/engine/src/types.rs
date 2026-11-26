@@ -572,6 +572,11 @@ pub struct AppState {
     pub name: String,
     pub next_name_change: Option<String>,
     pub name_change_days: u32,
+    /// Set by the admin on the server; empty = Typeshelf's own name and colour.
+    pub brand_name: String,
+    pub brand_color: String,
+    /// Image data URL, or empty.
+    pub brand_logo: String,
     pub connection: Connection,
     pub platform: Platform,
     pub app_version: String,

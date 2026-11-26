@@ -58,6 +58,20 @@ export function AppProvider({ main, children }: { main: boolean; children: React
   }, [])
   useEffect(load, [load])
 
+  // Admin branding: app.css derives the accent palette from --brand.
+  const brand = app?.brandColor ?? ''
+  useEffect(() => {
+    const root = document.documentElement
+    // The value comes from the server and goes into the stylesheet: only a plain hex colour gets through.
+    if (!/^#[0-9a-f]{6}$/i.test(brand)) return
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(brand.slice(i, i + 2), 16))
+    // ponytail: perceived brightness in three bands picks readable text; a WCAG contrast calculation if a brand colour ever reads badly.
+    const bright = (r * 299 + g * 587 + b * 114) / 1000
+    root.style.setProperty('--brand', brand)
+    root.dataset.brand = bright > 160 ? 'light' : bright < 70 ? 'dark' : 'mid'
+    return () => (root.style.removeProperty('--brand'), void delete root.dataset.brand)
+  }, [brand])
+
   const setApp = useCallback((fn: (a: AppState) => AppState) => setAppState((a) => (a ? fn(a) : a)), [])
   const bump = useCallback(() => setLibVersion((v) => v + 1), [])
   const dismissToast = useCallback((id: number) => setToasts((ts) => ts.filter((t) => t.id !== id)), [])
@@ -116,7 +130,11 @@ export function AppProvider({ main, children }: { main: boolean; children: React
 
   useEffect(() => {
     const offs = [
-      on('connection-changed', (connection) => setApp((a) => ({ ...a, connection, serverConfigured: !!connection.serverUrl.trim() }))),
+      on('connection-changed', (connection) => {
+        setApp((a) => ({ ...a, connection, serverConfigured: !!connection.serverUrl.trim() }))
+        // The shell sends this after a policy change too, and branding and the name rule come with the policy.
+        void api.getAppState().then(({ brandName, brandColor, brandLogo, nameChangeDays }) => setApp((a) => ({ ...a, brandName, brandColor, brandLogo, nameChangeDays })), () => {})
+      }),
       // An empty name means the server refused the one chosen offline: back to onboarding to pick another.
       // The shell sends a name only once it is registered (after joining, or a change made on the server).
       on('name-changed', ({ name, nextNameChange }) => setApp((a) => ({ ...a, name, nextNameChange, onboarded: !!name, registered: !!name }))),

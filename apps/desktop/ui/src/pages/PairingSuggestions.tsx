@@ -14,7 +14,7 @@ export function PairingSuggestions({ a, b, name, onPick }: { a: string; b: strin
   const items = list?.key === a ? list.items : []
   if (!items.length) return null
   return (
-    <div role="group" aria-label={`Suggested body fonts for ${name ?? 'font A'}`} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '0 24px 12px' }}>
+    <div role="group" aria-label={`Suggested body fonts for ${name ?? 'font A'}`} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '12px 24px', borderBottom: '1px solid var(--line)' }}>
       <span className="faint" style={{ fontSize: 13 }}>Pairs with {name ?? 'font A'}:</span>
       {items.map((f) => (
         <button

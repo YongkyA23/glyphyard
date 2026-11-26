@@ -674,6 +674,29 @@ async fn settings_change_pushes_policy() {
     assert_eq!(cmds[0]["kind"], "policy_changed");
     assert_eq!(cmds[0]["policy"]["name_change_days"], 7);
 
+    // Branding rides the same policy; only a plain hex colour and a short name are accepted.
+    let r = s.admin(Method::PUT, "/settings", Some(json!({ "brand_name": "  Northwind  ", "brand_color": "#C2410C" }))).await;
+    assert_eq!(r.json()["brand_name"], "Northwind");
+    let me = s.desktop(Method::GET, "/me", &token, None).await.json();
+    assert_eq!((me["policy"]["brand_name"].as_str(), me["policy"]["brand_color"].as_str()), (Some("Northwind"), Some("#C2410C")));
+    for bad in [json!({ "brand_color": "red" }), json!({ "brand_color": "#12345" }), json!({ "brand_color": "#12345g" }),
+        json!({ "brand_color": "#000;x" }), json!({ "brand_name": "x".repeat(41) }), json!({ "brand_name": "a
+b" })] {
+        assert_eq!(s.admin(Method::PUT, "/settings", Some(bad.clone())).await.status, StatusCode::BAD_REQUEST, "{bad}");
+    }
+    let logo = "data:image/png;base64,iVBORw0KGgo=";
+    assert_eq!(s.admin(Method::PUT, "/settings", Some(json!({ "brand_logo": logo }))).await.status, StatusCode::OK);
+    assert_eq!(s.desktop(Method::GET, "/me", &token, None).await.json()["policy"]["brand_logo"], logo);
+    for bad in ["https://evil.example/x.png", "data:text/html;base64,PGI+", "data:image/png;base64,\"onerror=x", "data:image/png;base64,"] {
+        assert_eq!(s.admin(Method::PUT, "/settings", Some(json!({ "brand_logo": bad }))).await.status, StatusCode::BAD_REQUEST, "{bad}");
+    }
+    let big = format!("data:image/png;base64,{}", "A".repeat(200 * 1024));
+    assert_eq!(s.admin(Method::PUT, "/settings", Some(json!({ "brand_logo": big }))).await.status, StatusCode::BAD_REQUEST);
+    assert_eq!(s.admin(Method::PUT, "/settings", Some(json!({ "brand_name": "", "brand_color": "", "brand_logo": "" }))).await.status, StatusCode::OK);
+    let log = s.admin(Method::GET, "/audit", None).await.json();
+    let details: Vec<&str> = log["items"].as_array().unwrap().iter().filter_map(|e| e["detail"].as_str()).collect();
+    assert!(details.iter().any(|d| d.contains("brand_logo: changed")) && !details.iter().any(|d| d.contains("base64")), "{details:?}");
+
     let new_key = s.admin(Method::POST, "/settings/install-key", None).await.json()["install_key"].as_str().unwrap().to_string();
     assert_ne!(new_key, s.key);
     assert_eq!(s.desktop(Method::GET, "/me", &token, None).await.status, StatusCode::FORBIDDEN);

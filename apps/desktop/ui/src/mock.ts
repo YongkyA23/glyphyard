@@ -183,7 +183,12 @@ let connection: Connection = {
 // `?mockName=Ayu` skips onboarding (used for README screenshots with a headless browser).
 const savedName = new URLSearchParams(location.search).get('mockName') ?? sessionStorage.getItem('typeshelf-mock-name') ?? ''
 let app: AppState = {
-  onboarded: !!savedName, serverConfigured: !!connection.serverUrl, registered: !!savedName && !!connection.serverUrl, name: savedName, nextNameChange: null, nameChangeDays: 30, connection, platform: 'windows', appVersion: '1.0.0',
+  onboarded: !!savedName, serverConfigured: !!connection.serverUrl, registered: !!savedName && !!connection.serverUrl, name: savedName, nextNameChange: null, nameChangeDays: 30,
+  // `?brand=Northwind&brandColor=c2410c` previews admin branding.
+  brandName: new URLSearchParams(location.search).get('brand') ?? '', brandColor: (new URLSearchParams(location.search).get('brandColor') ?? '').replace(/^(?=.)/, '#'),
+  // `&brandLogo=1` adds a sample logo.
+  brandLogo: new URLSearchParams(location.search).has('brandLogo') ? `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="32"><rect width="32" height="32" rx="8" fill="#c2410c"/><text x="40" y="23" font-family="sans-serif" font-weight="700" font-size="18" fill="#c2410c">NWS</text></svg>')}` : '',
+  connection, platform: 'windows', appVersion: '1.0.0',
 }
 let settings: Settings = {
   startAtLogin: true, startHidden: true, autoUpdate: true, deactivateOnQuit: false, canUpdate: true, updateReady: '1.1.0', updateProblem: null,

@@ -132,8 +132,20 @@ async fn put_settings(State(s): State<AppState>, admin: Admin, Json(patch): Json
         }
         fields.insert(k, v);
     }
-    let new: db::Settings =
+    let mut new: db::Settings =
         serde_json::from_value(merged).map_err(|e| ApiError::bad_request("invalid_setting", e.to_string()))?;
+    new.brand_name = new.brand_name.trim().to_string();
+    if new.brand_name.chars().count() > 40 || new.brand_name.chars().any(char::is_control) {
+        return Err(ApiError::bad_request("invalid_setting", "brand_name must be at most 40 characters"));
+    }
+    // Goes into every desktop's stylesheet, so only a plain hex colour gets through.
+    let hex = new.brand_color.strip_prefix('#').unwrap_or("!");
+    if !new.brand_color.is_empty() && !(hex.len() == 6 && hex.bytes().all(|b| b.is_ascii_hexdigit())) {
+        return Err(ApiError::bad_request("invalid_setting", "brand_color must look like #1a2b3c, or be empty"));
+    }
+    if !new.brand_logo.is_empty() && !valid_logo(&new.brand_logo) {
+        return Err(ApiError::bad_request("invalid_setting", "brand_logo must be a PNG, JPEG, WebP or SVG image of at most 200 KB"));
+    }
     const DAYS: std::ops::RangeInclusive<u32> = 1..=3650;
     if !DAYS.contains(&new.name_change_days) {
         return Err(ApiError::bad_request("invalid_setting", "name_change_days must be between 1 and 3650"));
@@ -154,13 +166,25 @@ async fn put_settings(State(s): State<AppState>, admin: Admin, Json(patch): Json
         .expect("settings is an object")
         .iter()
         .filter(|(k, v)| k.as_str() != "install_key" && before.get(k.as_str()) != Some(v))
-        .map(|(k, v)| format!("{k}: {} → {v}", before[k.as_str()]))
+        // The logo is a long data URL: the log only says that it changed.
+        .map(|(k, v)| match k.as_str() {
+            "brand_logo" => format!("brand_logo: {}", if new.brand_logo.is_empty() { "removed" } else { "changed" }),
+            _ => format!("{k}: {} → {v}", before[k.as_str()]),
+        })
         .collect();
     if !changed.is_empty() {
         audit::record(&tx, &admin.email, "settings_changed", "", &changed.join(", "))?;
     }
     tx.commit()?;
     Ok(Json(new))
+}
+
+/// Base64 image data URL, at most [`MAX_LOGO`] characters. Only base64 characters after the prefix, so the value
+/// can't break out of the `src` attribute it ends up in on every desktop.
+const MAX_LOGO: usize = 200 * 1024;
+fn valid_logo(s: &str) -> bool {
+    let data = ["png", "jpeg", "webp", "svg+xml"].iter().find_map(|t| s.strip_prefix(&format!("data:image/{t};base64,")));
+    s.len() <= MAX_LOGO && data.is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_alphanumeric() || b"+/=".contains(&b)))
 }
 
 async fn regenerate_key(State(s): State<AppState>, Owner(admin): Owner) -> ApiResult<Json<Value>> {

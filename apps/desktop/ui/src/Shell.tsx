@@ -300,7 +300,7 @@ function Sidebar() {
   const hiddenCount = countHidden(tree)
   return (
     <nav aria-label="Main" className="sidebar">
-      <Logo />
+      <Logo brand={app.brandName} logo={app.brandLogo} />
       <div className="side-group">
         {nav.map(([to, label, count]) => (
           <Link key={to} to={to} className="side-nav" aria-current={current(to) ? 'page' : undefined}>

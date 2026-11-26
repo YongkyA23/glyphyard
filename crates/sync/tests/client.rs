@@ -43,7 +43,7 @@ fn auth(h: &HeaderMap, bearer: bool) -> Result<(), StatusCode> {
 }
 
 fn policy() -> Policy {
-    Policy { name_change_days: 30, allow_connection_edit: true, notify_admin_changes: false }
+    Policy { name_change_days: 30, allow_connection_edit: true, notify_admin_changes: false, brand_name: String::new(), brand_color: String::new(), brand_logo: String::new() }
 }
 
 async fn health(h: HeaderMap) -> StatusCode {

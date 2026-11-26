@@ -168,7 +168,8 @@ h1, h2 { margin: 0; }
 /* ---- Shell and sidebar ---- */
 /* The window never scrolls: the sidebar stays put and only the content column scrolls. */
 .shell { height: 100%; display: flex; overflow: hidden; }
-.shell-side { flex: 0 0 240px; display: flex; overflow-y: auto; }
+/* flex-start: a stretched sidebar stays one window tall, so a long one overflowed its own bottom padding. */
+.shell-side { flex: 0 0 240px; display: flex; align-items: flex-start; overflow-y: auto; }
 .shell-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; position: relative; overflow-y: auto; }
 @media (max-width: 720px) {
   .shell { height: auto; min-height: 100%; flex-wrap: wrap; overflow: visible; }
@@ -531,3 +532,31 @@ button.glyph:focus-visible { border-color: var(--accent); }
 .on-dot.offline { border-color: var(--amber); }
 .on-dot.offline.all { background: var(--amber); }
 .on-dot.scanning { animation: pulse 1.2s ease-in-out infinite; }
+
+/* ---- Admin-set brand colour: state.tsx puts the colour in --brand and its brightness band in data-brand ---- */
+:root[data-brand] {
+  --accent: var(--brand);
+  --accent-hover: color-mix(in srgb, var(--brand), #000 20%);
+  --accent-ink: color-mix(in srgb, var(--brand), #000 15%);
+  --accent-soft: color-mix(in srgb, var(--brand) 12%, var(--bg));
+  --accent-soft-2: color-mix(in srgb, var(--brand) 8%, var(--bg));
+  --accent-line: color-mix(in srgb, var(--brand) 30%, var(--bg));
+  --accent-wash: color-mix(in srgb, var(--brand) 8%, transparent);
+}
+/* A pale brand colour can't carry white text, nor be read as text on white. */
+:root[data-brand="light"] { --accent-ink: color-mix(in srgb, var(--brand), #000 55%); --on-accent: #1c1917; }
+/* Dark theme: fills are lightened so the dark text on them stays readable. */
+:root[data-theme="dark"][data-brand] {
+  --accent: color-mix(in srgb, var(--brand), #fff 35%);
+  --accent-hover: color-mix(in srgb, var(--brand), #fff 50%);
+  --accent-ink: color-mix(in srgb, var(--brand), #fff 55%);
+  --accent-soft: color-mix(in srgb, var(--brand) 25%, var(--bg));
+  --accent-soft-2: color-mix(in srgb, var(--brand) 18%, var(--bg));
+  --accent-line: color-mix(in srgb, var(--brand) 45%, var(--bg));
+  --accent-wash: color-mix(in srgb, var(--brand) 12%, transparent);
+}
+:root[data-theme="dark"][data-brand="dark"] {
+  --accent: color-mix(in srgb, var(--brand), #fff 60%);
+  --accent-hover: color-mix(in srgb, var(--brand), #fff 72%);
+  --accent-ink: color-mix(in srgb, var(--brand), #fff 75%);
+}

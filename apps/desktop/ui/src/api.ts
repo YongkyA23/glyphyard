@@ -66,6 +66,10 @@ export type Connection = {
 }
 export type AppState = {
   onboarded: boolean; name: string; nextNameChange: string | null; nameChangeDays: number
+  /** Set by the admin on the server; '' = Typeshelf's own name and colour. brandColor is '#rrggbb'. */
+  brandName: string; brandColor: string
+  /** Image data URL set by the admin, or ''. */
+  brandLogo: string
   /** False in standalone mode (no server address): hide what needs the server (admin requests, name rule). */
   serverConfigured: boolean
   /** Holds a server token: the once-every-N-days name rule applies. False after "Continue offline" until the app joins. */

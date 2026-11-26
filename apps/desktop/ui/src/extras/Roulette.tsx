@@ -56,13 +56,18 @@ function Roulette({ onClose }: { onClose: () => void }) {
   )
 }
 
-export function Logo() {
+/** `brand` and `logo` (an image data URL) are set by the admin on the server; the logo replaces the whole mark. */
+export function Logo({ brand, logo }: { brand?: string; logo?: string }) {
   const [open, setOpen] = useState(false)
   const tap = useTaps(5, () => void playful().then((on) => on && setOpen(true)))
+  const custom = /^data:image\//.test(logo ?? '')
   return (
     <>
-      <button type="button" className="egg-logo" aria-label="Typeshelf" onClick={tap}>
-        <span aria-hidden="true">Aa<span className="g">g</span></span>
+      <button type="button" className="egg-logo" aria-label={brand ? `${brand} · Typeshelf` : 'Typeshelf'} onClick={tap}>
+        {custom ? <img className="brand-logo" src={logo} alt="" /> : <>
+          <span aria-hidden="true">Aa<span className="g">g</span></span>
+          {brand && <span aria-hidden="true" className="brand-name">{brand}</span>}
+        </>}
       </button>
       <Dialog open={open} onClose={() => setOpen(false)} title="Font roulette">
         <Roulette onClose={() => setOpen(false)} />
