@@ -174,18 +174,26 @@ function useFontToggle(installId: string) {
     setPending((p) => { if (!(hash in p)) return p; const { [hash]: _, ...rest } = p; return rest })
   }, [])
   useEffect(() => { const t = timers.current; return () => { t.forEach(clearTimeout); t.clear() } }, [])
-  /** `announce`: toast text for the request, with an Undo that sends the opposite request. */
-  const set = async (hash: string, active: boolean, announce?: string) => {
-    if (timers.current.has(hash)) return
-    setError('')
+  /** Throws on failure (after clearing the pending state); the toast Undo uses it so a failure shows an error toast. */
+  const send = async (hash: string, active: boolean) => {
     setPending((p) => ({ ...p, [hash]: active }))
     timers.current.set(hash, setTimeout(() => drop(hash), PENDING_MS))
     try {
       await api.setFont(installId, hash, active)
       setSent((s) => ({ ...s, [hash]: true }))
-      if (announce) toast(announce, { undo: () => { drop(hash); return set(hash, !active) } })
     } catch (e) {
       drop(hash)
+      throw e
+    }
+  }
+  /** `announce`: toast text for the request, with an Undo that sends the opposite request. */
+  const set = async (hash: string, active: boolean, announce?: string) => {
+    if (timers.current.has(hash)) return
+    setError('')
+    try {
+      await send(hash, active)
+      if (announce) toast(announce, { undo: () => { drop(hash); return send(hash, !active) } })
+    } catch (e) {
       setShakes((s) => ({ ...s, [hash]: (s[hash] ?? 0) + 1 }))
       setError(errorText(e))
     }

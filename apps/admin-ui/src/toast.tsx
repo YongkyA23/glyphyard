@@ -1,5 +1,5 @@
 // Toasts: a module-level store (so a toast survives route changes) read through useSyncExternalStore.
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { errorText } from './api'
 import { fast, spring } from './motion'
@@ -28,12 +28,14 @@ const dismiss = (id: number) => {
 
 function ToastView({ t, reduced }: { t: Item; reduced: boolean | null }) {
   const [hover, setHover] = useState(false)
-  // The timer restarts after the pointer leaves, so a toast under the pointer stays.
+  // Hovering pauses the timer; leaving resumes with the time that was left.
+  const left = useRef(t.undo ? 8000 : 5000)
   useEffect(() => {
     if (hover) return
-    const h = window.setTimeout(() => dismiss(t.id), t.undo ? 8000 : 5000)
-    return () => clearTimeout(h)
-  }, [hover, t.id, t.undo])
+    const start = Date.now()
+    const h = window.setTimeout(() => dismiss(t.id), left.current)
+    return () => { clearTimeout(h); left.current = Math.max(0, left.current - (Date.now() - start)) }
+  }, [hover, t.id])
   const undo = async () => {
     if (!t.undo) return
     dismiss(t.id)
