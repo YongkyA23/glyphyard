@@ -6,6 +6,8 @@ import { api, errorText, PAGE_SIZE, type By, type Sort, type SortDir } from './a
 import { easeOut, fast, page, shakeOpts, shakeX, softSpring, spring, stagger } from './motion'
 import { ErrorBoundary } from './ErrorBoundary'
 import { applyBrand, getThemePref, setThemePref } from './theme'
+import { Palette } from './palette'
+import { isMac, NAV, OPEN_PALETTE } from './nav'
 
 /* ---------- data ---------- */
 
@@ -131,6 +133,7 @@ export function Layout() {
   return (
     <div className="shell">
       <Sidebar />
+      <Palette />
       <main className="main">
         {/* The exiting route keeps its own outlet element, so it renders the old page while fading out. */}
         <AnimatePresence mode="wait">
@@ -170,16 +173,7 @@ function Sidebar() {
   const { pathname } = useLocation()
   const [openOn, setOpenOn] = useState<string | null>(null)
   const menuOpen = openOn === pathname
-  const nav: [string, string, number | undefined][] = [
-    ['/', 'Overview', undefined],
-    ['/users', 'Users', counts.data?.users],
-    ['/names', 'Name history', undefined],
-    ['/library', 'Shared library', counts.data?.library],
-    ['/organize', 'Auto-organize', undefined],
-    ['/requests', 'Font requests', counts.data?.requests],
-    ['/settings', 'Settings', undefined],
-    ['/audit', 'Audit log', undefined],
-  ]
+  const countOf: Record<string, number | undefined> = { '/users': counts.data?.users, '/library': counts.data?.library, '/requests': counts.data?.requests }
   const signOut = async () => {
     try { await api.logout() } finally { navigate('/login') }
   }
@@ -198,7 +192,7 @@ function Sidebar() {
       </div>
       <div id="admin-nav" className={menuOpen ? 'sidebar-menu open' : 'sidebar-menu'}>
         <div className="nav-list">
-          {nav.map(([to, label, count]) => (
+          {NAV.map(([to, label]) => { const count = countOf[to]; return (
             <NavLink key={to} to={to} end={to === '/'} className="nav-item">
               {({ isActive }) => <>
                 {isActive && <motion.span layoutId="nav-active" className="nav-pill" transition={spring} />}
@@ -206,8 +200,11 @@ function Sidebar() {
                 {count !== undefined && <span className="nav-count fade-in">{count}</span>}
               </>}
             </NavLink>
-          ))}
+          )})}
         </div>
+        <button type="button" className="nav-search" onClick={() => window.dispatchEvent(new Event(OPEN_PALETTE))}>
+          <span>Search</span><kbd>{isMac ? '⌘ K' : 'Ctrl K'}</kbd>
+        </button>
         <div className="account">
           <span className="account-email">{me.data?.email ?? '…'}</span>
           <Chips small label="Theme" value={pref} onChange={(p) => { setThemePref(p); setPref(p) }}
