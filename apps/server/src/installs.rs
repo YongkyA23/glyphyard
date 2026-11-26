@@ -397,16 +397,27 @@ async fn bulk_fonts(State(s): State<AppState>, admin: Admin, Path(id): Path<Stri
         .query_map(args.as_slice(), font_row)?
         .collect::<Result<_, _>>()?;
 
+    // What the computer will be doing once its queue is worked off: the newest unacked on/off command per font
+    // beats the reported state, so an undo before the ack reverses the queued change and a repeat adds nothing.
+    let queued: HashMap<String, bool> = db
+        .prepare(
+            "SELECT json_extract(payload_json, '$.font.hash'), kind = 'activate' FROM commands
+             WHERE install_id = ?1 AND acked_at IS NULL AND kind IN ('activate', 'deactivate') ORDER BY id",
+        )?
+        .query_map([&id], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+
     let tx = db.transaction()?;
     let (mut changed, mut skipped) = (Vec::new(), 0);
     for f in rows {
+        let active = queued.get(&f.hash).copied().unwrap_or(f.active);
         let wanted = match body.action.as_str() {
-            "on" if f.blocked => {
+            "on" if f.blocked && !active => {
                 skipped += 1;
                 continue;
             }
-            "on" => !f.active,
-            "off" => f.active,
+            "on" => !active,
+            "off" => active,
             _ if !f.in_library => {
                 skipped += 1;
                 continue;

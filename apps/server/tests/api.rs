@@ -1679,3 +1679,73 @@ async fn fonts_rows_carry_library_and_time() {
     assert!(!item["updated_at"].as_str().unwrap().is_empty());
     assert_eq!((item["in_library"].clone(), item["blocked"].clone()), (json!(false), json!(false)));
 }
+
+fn styled(hash: &str, family: &str, style: &str) -> Value {
+    json!({ "hash": hash, "ps_name": format!("{family}-{style}"), "family": family, "style": style })
+}
+
+impl Server {
+    async fn report_on(&self, token: &str, fonts: &[Value]) {
+        for f in fonts {
+            let e = event(json!({ "kind": "font_activated", "font": f, "source": "user" }));
+            assert_eq!(self.desktop(Method::POST, "/me/events", token, Some(e)).await.status, StatusCode::NO_CONTENT);
+        }
+    }
+}
+
+#[tokio::test]
+async fn bulk_undo_before_ack_reverses_queued_state() {
+    let s = Server::new().await;
+    let t = s.register("a", "Budi").await;
+    s.report_on(&t, &[font("h1"), styled("h2", "Fraunces", "Regular")]).await;
+    let bulk = |body: Value| s.admin(Method::POST, "/installs/a/fonts/bulk", Some(body));
+    let off = bulk(json!({ "action": "off", "all": true })).await.json();
+    assert_eq!(off["changed"].as_array().unwrap().len(), 2);
+    let again = bulk(json!({ "action": "off", "all": true })).await.json();
+    assert_eq!(again["changed"].as_array().unwrap().len(), 0, "no duplicate commands");
+    let on = bulk(json!({ "action": "on", "hashes": off["changed"] })).await.json();
+    assert_eq!(on["changed"].as_array().unwrap().len(), 2);
+    assert_eq!(s.ack_all(&t).await, ["deactivate", "deactivate", "activate", "activate"]);
+}
+
+#[tokio::test]
+async fn bulk_block_skips_non_library() {
+    let s = Server::new().await;
+    let t = s.register("a", "Budi").await;
+    let lib = s.library_font().await;
+    s.report_on(&t, &[styled(&lib, "Libfam", "Regular"), styled("nolib", "Other", "Regular")]).await;
+    let r = s.admin(Method::POST, "/installs/a/fonts/bulk", Some(json!({ "action": "block", "all": true }))).await.json();
+    assert_eq!(r, json!({ "changed": [lib], "skipped": 1 }));
+    let files = s.admin(Method::GET, "/library", None).await.json();
+    let row = files["items"].as_array().unwrap().iter().find(|f| f["hash"] == lib.as_str()).unwrap().clone();
+    assert_eq!(row["blocked"], true);
+    assert_eq!(s.audit("?action=fonts_bulk_block").await["items"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn families_merge_case_variants() {
+    let s = Server::new().await;
+    let t = s.register("a", "Budi").await;
+    s.report_on(&t, &[styled("h1", "Inter", "Regular"), styled("h2", "inter", "Bold")]).await;
+    let fam = s.admin(Method::GET, "/installs/a/families", None).await.json();
+    assert_eq!(fam["total"], 1);
+    assert_eq!(fam["items"][0]["styles"], 2);
+    let r = s.admin(Method::POST, "/installs/a/fonts/bulk", Some(json!({ "action": "off", "families": ["INTER"] }))).await.json();
+    assert_eq!(r["changed"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn bulk_on_merged_group_reaches_every_computer() {
+    let s = Server::new().await;
+    let old = s.register("old", "Budi").await;
+    let new = s.register("new", "Budi S.").await;
+    s.report_on(&old, &[font("h1")]).await;
+    s.report_on(&new, &[font("h1")]).await;
+    let m = s.admin(Method::POST, "/installs/merge", Some(json!({ "primary": "old", "secondary": "new", "keep_name": "primary" }))).await;
+    assert_eq!(m.status, StatusCode::OK);
+    let r = s.admin(Method::POST, "/installs/old/fonts/bulk", Some(json!({ "action": "off", "all": true }))).await.json();
+    assert_eq!(r["changed"].as_array().unwrap().len(), 1);
+    for t in [&old, &new] {
+        assert_eq!(s.ack_all(t).await, ["deactivate"]);
+    }
+}
