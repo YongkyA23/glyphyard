@@ -5,8 +5,8 @@ import { errorText } from './api'
 import { fast, spring } from './motion'
 import './toast.css'
 
-type Opts = { tone?: 'ok' | 'bad'; undo?: () => Promise<unknown> }
-type Item = { id: number; text: string; tone: 'ok' | 'bad'; undo?: () => Promise<unknown> }
+type Opts = { tone?: 'ok' | 'bad'; undo?: () => Promise<string | void> }
+type Item = { id: number; text: string; tone: 'ok' | 'bad'; undo?: () => Promise<string | void> }
 
 const MAX = 3
 let items: Item[] = []
@@ -41,8 +41,7 @@ function ToastView({ t, reduced }: { t: Item; reduced: boolean | null }) {
     if (!t.undo) return
     dismiss(t.id)
     try {
-      await t.undo()
-      toast('Undone.')
+      toast((await t.undo()) || 'Undone.')
     } catch (e) {
       toast(errorText(e), { tone: 'bad' })
     }

@@ -118,6 +118,14 @@ function matches(f: FontState, sp: URLSearchParams): boolean {
     && (sp.get('overridden') !== 'true' || f.overridden) && (!q || fontText(f).toLowerCase().includes(q))
 }
 
+/** On/off commands the "computer" has not applied yet; it applies each after a few seconds, like a real desktop. */
+const queued = new Map<string, boolean>()
+function queueFont(f: FontState, active: boolean) {
+  queued.set(f.hash, active)
+  f.updated_at = new Date().toISOString()
+  setTimeout(() => { if (queued.get(f.hash) === active) { queued.delete(f.hash); f.active = active } }, 3000)
+}
+
 function route(method: string, p: string, sp: URLSearchParams, body: unknown): unknown {
   const m = (re: RegExp) => p.match(re)
   if (p === '/me') return { email: 'admin@example.test', role: 'owner' }
@@ -176,10 +184,12 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
       if (b.action === 'block') {
         if (!f.in_library || f.blocked) { skipped++; continue }
         f.blocked = true; f.active = false
-      } else if (b.action === 'on' && f.blocked) { skipped++; continue }
-      else if (f.active === (b.action === 'on')) continue
-      else f.active = b.action === 'on'
-      f.updated_at = new Date().toISOString()
+      } else {
+        const active = queued.get(f.hash) ?? f.active
+        if (b.action === 'on' && f.blocked && !active) { skipped++; continue }
+        if (active === (b.action === 'on')) continue
+        queueFont(f, b.action === 'on')
+      }
       changed.push(f.hash)
     }
     return { changed, skipped }
@@ -189,7 +199,13 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
     { id: 2, at: t(day), by: 'admin', kind: 'font', text: 'Fraunces turned on remotely' },
     { id: 3, at: t(15 * day), by: 'user', kind: 'name', text: 'Changed name from “Budi S.” to “Budi Santoso”' },
   ], sp)
-  if (m(/^\/installs\/[^/]+\/(fonts|organize-request)$/)) return { command_id: 1 }
+  if (m(/^\/installs\/[^/]+\/fonts$/)) {
+    const b = body as { hash: string; active: boolean }
+    const f = fonts.find((x) => x.hash === b.hash)
+    if (f) queueFont(f, b.active)
+    return { command_id: 1 }
+  }
+  if (m(/^\/installs\/[^/]+\/organize-request$/)) return { command_id: 1 }
   const one = m(/^\/installs\/([^/]+)$/)
   if (one) return detail(installs.find((i) => i.id === decodeURIComponent(one[1])) ?? installs[0])
   if (p === '/installs/merge') return detail(installs[0])

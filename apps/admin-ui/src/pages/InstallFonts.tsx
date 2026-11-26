@@ -61,6 +61,8 @@ export function InstallFonts({ u, who }: { u: InstallDetail; who: string }) {
   const sel = selState.key === key ? selState : none(key)
   const edit = (f: (s: Sel) => Sel) => setSelState((prev) => f(prev.key === key ? prev : none(key)))
   const lastPicked = useRef('')
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  useEffect(() => { lastPicked.current = '' }, [key])
 
   /* Families waiting for the desktop after a batch (hash-level waiting lives in `pending`). */
   const [famWait, setFamWait] = useState<Record<string, { want: boolean; n?: number }>>({})
@@ -79,40 +81,46 @@ export function InstallFonts({ u, who }: { u: InstallDetail; who: string }) {
 
   /** One batch: `sels` is one request per selection kind; results are merged. */
   const batch = async (action: Action, sels: FontSelection[], fams: string[]) => {
-    let changed: string[], skipped: number
-    try {
-      const rs = await Promise.all(sels.map((s) => api.bulkFonts(u.id, action, s, 'hashes' in s ? {} : filter)))
-      changed = rs.flatMap((r) => r.changed)
-      skipped = rs.reduce((n, r) => n + r.skipped, 0)
-    } catch (e) {
-      toast(errorText(e), { tone: 'bad' })
+    const rs = await Promise.allSettled(sels.map((s) => api.bulkFonts(u.id, action, s, 'hashes' in s ? {} : filter)))
+    const done = rs.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
+    const failed = rs.flatMap((r) => (r.status === 'rejected' ? [r.reason] : []))
+    if (!done.length) {
+      toast(errorText(failed[0]), { tone: 'bad' })
       return
     }
+    const changed = done.flatMap((r) => r.changed)
+    const skipped = done.reduce((n, r) => n + r.skipped, 0)
     const want = action === 'on'
     mark(changed, want)
-    if (changed.length) {
+    // A family toggle only waits as a whole when every style was sent; block never changes on/off here.
+    if (changed.length && action !== 'block' && !skipped && !failed.length) {
       for (const f of fams) {
         clearTimeout(famTimers.current.get(f))
         famTimers.current.set(f, setTimeout(() => dropFam(f), PENDING_MS))
         setFamWait((w) => ({ ...w, [f]: { want, n: fams.length === 1 ? changed.length : undefined } }))
       }
     }
-    const left = skipped ? ` · ${skipped} skipped` : ''
+    const why = action === 'block' ? 'not in Shared library' : 'blocked'
+    const left = (skipped ? ` · ${skipped} skipped (${why})` : '') + (failed.length ? ' · part of the selection failed' : '')
     const n = plural(changed.length, 'font')
     const opposite = action === 'on' ? 'off' : 'on'
     const undo = async () => {
       fams.forEach(dropFam)
       changed.forEach(drop)
+      let r: { changed: string[]; skipped: number } | undefined
       if (action === 'block') await api.bulk('unblock', { hashes: changed })
       else {
-        const r = await api.bulkFonts(u.id, opposite, { hashes: changed }, {})
+        r = await api.bulkFonts(u.id, opposite, { hashes: changed }, {})
         mark(r.changed, opposite === 'on')
       }
       refresh()
+      return r?.skipped ? `Undone · ${r.skipped} skipped (blocked)` : undefined
     }
+    if (failed.length) toast(`${errorText(failed[0])} · the rest was applied`, { tone: 'bad' })
     if (!changed.length) toast(`No fonts changed${left}`)
     else toast((action === 'block' ? `Blocked ${n}` : `Turning ${action} ${n} on ${who}’s computer`) + left, { undo })
     setSelState(none(key))
+    headingRef.current?.focus()
     refresh()
   }
 
@@ -150,7 +158,7 @@ export function InstallFonts({ u, who }: { u: InstallDetail; who: string }) {
   return (
     <motion.section aria-labelledby="af" className="card pad-18 stack-10" variants={fadeRise}>
       <div className="row-between">
-        <h2 id="af" className="h2 h2-sm">Fonts · {u.active_fonts} on</h2>
+        <h2 id="af" ref={headingRef} tabIndex={-1} className="h2 h2-sm">Fonts · {u.active_fonts} on</h2>
         <Link to="/library" className="small">Turn on fonts…</Link>
       </div>
       <div className="ifx-tools">
@@ -197,7 +205,7 @@ export function InstallFonts({ u, who }: { u: InstallDetail; who: string }) {
                     </span>
                     <Toggle on={on} mixed={mixed} disabled={!!wait} label={`${on ? 'Turn off' : 'Turn on'} all ${f.family} styles for ${who}`}
                       onChange={() => void batch(on ? 'off' : 'on', [{ families: [f.family] }], [f.family])} />
-                    <button type="button" className="ifx-chev" aria-expanded={open} aria-controls={`ifx-${i}`} aria-label={`${open ? 'Hide' : 'Show'} ${f.family} styles`} onClick={() => flip(f.family)}>›</button>
+                    <button type="button" className="ifx-chev" aria-expanded={open} aria-controls={open ? `ifx-${i}` : undefined} aria-label={`${open ? 'Hide' : 'Show'} ${f.family} styles`} onClick={() => flip(f.family)}>›</button>
                   </div>
                   <AnimatePresence initial={false}>
                     {open && (
