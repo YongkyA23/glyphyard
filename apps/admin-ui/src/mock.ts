@@ -45,6 +45,12 @@ const overview: Overview = {
   ],
   attention: { overrides: 4, failures: 3, possible_duplicates: 2, stale: 5, requests: 2 },
   top_fonts: [{ family: 'Space Grotesk', users: 41 }, { family: 'Fraunces', users: 33 }, { family: 'Syne', users: 19 }],
+  trend: Array.from({ length: 30 }, (_, i) => ({
+    day: new Date(now - (29 - i) * day * 60000).toISOString().slice(0, 10),
+    activity: 8 + ((i * 7) % 13),
+    failures: i % 6 === 0 ? 2 : 0,
+    new_installs: i % 5 === 0 ? 1 : 0,
+  })),
 }
 const fontRequests: FontRequest[] = [
   { id: 3, install_id: installs[1].id, install_name: 'Sari Wulandari', font_name: 'Söhne Buch', note: 'For the Acme rebrand deck, due Friday.', at: t(40), done_at: null },
@@ -81,9 +87,15 @@ function livePoll(): Overview {
 }
 
 /** Filters by `q` over `text(item)` and slices by offset/limit, like the server. */
-function paged<T>(list: T[], sp: URLSearchParams, text: (x: T) => string = () => ''): Page<T> {
+/** `cmps` maps each `sort` key to an ascending comparator; `dir` flips it. */
+function paged<T>(list: T[], sp: URLSearchParams, text: (x: T) => string = () => '', cmps: Record<string, (a: T, b: T) => number> = {}): Page<T> {
   const q = (sp.get('q') ?? '').toLowerCase()
-  const hits = q ? list.filter((x) => text(x).toLowerCase().includes(q)) : list
+  let hits = q ? list.filter((x) => text(x).toLowerCase().includes(q)) : list
+  const cmp = cmps[sp.get('sort') ?? '']
+  if (cmp) {
+    const sign = sp.get('dir') === 'desc' ? -1 : 1
+    hits = [...hits].sort((a, b) => sign * cmp(a, b))
+  }
   const offset = Number(sp.get('offset') ?? 0)
   const limit = Math.min(200, Math.max(1, Number(sp.get('limit') ?? 50)))
   return { items: hits.slice(offset, offset + limit), total: hits.length }
@@ -109,7 +121,13 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
     return { changed: hit.length, skipped: 0, failed: 0 }
   }
   if (p === '/overview') return livePoll()
-  if (p === '/installs' && method === 'GET') return paged(installs, sp, (i) => [i.id, i.name, ...i.previous_names].join(' '))
+  if (p === '/installs' && method === 'GET') {
+    return paged(installs, sp, (i) => [i.id, i.name, ...i.previous_names].join(' '), {
+      name: (a, b) => a.name.localeCompare(b.name),
+      last_seen: (a, b) => a.last_seen.localeCompare(b.last_seen),
+      fonts: (a, b) => a.active_fonts - b.active_fonts,
+    })
+  }
   if (m(/^\/installs\/[^/]+\/fonts$/) && method === 'GET') return paged(fonts, sp, (f) => `${f.family} ${f.style} ${f.ps_name}`)
   if (m(/^\/installs\/[^/]+\/timeline$/)) return paged([
     { id: 1, at: t(5), by: 'user', kind: 'override', text: 'Turned off Fraunces' },
@@ -125,7 +143,13 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
     { at: t(3 * day), install_ids: ['A3C1-77E0-2B4D', '0F9E-1A2B-8C3D'], old_name: 'Rina (old laptop)', new_name: 'Rina Kusuma', by: 'merge', next_allowed: null },
     { at: t(26 * day), install_ids: [installs[0].id], old_name: null, new_name: 'Budi S.', by: 'first', next_allowed: null },
   ], sp, (r) => `${r.old_name ?? ''} ${r.new_name} ${r.install_ids.join(' ')}`)
-  if (p === '/library' && method === 'GET') return paged(library, sp, (f) => `${f.family} ${f.style} ${f.ps_name} ${f.filename}`)
+  if (p === '/library' && method === 'GET') {
+    return paged(library, sp, (f) => `${f.family} ${f.style} ${f.ps_name} ${f.filename}`, {
+      family: (a, b) => a.family.localeCompare(b.family),
+      uploaded: (a, b) => a.uploaded_at.localeCompare(b.uploaded_at),
+      size: (a, b) => a.size - b.size,
+    })
+  }
   if (p === '/library') return []
   const lib = m(/^\/library\/([^/]+)(?:\/(block|deliver))?$/)
   if (lib && lib[1] !== 'organize') {
@@ -140,7 +164,10 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
   if (p === '/library/organize/apply') return { applied: 2 }
   if (p === '/requests') {
     const state = sp.get('state') ?? 'all'
-    return paged(fontRequests.filter((r) => state === 'all' || (state === 'open') === !r.done_at), sp)
+    return paged(fontRequests.filter((r) => state === 'all' || (state === 'open') === !r.done_at), sp, undefined, {
+      at: (a, b) => a.at.localeCompare(b.at),
+      font: (a, b) => a.font_name.localeCompare(b.font_name),
+    })
   }
   const req = m(/^\/requests\/(\d+)\/(done|reopen)$/)
   if (req) {

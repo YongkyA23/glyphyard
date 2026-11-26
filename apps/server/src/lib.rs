@@ -126,6 +126,22 @@ impl IntoResponse for ApiError {
     }
 }
 
+/// Parses `sort`/`dir` against `allowed` (`(key, descending by default)`): `None` without `sort`,
+/// else `(key, desc)`. Unknown `sort` or `dir` is `400 invalid_sort`.
+pub fn sort_dir(sort: Option<&str>, dir: Option<&str>, allowed: &[(&str, bool)]) -> ApiResult<Option<(String, bool)>> {
+    let Some(sort) = sort else { return Ok(None) };
+    let Some(&(key, default_desc)) = allowed.iter().find(|(k, _)| *k == sort) else {
+        return Err(ApiError::bad_request("invalid_sort", format!("unknown sort `{sort}`")));
+    };
+    let desc = match dir {
+        None => default_desc,
+        Some("asc") => false,
+        Some("desc") => true,
+        Some(other) => return Err(ApiError::bad_request("invalid_sort", format!("unknown dir `{other}`"))),
+    };
+    Ok(Some((key.to_string(), desc)))
+}
+
 pub(crate) fn internal(e: impl std::fmt::Display) -> ApiError {
     tracing::error!("internal error: {e}");
     ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", "internal server error")

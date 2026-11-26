@@ -65,6 +65,8 @@ const PERSON: &str = "JOIN installs i ON i.id = r.install_id JOIN installs p ON 
 #[derive(Deserialize)]
 struct ListQuery {
     state: Option<String>,
+    sort: Option<String>,
+    dir: Option<String>,
 }
 
 /// Newest first; `state` = all (default), open or done.
@@ -73,13 +75,20 @@ async fn list(State(s): State<AppState>, _: Admin, Query(q): Query<ListQuery>, Q
     if !["all", "open", "done"].contains(&state.as_str()) {
         return Err(ApiError::bad_request("invalid_state", format!("unknown state `{state}`")));
     }
+    let order = match crate::sort_dir(q.sort.as_deref(), q.dir.as_deref(), &[("at", true), ("font", false)])? {
+        Some((key, desc)) => {
+            let d = if desc { "DESC" } else { "ASC" };
+            if key == "font" { format!("r.font_name COLLATE NOCASE {d}, r.at DESC, r.id DESC") } else { format!("r.at {d}, r.id {d}") }
+        }
+        None => "r.at DESC, r.id DESC".to_string(),
+    };
     let (offset, limit) = paging.window(Paging::DEFAULT, Paging::MAX);
     let filter = "(?1 = 'all' OR (?1 = 'open') = (r.done_at IS NULL)) AND p.revoked_at IS NULL";
     let db = s.db();
     let total: i64 = db.query_row(&format!("SELECT COUNT(*) FROM font_requests r {PERSON} WHERE {filter}"), [&state], |r| r.get(0))?;
     let mut stmt = db.prepare(&format!(
         "SELECT r.id, p.id, p.name, r.font_name, r.note, r.at, r.done_at FROM font_requests r {PERSON}
-         WHERE {filter} ORDER BY r.at DESC, r.id DESC LIMIT ?2 OFFSET ?3"
+         WHERE {filter} ORDER BY {order} LIMIT ?2 OFFSET ?3"
     ))?;
     let items = stmt
         .query_map(params![state, limit, offset], |r| {
