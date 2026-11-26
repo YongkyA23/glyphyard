@@ -290,9 +290,11 @@ h1, h2 { margin: 0; }
 .onboarding { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 48px 24px; }
 .onboarding-card { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 28px; }
 .onboarding-card h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.4px; }
-.onboarding-mark { font-family: "Instrument Serif", serif; font-size: 96px; line-height: 1; letter-spacing: -2px; }
-.onboarding-mark > span { display: inline-block; }
-.onboarding-mark .g { font-style: italic; color: var(--accent); }
+/* The Glyphyard mark and lockup, drawn in the ink colour so they follow the theme; the G is cut out of the block. */
+.gy-mark, .gy-lockup { display: block; flex: none; background: currentColor; }
+.gy-mark { width: 28px; height: 28px; mask: url(./brand/glyphyard-mark.svg) center / contain no-repeat; }
+.gy-lockup { width: 169px; height: 32px; mask: url(./brand/glyphyard-lockup.svg) left center / contain no-repeat; }
+.onboarding-mark { width: 96px; height: 96px; color: var(--ink); }
 
 /* ---- Quick activate ---- */
 .quick { height: 100%; display: flex; flex-direction: column; background: var(--bg); }

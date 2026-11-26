@@ -4,14 +4,11 @@
 :root[data-egg-font="comic"] { --font-ui: "Comic Sans MS", "Comic Sans", "Chalkboard SE", "Comic Neue", cursive; --font-mono: var(--font-ui); }
 :root[data-egg-font="papyrus"] { --font-ui: Papyrus, fantasy; --font-mono: var(--font-ui); }
 :root[data-egg-font="wingdings"] { --font-ui: Wingdings, "Zapf Dingbats", Webdings, fantasy; --font-mono: var(--font-ui); }
-:root[data-egg-font] .egg-logo { font-family: var(--font-ui); }
-
 /* Sidebar mark (Roulette.tsx). */
 .egg-logo {
-  align-self: flex-start; display: flex; align-items: baseline; gap: 10px; max-width: 100%; margin: -4px 0 -6px; padding: 0 10px; border: 0; border-radius: var(--radius); background: none; color: var(--ink);
-  font-family: "Instrument Serif", serif; font-size: 30px; line-height: 1; letter-spacing: -.5px; cursor: default; user-select: none;
+  align-self: flex-start; display: flex; align-items: center; gap: 8px; max-width: 100%; margin: -4px 0 -6px; padding: 0 10px; border: 0; border-radius: var(--radius); background: none; color: var(--ink);
+  line-height: 1; cursor: default; user-select: none;
 }
-.egg-logo .g { font-style: italic; color: var(--accent); }
 .egg-logo .brand-logo { display: block; min-width: 0; max-width: 190px; max-height: 36px; object-fit: contain; object-position: left center; }
 .egg-logo .brand-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 13px var(--font-ui); letter-spacing: 0; color: var(--ink-2); }
 .egg-logo + .side-group { gap: 2px; }

@@ -6,9 +6,6 @@ import { cssStagger, shake, spring } from '../motion'
 import { useApp } from '../state'
 import { errMsg } from '../ui'
 
-/** The mark's letters rise in one after another; the italic g swings in last. */
-const MARK: [string, string | undefined][] = [['A', undefined], ['a', undefined], ['g', 'g']]
-
 export function Onboarding() {
   const { app, setApp } = useApp()
   const [name, setName] = useState('')
@@ -38,17 +35,11 @@ export function Onboarding() {
   return (
     <div className="onboarding">
       <form className="onboarding-card" onSubmit={submit} noValidate>
-        <div aria-hidden="true" className="onboarding-mark">
-          {MARK.map(([ch, cls], i) => (
-            <motion.span
-              key={ch} className={cls}
-              initial={{ opacity: 0, y: 28, rotate: cls ? -12 : 0, filter: 'blur(6px)' }} animate={{ opacity: 1, y: 0, rotate: 0, filter: 'blur(0px)' }}
-              transition={{ ...spring.panel, delay: 0.08 + i * 0.09, filter: { duration: 0.3, delay: 0.08 + i * 0.09 } }}
-            >
-              {ch}
-            </motion.span>
-          ))}
-        </div>
+        <motion.span
+          aria-hidden="true" className="gy-mark onboarding-mark"
+          initial={{ opacity: 0, y: 28, filter: 'blur(6px)' }} animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+          transition={{ ...spring.panel, delay: 0.08, filter: { duration: 0.3, delay: 0.08 } }}
+        />
         <div className="enter" style={{ display: 'flex', flexDirection: 'column', gap: 10, ...cssStagger(3) }}>
           <h1>Welcome. What should we call you?</h1>
           <p className="muted" style={{ margin: 0, lineHeight: 1.55 }}>

@@ -64,10 +64,10 @@ export function Logo({ brand, logo }: { brand?: string; logo?: string }) {
   return (
     <>
       <button type="button" className="egg-logo" aria-label={brand ? `${brand} · Glyphyard` : 'Glyphyard'} onClick={tap}>
-        {custom ? <img className="brand-logo" src={logo} alt="" /> : <>
-          <span aria-hidden="true">Aa<span className="g">g</span></span>
-          {brand && <span aria-hidden="true" className="brand-name">{brand}</span>}
-        </>}
+        {custom ? <img className="brand-logo" src={logo} alt="" /> : brand ? <>
+          <span aria-hidden="true" className="gy-mark" />
+          <span aria-hidden="true" className="brand-name">{brand}</span>
+        </> : <span aria-hidden="true" className="gy-lockup" />}
       </button>
       <Dialog open={open} onClose={() => setOpen(false)} title="Font roulette">
         <Roulette onClose={() => setOpen(false)} />
