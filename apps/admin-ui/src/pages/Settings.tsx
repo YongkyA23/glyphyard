@@ -65,6 +65,7 @@ function Form({ initial, onSaved, admins, owner }: { initial: Settings; onSaved:
       const saved = await api.saveSettings({ ...rest, name_change_days: daysNum })
       setS(saved)
       onSaved(saved)
+      window.dispatchEvent(new Event('brand-changed'))
       setStatus('saved')
     } catch (err) {
       setError(errorText(err))

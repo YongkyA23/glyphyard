@@ -64,8 +64,8 @@ Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–20
 | POST | `/login` | `{ email, password }` → 204 + cookie; 401 `bad_credentials`; 429 `too_many_attempts` after 5 failed sign-ins for the same email within 15 minutes |
 | POST | `/logout` | → 204 |
 | GET | `/me` | → `{ email, role }` or 401 |
-| GET | `/overview` | → `{ installs, online, os: {windows, macos}, name_changes_month, overrides_week, failures_week, recent: Activity[], attention: { overrides, failures, possible_duplicates, stale, requests }, top_fonts: { family, users }[] }` |
-| GET | `/installs?q=&filter=all\|online\|overrides\|duplicates\|stale&offset=&limit=` | → `Page<InstallSummary>` sorted by name (q matches current name, old names, install id) |
+| GET | `/overview` | → `{ installs, online, os: {windows, macos}, name_changes_month, overrides_week, failures_week, recent: Activity[], attention: { overrides, failures, possible_duplicates, stale, requests }, top_fonts: { family, users }[], trend: { day, activity, failures, new_installs }[] }`. `trend` is the last 30 UTC days, oldest first, today last, zero-filled: events (`activity`, `failures`) and new installs per day |
+| GET | `/installs?q=&filter=all\|online\|overrides\|duplicates\|stale&sort=name\|last_seen\|fonts&dir=asc\|desc&offset=&limit=` | → `Page<InstallSummary>` sorted by name unless `sort` is set (defaults: `name` asc, others desc; ties by name; `dir` alone is ignored; unknown values are 400 `invalid_sort`) (q matches current name, old names, install id) |
 | GET | `/installs/{id}` | → `InstallDetail` (fonts are paged separately) |
 | GET | `/installs/{id}/fonts?q=&active=true\|false&offset=&limit=` | → `Page<FontState>` active first, then family (q matches family, style, PostScript name). Covers the install and every install merged into it: one row per font, `active` if on in any of them |
 | GET | `/installs/{id}/timeline?kind=all\|names\|fonts\|overrides\|failures&offset=&limit=` | → `Page<TimelineEvent>` newest first (limit default 100, max 500) |
@@ -77,7 +77,7 @@ Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–20
 | DELETE | `/installs/{id}` | → 204. Removes the computer and every install merged into it: tokens get 401 `revoked`, open sockets close, they leave every list and count, their reported fonts, unsent commands and deliveries aimed at them are dropped. Name changes and timeline events stay (name-history export). Revoked installs answer 404 on every `/installs/{id}…` endpoint. |
 | GET | `/name-changes?q=&since=&offset=&limit=` | → `Page<NameChangeRow>` newest first |
 | GET | `/name-changes.csv?q=&since=` | → CSV of every matching row (not paged) |
-| GET | `/library?q=&offset=&limit=` | → `Page<LibraryFile>` by family, style (q matches family, style, PostScript name, file name) |
+| GET | `/library?q=&sort=family\|uploaded\|size&dir=asc\|desc&offset=&limit=` | → `Page<LibraryFile>` by family, style unless `sort` is set (defaults: `family` asc, others desc; unknown values are 400 `invalid_sort`) (q matches family, style, PostScript name, file name) |
 | POST | `/library` | multipart, field `files` (one or more font files) → `LibraryFile[]` added |
 | PUT | `/library/{hash}` | `{ license }` → `LibraryFile` |
 | POST | `/library/{hash}/block` | `{ blocked }` → `LibraryFile` (pushes Block/Unblock to every install) |
@@ -87,7 +87,7 @@ Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–20
 | GET | `/library/organize` | → `{ changes: OrganizeChange[] }` |
 | POST | `/library/organize/apply` | → `{ applied }`. Removals move the stored file to `<data>/quarantine/` (nothing is deleted); a file that cannot be moved keeps its row and is not counted |
 | GET | `/organize/reports?offset=&limit=` | → `Page<{ install_id, name, duplicates, version_conflicts, name_clashes, last_organized: string \| null }>` by name |
-| GET | `/requests?state=all\|open\|done&offset=&limit=` | → `Page<{ id, install_id, install_name, font_name, note: string \| null, at, done_at: string \| null }>` newest first. `install_id`/`install_name` are the person the request belongs to now (the merge primary). Default `all`; another state is 400 `invalid_state`. `attention.requests` on `/overview` counts the open ones |
+| GET | `/requests?state=all\|open\|done&sort=at\|font&dir=asc\|desc&offset=&limit=` | → `Page<{ id, install_id, install_name, font_name, note: string \| null, at, done_at: string \| null }>` newest first unless `sort` is set (defaults: `at` desc, `font` asc; unknown values are 400 `invalid_sort`). `install_id`/`install_name` are the person the request belongs to now (the merge primary). Default `all`; another state is 400 `invalid_state`. `attention.requests` on `/overview` counts the open ones |
 | POST | `/requests/{id}/done` | → 204 (an already done request keeps its first `done_at`); 404 if there is no such request |
 | POST | `/requests/{id}/reopen` | → 204; 404 if there is no such request |
 | GET | `/settings` | → `Settings` |

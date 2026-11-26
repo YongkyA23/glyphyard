@@ -1,13 +1,14 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react'
-import { Link } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { api, ApiError, errorText, type BulkAction, type LibraryFile, type License, type Page } from '../api'
+import { api, sortAria, ApiError, errorText, type BulkAction, type LibraryFile, type LibrarySort, type License, type Page, type Sort } from '../api'
 import { base, fadeRise, fast, row, spring } from '../motion'
+import { toast } from '../toast'
 import {
-  Badge, Dialog, Empty, ErrorBox, Loaded, PageHeader, Pager, plural, Skel, Spin, Swap, Table, TableSkeleton, useConfirm, useDebounced, useLoad, usePage,
+  Badge, Dialog, Empty, ErrorBox, fmtDate, Loaded, PageHeader, Pager, plural, Skel, SortHead, Spin, Swap, Table, TableSkeleton, useConfirm, useDebounced, useLoad, usePage,
 } from '../ui'
 
-const HEAD = ['Family', 'License', 'Delivered to', 'Active on', 'Status', <span className="sr-only">Actions</span>]
+const HEAD = ['Family', 'License', 'Delivered to', 'Active on', 'Added', 'Size', 'Status', <span className="sr-only">Actions</span>]
 const SKELETON_HEAD = [<span key="sel" className="sr-only">Select</span>, ...HEAD]
 type Upload = { name: string; state: 'busy' | 'done' | 'error' }
 /** Picked files for this search: hashes on any page, or `all` = every result of the search. */
@@ -22,11 +23,12 @@ const deliveredText = (t: LibraryFile['delivered_to']) =>
 const kb = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`)
 
 export function Library() {
-  const [q, setQ] = useState('')
+  const [params] = useSearchParams()
+  const [q, setQ] = useState(params.get('q') ?? '')
   const query = useDebounced(q.trim(), 150)
-  const [page, setPage] = usePage(query)
-  const state = useLoad(() => api.library(query, page), [query, page])
-  const [notice, setNotice] = useState('')
+  const [sort, setSort] = useState<Sort<LibrarySort>>(null)
+  const [page, setPage] = usePage(`${query}|${sort?.key}|${sort?.dir}`)
+  const state = useLoad(() => api.library(query, page, undefined, sort), [query, page, sort])
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploads, setUploads] = useState<Upload[]>([])
@@ -54,11 +56,10 @@ export function Library() {
 
   const bulk = async (action: BulkAction, target?: 'all' | string[], activate?: boolean) => {
     setError('')
-    setNotice('')
     try {
       const r = await api.bulk(action, selection.all ? { q: query } : { hashes: selection.hashes }, target, activate)
       const done = action === 'deliver' && Array.isArray(target) && target.length === 0 ? 'Removed delivery of' : DONE[action]
-      setNotice(`${done} ${plural(r.changed, 'file')}.`
+      toast(`${done} ${plural(r.changed, 'file')}.`
         + (r.skipped ? ` Skipped ${r.skipped} that ${r.skipped === 1 ? 'was' : 'were'} already done, blocked or gone.` : ''))
       if (r.failed) setError(`${plural(r.failed, 'file')} couldn’t be deleted. Check the server log, then try again.`)
     } catch (e) {
@@ -82,10 +83,9 @@ export function Library() {
     const text = `Delete ${f.family} ${f.style} from the library? The file moves to the server’s quarantine folder. Computers that already have it keep their copy.`
     if (!(await confirm(text, 'Delete', true))) return
     setError('')
-    setNotice('')
     try {
       await api.deleteFile(f.hash)
-      setNotice(`Deleted ${f.family} ${f.style}.`)
+      toast(`Deleted ${f.family} ${f.style}.`)
       setSel({ ...selection, hashes: selection.hashes.filter((h) => h !== f.hash) })
       await state.reload(true)
     } catch (e) {
@@ -94,9 +94,13 @@ export function Library() {
   }
 
   const replace = (f: LibraryFile) => state.setData((p) => ({ ...p, items: p.items.map((r) => (r.hash === f.hash ? f : r)) }))
-  const run = async (fn: () => Promise<LibraryFile>) => {
+  const run = async (fn: () => Promise<LibraryFile>, done?: (f: LibraryFile) => void) => {
     setError('')
-    try { replace(await fn()) } catch (e) { setError(errorText(e)) }
+    try {
+      const f = await fn()
+      replace(f)
+      done?.(f)
+    } catch (e) { setError(errorText(e)) }
   }
 
   const upload = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -104,7 +108,6 @@ export function Library() {
     if (!files?.length) return
     setUploading(true)
     setError('')
-    setNotice('')
     // ponytail: one request for all files, so chips show an indeterminate bar, then all finish together.
     const names = Array.from(files, (f) => f.name)
     const mark = (state: Upload['state']) => setUploads(names.map((name) => ({ name, state })))
@@ -112,7 +115,7 @@ export function Library() {
     try {
       const added = await api.upload(files)
       mark('done')
-      setNotice(added.length ? `Added ${plural(added.length, 'font file')}.` : 'Those files are already in the library.')
+      toast(added.length ? `Added ${plural(added.length, 'font file')}.` : 'Those files are already in the library.')
       await state.reload(true)
     } catch (err) {
       mark('error')
@@ -126,7 +129,9 @@ export function Library() {
 
   const block = async (f: LibraryFile) => {
     if (!f.blocked && !(await confirm(`Block ${f.family} ${f.style}? It will be turned off on every computer.`, 'Block', true))) return
-    void run(() => api.block(f.hash, !f.blocked))
+    const blocked = !f.blocked
+    void run(() => api.block(f.hash, blocked), () =>
+      toast(`${blocked ? 'Blocked' : 'Unblocked'} ${f.family} ${f.style}.`, { undo: () => api.block(f.hash, !blocked).then(replace) }))
   }
 
   return (
@@ -163,7 +168,6 @@ export function Library() {
           </motion.div>
         )}
       </AnimatePresence>
-      {notice && <span role="status" className="notice">{notice}</span>}
       {error && <ErrorBox message={error} />}
       {selectedCount > 0 && (
         <div className="toolbar" role="group" aria-label="Selected files">
@@ -184,10 +188,14 @@ export function Library() {
       )}
       <Loaded state={state} skeleton={<TableSkeleton head={SKELETON_HEAD} minWidth={1020} rows={3} />}>{({ items: shown, total }) => (
           <>
-            <Table caption="Font files in the shared library" minWidth={1020} head={[
+            <Table caption="Font files in the shared library" minWidth={1180} head={[
               <input key="sel" type="checkbox" className="check" aria-label="Select every file on this page"
                 checked={shown.length > 0 && shown.every((f) => isSelected(f.hash))} onChange={() => togglePage(shown)} />,
-              ...HEAD,
+              { node: <SortHead label="Family" k="family" sort={sort} onSort={setSort} defaultDir="asc" />, sort: sortAria(sort, 'family') },
+              ...HEAD.slice(1, 4),
+              { node: <SortHead label="Added" k="uploaded" sort={sort} onSort={setSort} defaultDir="desc" />, sort: sortAria(sort, 'uploaded') },
+              { node: <SortHead label="Size" k="size" sort={sort} onSort={setSort} defaultDir="desc" />, sort: sortAria(sort, 'size') },
+              ...HEAD.slice(6),
             ]}>
               {shown.map((f, i) => (
                 <motion.tr key={f.hash} {...row(i, shown.length)}>
@@ -197,17 +205,20 @@ export function Library() {
                   <td>
                     <span className="stack-2">
                       <span className={f.blocked ? 'lib-name lib-blocked' : 'lib-name'}>{f.family}</span>
-                      <span className="meta">{f.style} · v{f.version} · {f.filename} · {kb(f.size)}</span>
+                      <span className="meta">{f.style} · v{f.version} · {f.filename}</span>
                     </span>
                   </td>
                   <td>
                     <select className={`license tone-lic-${f.license}`} value={f.license} aria-label={`License for ${f.family} ${f.style}`}
-                      onChange={(e) => void run(() => api.setLicense(f.hash, e.target.value as License))}>
+                      onChange={(e) => void run(() => api.setLicense(f.hash, e.target.value as License),
+                        (u) => toast(`License set to ${LICENSES.find(([k]) => k === u.license)?.[1] ?? u.license} for ${u.family} ${u.style}.`))}>
                       {LICENSES.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
                     </select>
                   </td>
                   <td>{deliveredText(f.delivered_to)}</td>
                   <td>{plural(f.active_on, 'user')}</td>
+                  <td className="ink-2 nowrap">{fmtDate(f.uploaded_at)}</td>
+                  <td className="ink-2 nowrap">{kb(f.size)}</td>
                   <td>
                     {/* Block/unblock cross-fades the status badge. */}
                     <AnimatePresence mode="popLayout" initial={false}>
@@ -229,7 +240,12 @@ export function Library() {
                 </motion.tr>
               ))}
             </Table>
-            {total === 0 && <Empty>{query ? 'No fonts match.' : 'The shared library is empty. Upload font files to deliver them to users.'}</Empty>}
+            {total === 0 && (query
+              ? <Empty>No fonts match.</Empty>
+              : <Empty title="Your shared library is empty"
+                  action={<button type="button" className="btn btn-primary" disabled={uploading} onClick={() => fileInput.current?.click()}>Upload fonts</button>}>
+                  Upload the fonts your team should have.
+                </Empty>)}
             <Pager label="Library pages" page={page} total={total} onPage={setPage} />
           </>
       )}</Loaded>
@@ -251,7 +267,11 @@ export function Library() {
         {delivering && delivering !== 'selected' && (
           <DeliverDialog key={delivering.hash} title={`Deliver ${delivering.family} ${delivering.style}`} current={delivering.delivered_to}
             onClose={() => setDelivering(undefined)}
-            onSubmit={async (target, activate) => { replace(await api.deliver(delivering.hash, target, activate)); setDelivering(undefined) }} />
+            onSubmit={async (target, activate) => {
+              replace(await api.deliver(delivering.hash, target, activate))
+              toast(`Delivering ${delivering.family} ${delivering.style} to ${target === 'all' ? 'everyone' : plural(target.length, 'user')}.`)
+              setDelivering(undefined)
+            }} />
         )}
       </AnimatePresence>
       {confirmDialog}

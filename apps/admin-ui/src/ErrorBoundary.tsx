@@ -1,7 +1,5 @@
-// A render error in one page shows a plain message instead of a blank page (the sidebar stays usable), and a promise
-// nobody handled shows a short error note once per distinct message.
+// A render error in one page shows a plain message instead of a blank page (the sidebar stays usable).
 import { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
-import { errorText } from './api'
 
 /** `resetKey` (the location key) clears the error on navigation; `sidebar`: there is a sidebar to go elsewhere. */
 type Props = { children: ReactNode; resetKey?: string; sidebar?: boolean }
@@ -45,29 +43,3 @@ function Fallback({ details, sidebar }: { details: string; sidebar: boolean }) {
   )
 }
 
-/** Unhandled promise rejections, each distinct message once; the admin UI has no toast system, so this is its own. */
-export function RejectionToast() {
-  const [msg, setMsg] = useState<string | null>(null)
-  useEffect(() => {
-    const seen = new Set<string>()
-    let hide = 0
-    const onRejection = (e: PromiseRejectionEvent) => {
-      const m = errorText(e.reason)
-      if (seen.has(m)) return
-      if (seen.size >= 50) seen.clear() // ponytail: forget old messages rather than grow forever
-      seen.add(m)
-      setMsg(m)
-      clearTimeout(hide)
-      hide = window.setTimeout(() => setMsg(null), 8000)
-    }
-    addEventListener('unhandledrejection', onRejection)
-    return () => (removeEventListener('unhandledrejection', onRejection), clearTimeout(hide))
-  }, [])
-  if (!msg) return null
-  return (
-    <div className="error-box" role="alert" style={{ position: 'fixed', left: '50%', bottom: 20, transform: 'translateX(-50%)', zIndex: 20, maxWidth: 'calc(100vw - 32px)' }}>
-      <span>Something didn’t work: {msg}</span>
-      <button type="button" className="btn btn-sm" onClick={() => setMsg(null)}>Dismiss</button>
-    </div>
-  )
-}

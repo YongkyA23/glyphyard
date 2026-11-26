@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import { api, errorText, type FontState, type InstallDetail, type TimelineEvent, type TimelineFilter } from '../api'
 import { dropIn, fadeRise, row } from '../motion'
+import { toast } from '../toast'
 import {
   ago, Badge, byLabel, byTone, Chips, downloadCsv, Empty, ErrorBox, fmtDate, fmtShort, firstName, Loaded, PageHeader, Pager, plural, Skel, Spin, Swap, Toggle,
   useConfirm, useDebounced, useLoad, usePage,
@@ -62,6 +63,7 @@ function Detail({ u, reload }: { u: InstallDetail; reload: () => void }) {
     try {
       await run()
       setDone((d) => ({ ...d, [key]: doneText }))
+      toast(key === 'reset' ? `Reset ${who}’s name limit.` : `Asked ${who} to auto-organize their fonts.`)
       reload()
     } catch (e) {
       setError(errorText(e))
@@ -172,9 +174,8 @@ function useFontToggle(installId: string) {
     setPending((p) => { if (!(hash in p)) return p; const { [hash]: _, ...rest } = p; return rest })
   }, [])
   useEffect(() => { const t = timers.current; return () => { t.forEach(clearTimeout); t.clear() } }, [])
-  const set = async (hash: string, active: boolean) => {
-    if (timers.current.has(hash)) return
-    setError('')
+  /** Throws on failure (after clearing the pending state); the toast Undo uses it so a failure shows an error toast. */
+  const send = async (hash: string, active: boolean) => {
     setPending((p) => ({ ...p, [hash]: active }))
     timers.current.set(hash, setTimeout(() => drop(hash), PENDING_MS))
     try {
@@ -182,6 +183,17 @@ function useFontToggle(installId: string) {
       setSent((s) => ({ ...s, [hash]: true }))
     } catch (e) {
       drop(hash)
+      throw e
+    }
+  }
+  /** `announce`: toast text for the request, with an Undo that sends the opposite request. */
+  const set = async (hash: string, active: boolean, announce?: string) => {
+    if (timers.current.has(hash)) return
+    setError('')
+    try {
+      await send(hash, active)
+      if (announce) toast(announce, { undo: () => { drop(hash); return send(hash, !active) } })
+    } catch (e) {
       setShakes((s) => ({ ...s, [hash]: (s[hash] ?? 0) + 1 }))
       setError(errorText(e))
     }
@@ -255,7 +267,7 @@ function Fonts({ u, who }: { u: InstallDetail; who: string }) {
               <span className="font-name ellipsis" style={{ fontFamily: `'${f.family}', var(--font-ui)` }}>{name}</span>
               <span className="meta">{f.hash in pending ? 'Waiting for this computer' : sourceText(f, who)}</span>
             </span>
-            <Toggle on={f.active} label={`${f.active ? 'Turn off' : 'Turn on'} ${name} for ${who}`} onChange={() => set(f.hash, !f.active)} disabled={f.hash in pending}
+            <Toggle on={f.active} label={`${f.active ? 'Turn off' : 'Turn on'} ${name} for ${who}`} onChange={() => set(f.hash, !f.active, `Turning ${name} ${f.active ? 'off' : 'on'} on ${who}’s computer.`)} disabled={f.hash in pending}
               shakeKey={shakes[f.hash]} />
           </motion.div>
         )
@@ -302,6 +314,7 @@ function RemoveComputer({ u }: { u: InstallDetail }) {
     setBusy(true)
     try {
       await api.removeInstall(u.id)
+      toast(`Removed ${u.name}’s computer.`)
       navigate('/users')
     } catch (e) {
       alert(errorText(e))

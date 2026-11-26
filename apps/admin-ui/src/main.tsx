@@ -9,7 +9,8 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Route, Routes } from 'react-router'
 import { MotionConfig } from 'motion/react'
 import { Layout } from './ui'
-import { ErrorBoundary, RejectionToast } from './ErrorBoundary'
+import { ErrorBoundary } from './ErrorBoundary'
+import { Toaster } from './toast'
 import { Login } from './pages/Login'
 import { Overview } from './pages/Overview'
 import { Users } from './pages/Users'
@@ -21,6 +22,10 @@ import { Organize } from './pages/Organize'
 import { SettingsPage } from './pages/Settings'
 import { Requests } from './pages/Requests'
 import { Audit } from './pages/Audit'
+
+import { initTheme } from './theme'
+
+initTheme()
 
 // Dev-only fixture mode: open any page with ?mock=1 (sticks for the tab session, ?mock=0 turns it off).
 if (import.meta.env.DEV) {
@@ -49,7 +54,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="*" element={<p className="empty">Page not found.</p>} />
           </Route>
         </Routes>
-        <RejectionToast />
+        <Toaster />
       </BrowserRouter>
     </MotionConfig>
   </StrictMode>,

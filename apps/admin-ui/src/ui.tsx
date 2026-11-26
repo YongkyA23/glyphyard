@@ -2,9 +2,12 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type DependencyList, type ReactNode } from 'react'
 import { Link, NavLink, useLocation, useNavigate, useOutlet } from 'react-router'
 import { animate, AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
-import { api, errorText, PAGE_SIZE, type By } from './api'
+import { api, errorText, PAGE_SIZE, type By, type Sort, type SortDir } from './api'
 import { easeOut, fast, page, shakeOpts, shakeX, softSpring, spring, stagger } from './motion'
 import { ErrorBoundary } from './ErrorBoundary'
+import { applyBrand, getThemePref, setThemePref } from './theme'
+import { Palette } from './palette'
+import { isMac, NAV, OPEN_PALETTE } from './nav'
 
 /* ---------- data ---------- */
 
@@ -91,7 +94,7 @@ export const Skel = ({ w = '100%', h = 12, r }: { w?: number | string; h?: numbe
   <span aria-hidden="true" className="skel" style={{ width: w, height: h, borderRadius: r }} />
 
 /** Table-shaped skeleton: same header as the real table, shimmer cells. */
-export function TableSkeleton({ head, minWidth, rows = 5, inset }: { head: ReactNode[]; minWidth: number; rows?: number; inset?: boolean }) {
+export function TableSkeleton({ head, minWidth, rows = 5, inset }: { head: HeadItem[]; minWidth: number; rows?: number; inset?: boolean }) {
   const widths = ['70%', '55%', '80%', '45%', '65%']
   return (
     <Table caption="Loading" minWidth={minWidth} head={head} inset={inset}>
@@ -111,7 +114,16 @@ export function ErrorBox({ message, retry }: { message: string; retry?: () => vo
   )
 }
 
-export const Empty = ({ children }: { children: ReactNode }) => <p className="empty">{children}</p>
+export function Empty({ title, children, action }: { title?: string; children?: ReactNode; action?: ReactNode }) {
+  if (!title) return <p className="empty">{children}</p>
+  return (
+    <div className="empty empty-card">
+      <strong>{title}</strong>
+      {children && <span>{children}</span>}
+      {action}
+    </div>
+  )
+}
 
 /* ---------- layout ---------- */
 
@@ -121,6 +133,7 @@ export function Layout() {
   return (
     <div className="shell">
       <Sidebar />
+      <Palette />
       <main className="main">
         {/* The exiting route keeps its own outlet element, so it renders the old page while fading out. */}
         <AnimatePresence mode="wait">
@@ -145,36 +158,59 @@ function Sidebar() {
     window.addEventListener('requests-changed', on)
     return () => window.removeEventListener('requests-changed', on)
   }, [reloadCounts])
-  const nav: [string, string, number | undefined][] = [
-    ['/', 'Overview', undefined],
-    ['/users', 'Users', counts.data?.users],
-    ['/names', 'Name history', undefined],
-    ['/library', 'Shared library', counts.data?.library],
-    ['/organize', 'Auto-organize', undefined],
-    ['/requests', 'Font requests', counts.data?.requests],
-    ['/settings', 'Settings', undefined],
-    ['/audit', 'Audit log', undefined],
-  ]
+  // Studio name, logo and colour; Settings announces a save.
+  const brand = useLoad(() => api.settings(), [])
+  const reloadBrand = brand.reload
+  useEffect(() => {
+    const on = () => void reloadBrand(true)
+    window.addEventListener('brand-changed', on)
+    return () => window.removeEventListener('brand-changed', on)
+  }, [reloadBrand])
+  const color = brand.data?.brand_color
+  useEffect(() => { if (color !== undefined) applyBrand(color) }, [color])
+  const [pref, setPref] = useState(getThemePref)
+  // The menu is open for the path it was opened on, so navigating closes it.
+  const { pathname } = useLocation()
+  const [openOn, setOpenOn] = useState<string | null>(null)
+  const menuOpen = openOn === pathname
+  const countOf: Record<string, number | undefined> = { '/users': counts.data?.users, '/library': counts.data?.library, '/requests': counts.data?.requests }
   const signOut = async () => {
     try { await api.logout() } finally { navigate('/login') }
   }
+  const requests = counts.data?.requests ?? 0
   return (
     <nav aria-label="Admin" className="sidebar">
-      <div className="brand"><span className="brand-name">Glyphyard</span><span className="brand-sub">Admin</span></div>
-      <div className="nav-list">
-        {nav.map(([to, label, count]) => (
-          <NavLink key={to} to={to} end={to === '/'} className="nav-item">
-            {({ isActive }) => <>
-              {isActive && <motion.span layoutId="nav-active" className="nav-pill" transition={spring} />}
-              <span>{label}</span>
-              {count !== undefined && <span className="nav-count fade-in">{count}</span>}
-            </>}
-          </NavLink>
-        ))}
+      <div className="sidebar-bar">
+        <div className="brand">
+          {brand.data?.brand_logo && <img className="brand-logo" src={brand.data.brand_logo} alt="" />}
+          <span className="brand-text">
+            <span className="brand-name">{brand.data?.brand_name || 'Glyphyard'}</span><span className="brand-sub">Admin</span>
+          </span>
+        </div>
+        {requests > 0 && <NavLink to="/requests" className="bar-count" aria-label={`${requests} open font requests`}>{requests}</NavLink>}
+        <button type="button" className="btn btn-sm menu-btn" aria-expanded={menuOpen} aria-controls="admin-nav" onClick={() => setOpenOn(menuOpen ? null : pathname)}>Menu</button>
       </div>
-      <div className="account">
-        <span className="account-email">{me.data?.email ?? '…'}</span>
-        <button type="button" className="link-btn account-out" onClick={signOut}>Sign out</button>
+      <div id="admin-nav" className={menuOpen ? 'sidebar-menu open' : 'sidebar-menu'}>
+        <div className="nav-list">
+          {NAV.map(([to, label]) => { const count = countOf[to]; return (
+            <NavLink key={to} to={to} end={to === '/'} className="nav-item">
+              {({ isActive }) => <>
+                {isActive && <motion.span layoutId="nav-active" className="nav-pill" transition={spring} />}
+                <span>{label}</span>
+                {count !== undefined && <span className="nav-count fade-in">{count}</span>}
+              </>}
+            </NavLink>
+          )})}
+        </div>
+        <button type="button" className="nav-search" onClick={() => window.dispatchEvent(new Event(OPEN_PALETTE))}>
+          <span>Search</span><kbd>{isMac ? '⌘ K' : 'Ctrl K'}</kbd>
+        </button>
+        <div className="account">
+          <span className="account-email">{me.data?.email ?? '…'}</span>
+          <Chips small label="Theme" value={pref} onChange={(p) => { setThemePref(p); setPref(p) }}
+            options={[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']]} />
+          <button type="button" className="link-btn account-out" onClick={signOut}>Sign out</button>
+        </div>
       </div>
     </nav>
   )
@@ -340,14 +376,34 @@ export function Pager({ page, total, size = PAGE_SIZE, onPage, label = 'Pages' }
   )
 }
 
+/** A header cell: plain content, or content plus its `aria-sort` for sortable columns. */
+export type HeadItem = ReactNode | { node: ReactNode; sort?: 'ascending' | 'descending' | 'none' }
+
+/** Sort button for a column header. Click cycles default direction, the other direction, then back to the server's order. */
+export function SortHead<K extends string>({ label, k, sort, onSort, defaultDir }: {
+  label: string; k: K; sort: Sort<K>; onSort: (s: Sort<K>) => void; defaultDir: SortDir
+}) {
+  const dir = sort?.key === k ? sort.dir : null
+  const other: SortDir = defaultDir === 'asc' ? 'desc' : 'asc'
+  const next: Sort<K> = dir === null ? { key: k, dir: defaultDir } : dir === defaultDir ? { key: k, dir: other } : null
+  return (
+    <button type="button" className="sort-head" onClick={() => onSort(next)}>
+      {label}<span aria-hidden="true" className="sort-arrow">{dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : ''}</span>
+    </button>
+  )
+}
+
 export function Table({ caption, minWidth, head, children, inset }: {
-  caption: string; minWidth: number; head: ReactNode[]; children: ReactNode; inset?: boolean
+  caption: string; minWidth: number; head: HeadItem[]; children: ReactNode; inset?: boolean
 }) {
   return (
     <div className={inset ? 'table-wrap table-inset' : 'table-wrap'}>
       <table style={{ minWidth }}>
         <caption className="sr-only">{caption}</caption>
-        <thead><tr>{head.map((h, i) => <th key={i}>{h}</th>)}</tr></thead>
+        <thead><tr>{head.map((h, i) => {
+          const sorted = typeof h === 'object' && h !== null && 'node' in h
+          return <th key={i} aria-sort={sorted ? h.sort : undefined}>{sorted ? h.node : (h as ReactNode)}</th>
+        })}</tr></thead>
         <tbody><AnimatePresence>{children}</AnimatePresence></tbody>
       </table>
     </div>

@@ -107,6 +107,8 @@ fn wire(f: &LibraryFile) -> WireFile {
 #[derive(Deserialize)]
 struct ListQuery {
     q: Option<String>,
+    sort: Option<String>,
+    dir: Option<String>,
 }
 
 /// The list's search: `?1` (trimmed, lowercased) in family, style, PostScript name or file name.
@@ -114,13 +116,25 @@ const SEARCH: &str = "instr(lower(family || ' ' || style || ' ' || ps_name || ' 
 
 /// `q` matches family, style, PostScript name or file name.
 async fn list(State(s): State<AppState>, _: Admin, Query(q): Query<ListQuery>, Query(paging): Query<Paging>) -> ApiResult<Json<Page<LibraryFile>>> {
+    let sort = crate::sort_dir(q.sort.as_deref(), q.dir.as_deref(), &[("family", false), ("uploaded", true), ("size", true)])?;
+    let order = match sort {
+        None => "family COLLATE NOCASE, style, hash".to_string(),
+        Some((key, desc)) => {
+            let d = if desc { "DESC" } else { "ASC" };
+            match key.as_str() {
+                "uploaded" => format!("uploaded_at {d}, family COLLATE NOCASE, hash"),
+                "size" => format!("size {d}, family COLLATE NOCASE, hash"),
+                _ => format!("family COLLATE NOCASE {d}, style, hash"),
+            }
+        }
+    };
     let db = s.db();
     let (offset, limit) = paging.window(Paging::DEFAULT, Paging::MAX);
     let needle = q.q.unwrap_or_default().trim().to_lowercase();
     let filter = SEARCH;
     let total: i64 = db.query_row(&format!("SELECT COUNT(*) FROM library_files WHERE {filter}"), [&needle], |r| r.get(0))?;
     let mut stmt = db.prepare(&format!(
-        "SELECT {COLUMNS} FROM library_files WHERE {filter} ORDER BY family COLLATE NOCASE, style, hash LIMIT ?2 OFFSET ?3"
+        "SELECT {COLUMNS} FROM library_files WHERE {filter} ORDER BY {order} LIMIT ?2 OFFSET ?3"
     ))?;
     let rows: Vec<LibraryFile> = stmt.query_map(params![needle, limit, offset], from_row)?.collect::<Result<_, _>>()?;
     let items = rows.into_iter().map(|f| complete(&db, f)).collect::<Result<_, _>>()?;
