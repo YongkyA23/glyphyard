@@ -148,6 +148,8 @@ fn summaries(c: &Connection, hub: &Hub) -> rusqlite::Result<Vec<InstallSummary>>
 struct ListQuery {
     q: Option<String>,
     filter: Option<String>,
+    sort: Option<String>,
+    dir: Option<String>,
 }
 
 async fn list(
@@ -163,8 +165,9 @@ async fn list(
         "stale" => Some("stale"),
         other => return Err(ApiError::bad_request("invalid_filter", format!("unknown filter `{other}`"))),
     };
+    let sort = crate::sort_dir(q.sort.as_deref(), q.dir.as_deref(), &[("name", false), ("last_seen", true), ("fonts", true)])?;
     let needle = q.q.unwrap_or_default().trim().to_lowercase();
-    let list = summaries(&s.db(), &s.hub)?
+    let mut list: Vec<InstallSummary> = summaries(&s.db(), &s.hub)?
         .into_iter()
         .filter(|i| q.filter.as_deref() != Some("online") || i.online)
         .filter(|i| flag.is_none_or(|f| i.flags.contains(&f)))
@@ -174,6 +177,17 @@ async fn list(
                 || std::iter::once(&i.name).chain(&i.previous_names).any(|n| n.to_lowercase().contains(&needle))
         })
         .collect();
+    if let Some((key, desc)) = sort {
+        list.sort_by(|a, b| {
+            let by = match key.as_str() {
+                "last_seen" => a.last_seen.cmp(&b.last_seen),
+                "fonts" => a.active_fonts.cmp(&b.active_fonts),
+                _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            };
+            let by = if desc { by.reverse() } else { by };
+            by.then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
+    }
     // ponytail: builds every summary then slices, since `online` and `possible_duplicate` are computed in Rust; fine for hundreds of installs.
     Ok(Json(paging.slice(list)))
 }
@@ -687,7 +701,36 @@ async fn overview(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Value>>
         .query_map([], |r| Ok(json!({ "family": r.get::<_, String>(0)?, "users": r.get::<_, i64>(1)? })))?
         .collect::<Result<_, _>>()?;
 
+    // Last 30 UTC days, oldest first, zero-filled.
+    let first = today - Duration::days(29);
+    let since = db::ts(Utc.from_utc_datetime(&first.and_hms_opt(0, 0, 0).expect("midnight")));
+    let mut days: HashMap<String, (i64, i64, i64)> = HashMap::new();
+    let mut stmt = db.prepare(&format!(
+        "SELECT substr(x.at, 1, 10), COUNT(*), COALESCE(SUM(x.kind = 'failure'), 0) FROM events {live} GROUP BY 1"
+    ))?;
+    for row in stmt.query_map([&since], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))? {
+        let (day, activity, failures) = row?;
+        let e = days.entry(day).or_default();
+        (e.0, e.1) = (activity, failures);
+    }
+    let mut stmt = db.prepare(
+        "SELECT substr(first_seen, 1, 10), COUNT(*) FROM installs
+         WHERE merged_into IS NULL AND revoked_at IS NULL AND first_seen >= ?1 GROUP BY 1",
+    )?;
+    for row in stmt.query_map([&since], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+        let (day, n) = row?;
+        days.entry(day).or_default().2 = n;
+    }
+    let trend: Vec<Value> = (0..30)
+        .map(|i| {
+            let day = (first + Duration::days(i)).to_string();
+            let (activity, failures, new_installs) = days.get(&day).copied().unwrap_or_default();
+            json!({ "day": day, "activity": activity, "failures": failures, "new_installs": new_installs })
+        })
+        .collect();
+
     Ok(Json(json!({
+        "trend": trend,
         "installs": list.len(),
         "online": list.iter().filter(|i| i.online).count(),
         "os": { "windows": os_count(&["win"]), "macos": os_count(&["mac", "darwin"]) },

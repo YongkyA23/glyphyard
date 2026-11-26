@@ -1532,3 +1532,42 @@ async fn overview_numbers_leave_out_removed_computers() {
     assert_eq!(s.admin(Method::DELETE, "/installs/a", None).await.status, StatusCode::NO_CONTENT);
     assert_eq!(numbers(&s.admin(Method::GET, "/overview", None).await.json()), [json!(0), json!(0), json!(0)]);
 }
+
+#[tokio::test]
+async fn lists_sort_on_the_server() {
+    let s = Server::new().await;
+    for (id, name) in [("a", "Ana"), ("b", "Budi"), ("c", "Citra")] { s.register(id, name).await; }
+    let names = |v: Value| v["items"].as_array().unwrap().iter().map(|i| i["name"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!(names(s.admin(Method::GET, "/installs?sort=name&dir=desc", None).await.json()), ["Citra", "Budi", "Ana"]);
+    assert_eq!(names(s.admin(Method::GET, "/installs?sort=name&dir=desc&offset=2", None).await.json()), ["Ana"]);
+    assert_eq!(names(s.admin(Method::GET, "/installs?dir=desc", None).await.json()), ["Ana", "Budi", "Citra"]); // dir alone ignored
+    assert_eq!(s.admin(Method::GET, "/installs?sort=evil", None).await.json()["error"], "invalid_sort");
+    assert_eq!(s.admin(Method::GET, "/installs?sort=name&dir=up", None).await.status, StatusCode::BAD_REQUEST);
+    assert_eq!(s.admin(Method::GET, "/library?sort=size%3Bdrop", None).await.json()["error"], "invalid_sort");
+    assert_eq!(s.admin(Method::GET, "/library?sort=uploaded", None).await.status, StatusCode::OK);
+    // requests: Zeta posted first, Alpha second (same `at` possible → id breaks the tie)
+    let token = s.register("d", "Dewi").await;
+    for f in ["Zeta Sans", "Alpha Serif"] { s.desktop(Method::POST, "/me/events", &token, Some(request(f, None))).await; }
+    let fonts = |v: Value| v["items"].as_array().unwrap().iter().map(|i| i["font_name"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!(fonts(s.admin(Method::GET, "/requests?sort=font", None).await.json()), ["Alpha Serif", "Zeta Sans"]);
+    assert_eq!(fonts(s.admin(Method::GET, "/requests", None).await.json()), ["Alpha Serif", "Zeta Sans"]); // newest first = last posted
+    assert_eq!(fonts(s.admin(Method::GET, "/requests?sort=at&dir=asc", None).await.json()), ["Zeta Sans", "Alpha Serif"]);
+}
+
+#[tokio::test]
+async fn overview_trend_has_thirty_utc_days() {
+    let s = Server::new().await;
+    let o = s.admin(Method::GET, "/overview", None).await.json();
+    let t = o["trend"].as_array().unwrap();
+    assert_eq!(t.len(), 30);
+    assert_eq!(t[29]["day"], Utc::now().date_naive().to_string());
+    assert!(t.iter().all(|d| d["activity"] == 0 && d["failures"] == 0 && d["new_installs"] == 0));
+    let token = s.register("a", "Ana").await;
+    s.desktop(Method::POST, "/me/events", &token, Some(event(json!({ "kind": "activation_failed", "font": font("h1"), "reason": "broken" })))).await;
+    let today = &s.admin(Method::GET, "/overview", None).await.json()["trend"][29];
+    assert_eq!((today["new_installs"].clone(), today["failures"].clone()), (json!(1), json!(1)));
+    assert!(today["activity"].as_i64().unwrap() >= 1);
+    s.admin(Method::DELETE, "/installs/a", None).await;
+    let today = &s.admin(Method::GET, "/overview", None).await.json()["trend"][29];
+    assert_eq!((today["new_installs"].clone(), today["activity"].clone()), (json!(0), json!(0)));
+}

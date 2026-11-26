@@ -37,7 +37,15 @@ export type Settings = {
   /** Image data URL (PNG, JPEG, WebP or SVG, at most 200 KB) or ''. */
   brand_logo: string
 }
+export type SortDir = 'asc' | 'desc'
+export type Sort<K extends string> = { key: K; dir: SortDir } | null
+export type InstallSort = 'name' | 'last_seen' | 'fonts'
+export type LibrarySort = 'family' | 'uploaded' | 'size'
+export type RequestSort = 'at' | 'font'
+export type TrendDay = { day: string; activity: number; failures: number; new_installs: number }
 export type Overview = {
+  /** Last 30 UTC days, oldest first, today last. */
+  trend: TrendDay[]
   installs: number; online: number; os: { windows: number; macos: number }
   name_changes_month: number; overrides_week: number; failures_week: number
   recent: Activity[]
@@ -106,6 +114,7 @@ const qs = (params: Record<string, string | number | boolean | undefined>) => {
 const id = encodeURIComponent
 export const PAGE_SIZE = 50
 /** `page` is 1-based. */
+const sortParams = (sort?: Sort<string>) => (sort ? { sort: sort.key, dir: sort.dir } : {})
 const paging = (page: number, size = PAGE_SIZE) => ({ offset: (page - 1) * size, limit: size })
 
 export const api = {
@@ -113,8 +122,8 @@ export const api = {
   logout: () => request<void>('POST', '/logout'),
   me: () => request<Me>('GET', '/me'),
   overview: () => request<Overview>('GET', '/overview'),
-  installs: (q = '', filter: InstallFilter = 'all', page = 1) =>
-    request<Page<InstallSummary>>('GET', '/installs' + qs({ q, filter, ...paging(page) })),
+  installs: (q = '', filter: InstallFilter = 'all', page = 1, sort?: Sort<InstallSort>) =>
+    request<Page<InstallSummary>>('GET', '/installs' + qs({ q, filter, ...sortParams(sort), ...paging(page) })),
   install: (installId: string) => request<InstallDetail>('GET', `/installs/${id(installId)}`),
   fonts: (installId: string, q = '', page = 1, active?: boolean) =>
     request<Page<FontState>>('GET', `/installs/${id(installId)}/fonts` + qs({ q, active, ...paging(page) })),
@@ -130,7 +139,8 @@ export const api = {
   removeInstall: (installId: string) => request<void>('DELETE', `/installs/${id(installId)}`),
   nameChanges: (q = '', since = '', page = 1) => request<Page<NameChangeRow>>('GET', '/name-changes' + qs({ q, since, ...paging(page) })),
   nameChangesCsvUrl: (q = '', since = '') => BASE + '/name-changes.csv' + qs({ q, since }),
-  library: (q = '', page = 1, size = PAGE_SIZE) => request<Page<LibraryFile>>('GET', '/library' + qs({ q, ...paging(page, size) })),
+  library: (q = '', page = 1, size = PAGE_SIZE, sort?: Sort<LibrarySort>) =>
+    request<Page<LibraryFile>>('GET', '/library' + qs({ q, ...sortParams(sort), ...paging(page, size) })),
   upload: (files: FileList | File[]) => {
     const form = new FormData()
     for (const f of Array.from(files)) form.append('files', f)
@@ -145,7 +155,8 @@ export const api = {
     request<{ changed: number; skipped: number; failed: number }>('POST', '/library/bulk', { action, ...selection, target, activate }),
   organizePlan: () => request<{ changes: OrganizeChange[] }>('GET', '/library/organize'),
   applyOrganize: () => request<{ applied: number }>('POST', '/library/organize/apply'),
-  fontRequests: (state: RequestState = 'open', page = 1) => request<Page<FontRequest>>('GET', '/requests' + qs({ state, ...paging(page) })),
+  fontRequests: (state: RequestState = 'open', page = 1, sort?: Sort<RequestSort>) =>
+    request<Page<FontRequest>>('GET', '/requests' + qs({ state, ...sortParams(sort), ...paging(page) })),
   setRequestDone: (requestId: number, done: boolean) => request<void>('POST', `/requests/${requestId}/${done ? 'done' : 'reopen'}`),
   organizeReports: (page = 1) => request<Page<OrganizeReport>>('GET', '/organize/reports' + qs(paging(page))),
   settings: () => request<Settings>('GET', '/settings'),
