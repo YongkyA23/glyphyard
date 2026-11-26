@@ -1,0 +1,8 @@
+.toasts { position: fixed; right: 20px; bottom: 20px; z-index: 60; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; }
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 14px; max-width: min(420px, calc(100vw - 32px)); padding: 10px 14px; border-radius: 10px; background: var(--ink); color: var(--on-ink); font-size: 13.5px; line-height: 1.4; box-shadow: 0 8px 24px rgb(0 0 0 / 0.2), 0 2px 6px rgb(0 0 0 / 0.18); }
+.toast-bad { border-left: 3px solid var(--toast-link); }
+.toast-text { overflow-wrap: anywhere; }
+.toast-undo { flex: none; background: none; border: 0; padding: 2px 4px; margin: -2px -4px; font: inherit; font-weight: 600; color: var(--toast-link); cursor: pointer; border-radius: 4px; }
+.toast-undo:hover { text-decoration: underline; }
+.toast-undo:focus-visible { outline: 2px solid var(--toast-link); outline-offset: 1px; }
+@media (max-width: 700px) { .toasts { right: 16px; left: 16px; bottom: 16px; align-items: center; } }

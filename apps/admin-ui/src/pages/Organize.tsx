@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import { api, errorText, type OrganizeChange, type OrganizeReport } from '../api'
 import { fast, pop, row } from '../motion'
+import { toast } from '../toast'
 import {
   Badge, Empty, ErrorBox, fmtDate, Loaded, PageHeader, Pager, plural, Skel, Spin, Swap, Table, TableSkeleton, useConfirm, useLoad, usePage, type Tone,
 } from '../ui'
@@ -50,7 +51,9 @@ function LibraryPlan() {
     setBusy(true)
     setError('')
     try {
-      setApplied((await api.applyOrganize()).applied)
+      const n = (await api.applyOrganize()).applied
+      setApplied(n)
+      toast(`Applied ${plural(n, 'change')}.`)
       await state.reload(true)
     } catch (e) {
       setError(errorText(e))

@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import { api, ApiError, errorText, type BulkAction, type LibraryFile, type License, type Page } from '../api'
 import { base, fadeRise, fast, row, spring } from '../motion'
+import { toast } from '../toast'
 import {
   Badge, Dialog, Empty, ErrorBox, Loaded, PageHeader, Pager, plural, Skel, Spin, Swap, Table, TableSkeleton, useConfirm, useDebounced, useLoad, usePage,
 } from '../ui'
@@ -26,7 +27,6 @@ export function Library() {
   const query = useDebounced(q.trim(), 150)
   const [page, setPage] = usePage(query)
   const state = useLoad(() => api.library(query, page), [query, page])
-  const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploads, setUploads] = useState<Upload[]>([])
@@ -54,11 +54,10 @@ export function Library() {
 
   const bulk = async (action: BulkAction, target?: 'all' | string[], activate?: boolean) => {
     setError('')
-    setNotice('')
     try {
       const r = await api.bulk(action, selection.all ? { q: query } : { hashes: selection.hashes }, target, activate)
       const done = action === 'deliver' && Array.isArray(target) && target.length === 0 ? 'Removed delivery of' : DONE[action]
-      setNotice(`${done} ${plural(r.changed, 'file')}.`
+      toast(`${done} ${plural(r.changed, 'file')}.`
         + (r.skipped ? ` Skipped ${r.skipped} that ${r.skipped === 1 ? 'was' : 'were'} already done, blocked or gone.` : ''))
       if (r.failed) setError(`${plural(r.failed, 'file')} couldn’t be deleted. Check the server log, then try again.`)
     } catch (e) {
@@ -82,10 +81,9 @@ export function Library() {
     const text = `Delete ${f.family} ${f.style} from the library? The file moves to the server’s quarantine folder. Computers that already have it keep their copy.`
     if (!(await confirm(text, 'Delete', true))) return
     setError('')
-    setNotice('')
     try {
       await api.deleteFile(f.hash)
-      setNotice(`Deleted ${f.family} ${f.style}.`)
+      toast(`Deleted ${f.family} ${f.style}.`)
       setSel({ ...selection, hashes: selection.hashes.filter((h) => h !== f.hash) })
       await state.reload(true)
     } catch (e) {
@@ -94,9 +92,13 @@ export function Library() {
   }
 
   const replace = (f: LibraryFile) => state.setData((p) => ({ ...p, items: p.items.map((r) => (r.hash === f.hash ? f : r)) }))
-  const run = async (fn: () => Promise<LibraryFile>) => {
+  const run = async (fn: () => Promise<LibraryFile>, done?: (f: LibraryFile) => void) => {
     setError('')
-    try { replace(await fn()) } catch (e) { setError(errorText(e)) }
+    try {
+      const f = await fn()
+      replace(f)
+      done?.(f)
+    } catch (e) { setError(errorText(e)) }
   }
 
   const upload = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -104,7 +106,6 @@ export function Library() {
     if (!files?.length) return
     setUploading(true)
     setError('')
-    setNotice('')
     // ponytail: one request for all files, so chips show an indeterminate bar, then all finish together.
     const names = Array.from(files, (f) => f.name)
     const mark = (state: Upload['state']) => setUploads(names.map((name) => ({ name, state })))
@@ -112,7 +113,7 @@ export function Library() {
     try {
       const added = await api.upload(files)
       mark('done')
-      setNotice(added.length ? `Added ${plural(added.length, 'font file')}.` : 'Those files are already in the library.')
+      toast(added.length ? `Added ${plural(added.length, 'font file')}.` : 'Those files are already in the library.')
       await state.reload(true)
     } catch (err) {
       mark('error')
@@ -126,7 +127,9 @@ export function Library() {
 
   const block = async (f: LibraryFile) => {
     if (!f.blocked && !(await confirm(`Block ${f.family} ${f.style}? It will be turned off on every computer.`, 'Block', true))) return
-    void run(() => api.block(f.hash, !f.blocked))
+    const blocked = !f.blocked
+    void run(() => api.block(f.hash, blocked), () =>
+      toast(`${blocked ? 'Blocked' : 'Unblocked'} ${f.family} ${f.style}.`, { undo: () => api.block(f.hash, !blocked).then(replace) }))
   }
 
   return (
@@ -163,7 +166,6 @@ export function Library() {
           </motion.div>
         )}
       </AnimatePresence>
-      {notice && <span role="status" className="notice">{notice}</span>}
       {error && <ErrorBox message={error} />}
       {selectedCount > 0 && (
         <div className="toolbar" role="group" aria-label="Selected files">
@@ -202,7 +204,8 @@ export function Library() {
                   </td>
                   <td>
                     <select className={`license tone-lic-${f.license}`} value={f.license} aria-label={`License for ${f.family} ${f.style}`}
-                      onChange={(e) => void run(() => api.setLicense(f.hash, e.target.value as License))}>
+                      onChange={(e) => void run(() => api.setLicense(f.hash, e.target.value as License),
+                        (u) => toast(`License set to ${LICENSES.find(([k]) => k === u.license)?.[1] ?? u.license} for ${u.family} ${u.style}.`))}>
                       {LICENSES.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
                     </select>
                   </td>
@@ -251,7 +254,11 @@ export function Library() {
         {delivering && delivering !== 'selected' && (
           <DeliverDialog key={delivering.hash} title={`Deliver ${delivering.family} ${delivering.style}`} current={delivering.delivered_to}
             onClose={() => setDelivering(undefined)}
-            onSubmit={async (target, activate) => { replace(await api.deliver(delivering.hash, target, activate)); setDelivering(undefined) }} />
+            onSubmit={async (target, activate) => {
+              replace(await api.deliver(delivering.hash, target, activate))
+              toast(`Delivering ${delivering.family} ${delivering.style} to ${target === 'all' ? 'everyone' : plural(target.length, 'user')}.`)
+              setDelivering(undefined)
+            }} />
         )}
       </AnimatePresence>
       {confirmDialog}

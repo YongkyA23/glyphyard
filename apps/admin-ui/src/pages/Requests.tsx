@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import { motion } from 'motion/react'
 import { api, errorText, type FontRequest, type RequestState } from '../api'
 import { row } from '../motion'
+import { toast } from '../toast'
 import { Chips, Empty, ErrorBox, fmtDate, Loaded, PageHeader, Pager, Table, TableSkeleton, useLoad, usePage } from '../ui'
 
 const HEAD = ['Asked', 'Font', 'Note', 'Who', '']
@@ -19,9 +20,13 @@ export function Requests() {
     setBusy(r.id)
     setError('')
     try {
-      await api.setRequestDone(r.id, !r.done_at)
+      const done = !r.done_at
+      await api.setRequestDone(r.id, done)
       await list.reload(true)
       window.dispatchEvent(new Event('requests-changed'))
+      toast(done ? `Marked “${r.font_name}” done.` : `Reopened “${r.font_name}”.`, {
+        undo: () => api.setRequestDone(r.id, !done).then(() => { void list.reload(true); window.dispatchEvent(new Event('requests-changed')) }),
+      })
     } catch (e) {
       setError(errorText(e))
     } finally {

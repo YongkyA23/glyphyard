@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import { api, errorText, type InstallDetail } from '../api'
 import { fadeRise, pop, press, softSpring } from '../motion'
+import { toast } from '../toast'
 import { ago, ErrorBox, fmtDate, Loaded, PageHeader, plural, Skel, Spin, Swap, useLoad } from '../ui'
 
 const MotionLink = motion.create(Link)
@@ -49,6 +50,7 @@ function Form({ older, newer }: { older: InstallDetail; newer: InstallDetail }) 
     try {
       await api.merge(older.id, newer.id, keep)
       setStatus('done')
+      toast(`Merged into ${keepName}.`)
     } catch (e) {
       setError(errorText(e))
       setStatus('idle')
