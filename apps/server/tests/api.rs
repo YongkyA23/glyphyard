@@ -2041,6 +2041,41 @@ async fn connection_password_set_and_pushed() {
 }
 
 #[tokio::test]
+async fn install_key_can_be_set_to_a_custom_value() {
+    let s = Server::new().await;
+    let token = s.register("aaaa-0001", "Budi").await;
+    let r = s.admin(Method::POST, "/settings/install-key", Some(json!({ "install_key": "studio-Fonts_2026.key~1" }))).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", String::from_utf8_lossy(&r.body));
+    assert_eq!(r.json()["install_key"], "studio-Fonts_2026.key~1");
+    assert_eq!(s.admin(Method::GET, "/settings", None).await.json()["install_key"], "studio-Fonts_2026.key~1");
+    // Computers set up with the old key are refused until they use the new one.
+    assert_eq!(s.desktop(Method::GET, "/me", &token, None).await.status, StatusCode::FORBIDDEN);
+    let ok = s.send(Method::GET, "/api/v1/health", &[("X-Install-Key", "studio-Fonts_2026.key~1")], None).await;
+    assert_eq!(ok.status, StatusCode::NO_CONTENT);
+
+    // Too short, too long, spaces or characters that need escaping in a header or URL.
+    for bad in ["short12", &"k".repeat(129), "has space key", "semi;colon-key", "slash/key-123", "ümlaut-key-1"] {
+        let r = s.admin(Method::POST, "/settings/install-key", Some(json!({ "install_key": bad }))).await;
+        assert_eq!((r.status, r.json()["error"].clone()), (StatusCode::BAD_REQUEST, json!("invalid_install_key")), "{bad}");
+    }
+    let r = s.admin(Method::POST, "/settings/install-key", Some(json!({ "install_key": 5 }))).await;
+    assert_eq!(r.status, StatusCode::BAD_REQUEST);
+    assert_eq!(s.admin(Method::GET, "/settings", None).await.json()["install_key"], "studio-Fonts_2026.key~1", "a refused key changes nothing");
+
+    let (_, cookie) = s.plain_admin("two@example.com").await;
+    let r = s.as_admin(&cookie, Method::POST, "/settings/install-key", Some(json!({ "install_key": "another-key-123" }))).await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN);
+
+    // No body still generates a random key.
+    let random = s.admin(Method::POST, "/settings/install-key", None).await.json()["install_key"].as_str().unwrap().to_string();
+    assert_eq!(random.len(), 32);
+    let log = s.admin(Method::GET, "/audit", None).await.json();
+    let actions: Vec<&str> = log["items"].as_array().unwrap().iter().filter_map(|e| e["action"].as_str()).collect();
+    assert!(actions.contains(&"install_key_set") && actions.contains(&"install_key_regenerated"), "{actions:?}");
+    assert!(!log.to_string().contains("studio-Fonts_2026"), "the key never reaches the audit log");
+}
+
+#[tokio::test]
 async fn connection_password_validation() {
     let s = Server::new().await;
     let r = s.admin(Method::PUT, "/settings/connection-password", Some(json!({ "password": "short" }))).await;

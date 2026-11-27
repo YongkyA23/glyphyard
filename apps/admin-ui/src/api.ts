@@ -184,7 +184,8 @@ export const api = {
   saveSettings: (s: Partial<Omit<Settings, 'install_key' | 'connection_password_set'>>) => request<Settings>('PUT', '/settings', s),
   /** Owner only. null removes the password; otherwise 8 to 128 characters. */
   setConnectionPassword: (password: string | null) => request<{ connection_password_set: boolean }>('PUT', '/settings/connection-password', { password }),
-  regenerateKey: () => request<{ install_key: string }>('POST', '/settings/install-key'),
+  /** No argument: a new random key. With one: that key (8–128 letters, digits, - _ . ~). */
+  regenerateKey: (custom?: string) => request<{ install_key: string }>('POST', '/settings/install-key', custom === undefined ? undefined : { install_key: custom }),
   updateRelease: () => request<UpdateReleases>('GET', '/update'),
   /** Fields `file` (Windows setup program or Mac .app.tar.gz), `manifest` and `signature` (from `typeshelf-server update-sign`). */
   uploadUpdate: (form: FormData) => request<UpdateRelease & { platform: 'windows' | 'macos' }>('POST', '/update', form),

@@ -45,6 +45,9 @@ export function SettingsPage() {
 const OWNER_ONLY = tk('Only an owner can add or remove admins, change roles, reset passwords and regenerate the install key.')
 
 // Admins has its own form, so the settings form is an empty <form> that the fields join via `form=`.
+/** Same rule as the server's `valid_install_key`: travels unescaped in a header and a URL. */
+const INSTALL_KEY = /^[A-Za-z0-9._~-]{8,128}$/
+
 function Form({ initial, onSaved, admins, owner }: { initial: Settings; onSaved: (s: Settings) => void; admins: ReactNode; owner?: boolean }) {
   const [s, setS] = useState(initial)
   const [days, setDays] = useState(String(initial.name_change_days))
@@ -87,6 +90,30 @@ function Form({ initial, onSaved, admins, owner }: { initial: Settings; onSaved:
       setShowKey(true)
     } catch (err) {
       setError(errMsg(err))
+    } finally {
+      setStatus('')
+    }
+  }
+
+  const [customKey, setCustomKey] = useState<string | null>(null)
+  const [customError, setCustomError] = useState('')
+  const changeKey = async (e: FormEvent) => {
+    e.preventDefault()
+    const key = (customKey ?? '').trim()
+    if (!INSTALL_KEY.test(key)) return setCustomError(t('Use 8 to 128 characters: letters, digits, - _ . or ~, no spaces.'))
+    if (key === s.install_key) return setCustomError(t('That is already the install key.'))
+    if (!(await confirm(t('Change the install key to your own? Apps installed with the old key disconnect until they’re updated.'), t('Change key'), true))) return
+    setStatus('regen')
+    setCustomError('')
+    try {
+      const { install_key } = await api.regenerateKey(key)
+      setS((x) => ({ ...x, install_key }))
+      onSaved({ ...initial, install_key })
+      setShowKey(true)
+      setCustomKey(null)
+      toast(t('Install key changed.'))
+    } catch (err) {
+      setCustomError(errMsg(err))
     } finally {
       setStatus('')
     }
@@ -167,6 +194,27 @@ function Form({ initial, onSaved, admins, owner }: { initial: Settings; onSaved:
           </button>
         </div>
         {owner === false && <span id="key-owner" className="meta">{t('Only an owner can regenerate the install key.')}</span>}
+        {owner && customKey === null && (
+          <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => { setCustomKey(''); setCustomError('') }}>{t('Use your own key…')}</button>
+        )}
+        {owner && customKey !== null && (
+          <form className="stack-6" onSubmit={changeKey} noValidate>
+            <div className="title-row">
+              <label htmlFor="custom-key" className="small mute">{t('Your own install key')}</label>
+              <Hint text={t('8 to 128 characters: letters, digits, - _ . or ~. Build new installers with the same key, or give it to users for Settings › Connection.')} />
+            </div>
+            <input id="custom-key" type="text" className="input mono" autoComplete="off" spellCheck={false} maxLength={128} autoFocus value={customKey}
+              aria-invalid={!!customError} aria-describedby={customError ? 'custom-key-err' : undefined}
+              onChange={(e) => { setCustomKey(e.target.value); setCustomError('') }} />
+            {customError && <span id="custom-key-err" role="alert" className="form-error">{customError}</span>}
+            <div className="row-8">
+              <button type="submit" className="btn btn-danger btn-sm" disabled={status === 'regen' || !customKey.trim()}>
+                {status === 'regen' && <Spin />}{t('Change key')}
+              </button>
+              <button type="button" className="btn btn-sm" onClick={() => { setCustomKey(null); setCustomError('') }}>{t('Cancel')}</button>
+            </div>
+          </form>
+        )}
       </motion.section>
 
       <motion.section aria-labelledby="new" className="card pad-20 stack-4" variants={fadeRise}>
