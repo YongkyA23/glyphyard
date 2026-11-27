@@ -21,6 +21,7 @@ pub fn routes() -> Router<AppState> {
         .route("/me", get(me))
         .route("/settings", get(get_settings).put(put_settings))
         .route("/settings/install-key", post(regenerate_key))
+        .route("/settings/connection-password", put(set_connection_password))
         .route("/admins", get(list_admins).post(create_admin))
         .route("/admins/{id}", delete(remove_admin))
         .route("/admins/{id}/role", put(set_role))
@@ -112,19 +113,28 @@ async fn me(admin: Admin) -> Json<Value> {
     Json(json!({ "email": admin.email, "role": admin.role }))
 }
 
-async fn get_settings(State(s): State<AppState>, _: Admin) -> ApiResult<Json<db::Settings>> {
-    Ok(Json(db::settings(&s.db())?))
+/// Settings as the admin UI sees them: the password hash is replaced by a flag.
+fn public_settings(s: &db::Settings) -> Value {
+    let mut v = serde_json::to_value(s).expect("settings serialize");
+    let o = v.as_object_mut().expect("settings is an object");
+    o.remove("connection_password_hash");
+    o.insert("connection_password_set".into(), json!(!s.connection_password_hash.is_empty()));
+    v
+}
+
+async fn get_settings(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Value>> {
+    Ok(Json(public_settings(&db::settings(&s.db())?)))
 }
 
 /// Partial update; `install_key` is ignored here (it has its own endpoint). Pushes the new policy to every install.
-async fn put_settings(State(s): State<AppState>, admin: Admin, Json(patch): Json<Map<String, Value>>) -> ApiResult<Json<db::Settings>> {
+async fn put_settings(State(s): State<AppState>, admin: Admin, Json(patch): Json<Map<String, Value>>) -> ApiResult<Json<Value>> {
     let mut db = s.db();
     let tx = db.transaction()?;
     let old = db::settings(&tx)?;
     let mut merged = serde_json::to_value(&old)?;
     let fields = merged.as_object_mut().expect("settings is an object");
     for (k, v) in patch {
-        if k == "install_key" {
+        if matches!(k.as_str(), "install_key" | "connection_password_hash" | "connection_password_set") {
             continue;
         }
         if !fields.contains_key(&k) {
@@ -165,7 +175,7 @@ async fn put_settings(State(s): State<AppState>, admin: Admin, Json(patch): Json
         .as_object()
         .expect("settings is an object")
         .iter()
-        .filter(|(k, v)| k.as_str() != "install_key" && before.get(k.as_str()) != Some(v))
+        .filter(|(k, v)| !matches!(k.as_str(), "install_key" | "connection_password_hash") && before.get(k.as_str()) != Some(v))
         // The logo is a long data URL: the log only says that it changed.
         .map(|(k, v)| match k.as_str() {
             "brand_logo" => format!("brand_logo: {}", if new.brand_logo.is_empty() { "removed" } else { "changed" }),
@@ -176,7 +186,7 @@ async fn put_settings(State(s): State<AppState>, admin: Admin, Json(patch): Json
         audit::record(&tx, &admin.email, "settings_changed", "", &changed.join(", "))?;
     }
     tx.commit()?;
-    Ok(Json(new))
+    Ok(Json(public_settings(&new)))
 }
 
 /// Base64 image data URL, at most [`MAX_LOGO`] characters. Only base64 characters after the prefix, so the value
@@ -196,6 +206,33 @@ async fn regenerate_key(State(s): State<AppState>, Owner(admin): Owner) -> ApiRe
     audit::record(&tx, &admin.email, "install_key_regenerated", "", "")?;
     tx.commit()?;
     Ok(Json(json!({ "install_key": settings.install_key })))
+}
+
+/// `null` or `""` clears the unlock password. The hash is computed before the database lock is taken (argon2 is slow).
+async fn set_connection_password(State(s): State<AppState>, Owner(admin): Owner, Json(body): Json<Value>) -> ApiResult<Json<Value>> {
+    let password = body.get("password").and_then(Value::as_str).filter(|p| !p.is_empty());
+    if body.get("password").is_some_and(|p| !p.is_null() && !p.is_string()) {
+        return Err(ApiError::bad_request("invalid_password", "The unlock password must be 8 to 128 characters."));
+    }
+    let hash = match password {
+        Some(p) if !(8..=128).contains(&p.chars().count()) => {
+            return Err(ApiError::bad_request("invalid_password", "The unlock password must be 8 to 128 characters."));
+        }
+        Some(p) => auth::hash_password(p),
+        None => String::new(),
+    };
+    let mut db = s.db();
+    let tx = db.transaction()?;
+    let mut settings = db::settings(&tx)?;
+    settings.connection_password_hash = hash;
+    db::save_settings(&tx, &settings)?;
+    for id in db::active_install_ids(&tx)? {
+        hub::queue(&tx, &s.hub, &id, CommandKind::PolicyChanged { policy: settings.policy() })?;
+    }
+    let set = !settings.connection_password_hash.is_empty();
+    audit::record(&tx, &admin.email, if set { "connection_password_set" } else { "connection_password_cleared" }, "", "")?;
+    tx.commit()?;
+    Ok(Json(json!({ "connection_password_set": set })))
 }
 
 async fn list_admins(State(s): State<AppState>, _: Admin) -> ApiResult<Json<Vec<Value>>> {

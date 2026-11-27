@@ -57,7 +57,8 @@ type Settings = { name_change_days: number; allow_connection_edit: boolean; deli
   activate_delivered: boolean; notify_admin_changes: boolean; timeline_retention_days: number | null;
   server_url: string; install_key: string;
   brand_name: string; brand_color: string /* "#rrggbb" or "" */;
-  brand_logo: string /* "data:image/(png|jpeg|webp|svg+xml);base64,…" up to 200 KB, or ""; all three ride `Policy` */ };
+  brand_logo: string /* "data:image/(png|jpeg|webp|svg+xml);base64,…" up to 200 KB, or ""; all three ride `Policy` */
+  connection_password_set: boolean /* read-only; the hash itself is never returned, and `PUT /settings` ignores both */ };
 ```
 
 Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–200 unless noted) and return `Page<T>`.
@@ -95,9 +96,10 @@ Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–20
 | GET | `/requests?state=all\|open\|done&sort=at\|font&dir=asc\|desc&offset=&limit=` | → `Page<{ id, install_id, install_name, font_name, note: string \| null, at, done_at: string \| null }>` newest first unless `sort` is set (defaults: `at` desc, `font` asc; ties by newest first; `dir` alone is ignored; unknown values are 400 `invalid_sort`). `install_id`/`install_name` are the person the request belongs to now (the merge primary). Default `all`; another state is 400 `invalid_state`. `attention.requests` on `/overview` counts the open ones |
 | POST | `/requests/{id}/done` | → 204 (an already done request keeps its first `done_at`); 404 if there is no such request |
 | POST | `/requests/{id}/reopen` | → 204; 404 if there is no such request |
-| GET | `/settings` | → `Settings` |
-| PUT | `/settings` | `Partial<Settings>` without `install_key` → `Settings` (pushes `PolicyChanged`). 400 `invalid_setting` unless `name_change_days` is 1–3650 and `timeline_retention_days` is null or 1–3650, `brand_name` is at most 40 characters `brand_color` is `#rrggbb` or empty and `brand_logo` is an image data URL of at most 200 KB or empty |
+| GET | `/settings` | → `Settings` (with `connection_password_set`, never the hash) |
+| PUT | `/settings` | `Partial<Settings>` without `install_key` → `Settings` (pushes `PolicyChanged`; `connection_password_hash` and `connection_password_set` are silently ignored). 400 `invalid_setting` unless `name_change_days` is 1–3650 and `timeline_retention_days` is null or 1–3650, `brand_name` is at most 40 characters `brand_color` is `#rrggbb` or empty and `brand_logo` is an image data URL of at most 200 KB or empty |
 | POST | `/settings/install-key` | → `{ install_key }` (regenerates). Owner only |
+| PUT | `/settings/connection-password` | `{ password: string \| null }` → `{ connection_password_set }`. Owner only. `null` or `""` clears it; otherwise 8-128 characters, untrimmed (else 400 `invalid_password`). Stored as an argon2 hash and pushed to every install as `Policy.connection_password_hash` (`""` = none) in `PolicyChanged`. Audit: `connection_password_set` or `connection_password_cleared`, empty target and detail |
 | GET | `/update` | → `{ version, size } \| null`: the current app release |
 | POST | `/update` | multipart (at most 100 MB, else 413 `bad_upload`), fields `file` (setup program), `manifest` and `signature` (from `typeshelf-server update-sign`) → `{ version, size }`; replaces the current release. 400 `missing_field`, `bad_manifest`, `bad_signature` (not 128 hex characters) or `file_mismatch` (size or hash differs from the manifest). The server cannot check whose key signed it; the apps do. Owner only |
 | GET | `/admins` | → `{ id, email, role: "owner" \| "admin", last_login }[]` |
@@ -110,7 +112,7 @@ Paged lists take `offset` (default 0) and `limit` (default 50, clamped to 1–20
 
 Owner-only routes answer a plain admin with 403 `owner_only`. Roles and sessions are read on every request, so a role
 change, a removal or a password change applies to sessions already signed in on their next request. The audit log
-never stores passwords, tokens or the install key; failed sign-ins are recorded once, when they lock a real admin's email.
+never stores passwords, tokens, the install key or the unlock password (its audit rows are `connection_password_set` and `connection_password_cleared`); failed sign-ins are recorded once, when they lock a real admin's email.
 
 Online = WebSocket connected, or `last_seen` within the last 5 minutes. Stale = not seen for 14+ days.
 Possible duplicate = another install had the same name (case-insensitive, ignoring spaces) or a name one is a prefix of the other ("Budi S." ~ "Budi Santoso").

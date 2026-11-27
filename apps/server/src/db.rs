@@ -77,6 +77,8 @@ pub struct Settings {
     /// `data:image/(png|jpeg|webp|svg+xml);base64,...` or empty.
     // ponytail: kept inline in settings and in every policy push; a served file plus a hash if logos ever grow past the cap.
     pub brand_logo: String,
+    /// Argon2 hash of the unlock password the desktop asks for before editing connections; empty = none. Never serialized to the admin UI.
+    pub connection_password_hash: String,
 }
 
 impl Default for Settings {
@@ -93,6 +95,7 @@ impl Default for Settings {
             brand_name: String::new(),
             brand_color: String::new(),
             brand_logo: String::new(),
+            connection_password_hash: String::new(),
         }
     }
 }
@@ -106,7 +109,7 @@ impl Settings {
             brand_name: self.brand_name.clone(),
             brand_color: self.brand_color.clone(),
             brand_logo: self.brand_logo.clone(),
-            connection_password_hash: String::new(), // replaced by the server task: Settings::connection_password_hash
+            connection_password_hash: self.connection_password_hash.clone(),
         }
     }
 }
