@@ -494,6 +494,15 @@ pub enum Theme {
     Dark,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Language {
+    #[default]
+    System,
+    En,
+    Id,
+}
+
 /// Stored settings missing a field (written by an older version) take its default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -504,6 +513,7 @@ pub struct AppSettings {
     pub deactivate_on_quit: bool,
     pub quick_shortcut: String,
     pub theme: Theme,
+    pub language: Language,
     /// The current sample text.
     pub sample_text: String,
     /// Presets for the sample picker.
@@ -521,6 +531,7 @@ impl Default for AppSettings {
             deactivate_on_quit: false,
             quick_shortcut: "CmdOrCtrl+Alt+Space".into(),
             theme: Theme::System,
+            language: Language::System,
             sample_text: "The quick brown fox jumps over the lazy dog".into(),
             sample_texts: [
                 "The quick brown fox jumps over the lazy dog",
@@ -551,6 +562,8 @@ pub struct Connection {
     pub server_url: String,
     pub install_key: String,
     pub editable: bool,
+    /// Locked by the admin, but an unlock password is set: the person can unlock here.
+    pub unlockable: bool,
     pub last_sync: Option<String>,
     pub install_id: String,
     pub error: Option<String>,
