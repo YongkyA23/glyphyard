@@ -2,6 +2,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import type { FaceMetrics } from '../../api'
+import { t } from '../../i18n'
 import { uPlus } from './hooks'
 import './glyph-tools.css'
 
@@ -36,8 +37,8 @@ export function GlyphAnatomy({ cp, style, metrics, announce }: { cp: number; sty
   }, [cp])
 
   const m = metrics
-  const lines: [string, number][] = [['Baseline', 0]]
-  for (const [label, v] of [['x-height', m?.x_height], ['Cap height', m?.cap_height], ['Ascender', m?.ascender], ['Descender', m?.descender]] as const) {
+  const lines: [string, number][] = [[t('Baseline'), 0]]
+  for (const [label, v] of [[t('x-height'), m?.x_height], [t('Cap height'), m?.cap_height], [t('Ascender'), m?.ascender], [t('Descender'), m?.descender]] as const) {
     if (v) lines.push([`${label} ${em(v)}`, v])
   }
   // Lines at the same height share one label.
@@ -47,7 +48,7 @@ export function GlyphAnatomy({ cp, style, metrics, announce }: { cp: number; sty
 
   return createPortal(
     <div
-      ref={card} className="anatomy" {...(announce ? { role: 'group', 'aria-label': `Anatomy of ${ch} (${uPlus(cp)})` } : { 'aria-hidden': true })}
+      ref={card} className="anatomy" {...(announce ? { role: 'group', 'aria-label': t('Anatomy of {ch} ({code})', { ch, code: uPlus(cp) }) } : { 'aria-hidden': true })}
       style={layout ? { left: layout.left, top: layout.top } : { left: 0, top: 0, visibility: 'hidden' }}
     >
       <div className="anatomy-stage">
@@ -60,7 +61,7 @@ export function GlyphAnatomy({ cp, style, metrics, announce }: { cp: number; sty
           </div>
         ))}
       </div>
-      <span className="anatomy-foot">{uPlus(cp)}{lines.length === 1 && ' · this font doesn’t store its vertical metrics'}</span>
+      <span className="anatomy-foot">{uPlus(cp)}{lines.length === 1 && ` · ${t('this font doesn’t store its vertical metrics')}`}</span>
     </div>,
     document.body,
   )

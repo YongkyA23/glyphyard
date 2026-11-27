@@ -4,6 +4,8 @@ import { AnimatePresence, motion } from 'motion/react'
 import { api, type Axis, type Face, type Family } from '../api'
 import { AXIS_NAME, axisStep, familyStyle } from '../fonts'
 import { FamilyPicker } from '../ui'
+import { Hint } from '../Hint'
+import { t, tk } from '../i18n'
 import { dur, easeOut } from '../motion'
 import { useApp } from '../state'
 import { PlaygroundCompare } from './PlaygroundCompare'
@@ -15,7 +17,7 @@ export type AxisState = { key: string; axes: Axis[]; v: Record<string, number> }
 const fvs = (s: AxisState | null) => (s?.axes.length ? s.axes.map((a) => `'${a.tag}' ${s.v[a.tag] ?? a.default}`).join(', ') : null)
 /** Light-theme ink, ink-2 and paper from tokens.css. */
 const DEFAULT_COLORS = { heading: '#1c1917', body: '#44403c', background: '#fffdf9' }
-const COLOR_LABEL = { heading: 'Headings', body: 'Body text', background: 'Background' }
+const COLOR_LABEL = { heading: tk('Headings'), body: tk('Body text'), background: tk('Background') }
 
 /** Loads `key`'s axes; `weight` starts the wght axis there (headings use 600). */
 function useAxes(key: string, weight: number) {
@@ -40,7 +42,7 @@ function AxisSliders({ label, s, set }: { label: string; s: AxisState | null; se
       {s.axes.map((a) => (
         <label key={a.tag} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
           <span className="row-between">
-            <span>{AXIS_NAME[a.tag] ?? a.tag} <span className="faint">({a.tag})</span></span>
+            <span>{AXIS_NAME[a.tag] ? t(AXIS_NAME[a.tag] /* i18n-dynamic */) : a.tag} <span className="faint">({a.tag})</span></span>
             <span className="muted">{s.v[a.tag]}</span>
           </span>
           <input
@@ -100,7 +102,7 @@ export function Playground() {
   const head: CSSProperties = { ...familyStyle(fa, 600), ...(fvsA && { fontVariationSettings: fvsA }), color: colors.heading }
   const body: CSSProperties = { ...familyStyle(fb), ...(fvsB && { fontVariationSettings: fvsB }), color: colors.body }
   const elements = [
-    ['H1', fa, sizes.h1], ['H2', fa, sizes.h2], ['Lead', fb, sizes.lead], ['Body', fb, base], ['Quote', fa, sizes.h3],
+    ['H1', fa, sizes.h1], ['H2', fa, sizes.h2], [t('Lead'), fb, sizes.lead], [t('Body'), fb, base], [t('Quote'), fa, sizes.h3],
   ] as const
 
   async function copyCss() {
@@ -120,9 +122,9 @@ export function Playground() {
     ].join('\n\n')
     try {
       await navigator.clipboard.writeText(css)
-      toast('CSS copied to the clipboard')
+      toast(t('CSS copied to the clipboard'))
     } catch {
-      toast('Couldn’t copy to the clipboard.')
+      toast(t('Couldn’t copy to the clipboard.'))
     }
   }
 
@@ -133,19 +135,19 @@ export function Playground() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
       <div className="toolbar" style={{ alignItems: 'flex-end', gap: 16 }}>
-        {select('font-a', 'Headings (font A)', a, setA)}
-        <button type="button" className="btn" aria-label="Swap fonts A and B" onClick={() => (setA(b), setB(a))} style={{ height: 38 }}>⇄ Swap</button>
-        {select('font-b', 'Body (font B)', b, setB)}
+        {select('font-a', t('Headings (font A)'), a, setA)}
+        <button type="button" className="btn" aria-label={t('Swap fonts A and B')} onClick={() => (setA(b), setB(a))} style={{ height: 38 }}>⇄ {t('Swap')}</button>
+        {select('font-b', t('Body (font B)'), b, setB)}
         <label className="field-label">
-          Base size · {base}px
+          {t('Base size · {n}px', { n: base })}
           <input type="range" min={14} max={22} value={base} onChange={(e) => setBase(Number(e.target.value))} style={{ width: 120 }} />
         </label>
         <label className="field-label">
-          Scale · {ratio.toFixed(2)}
+          {t('Scale · {n}', { n: ratio.toFixed(2) })}
           <input type="range" min={1.1} max={1.6} step={0.05} value={ratio} onChange={(e) => setRatio(Number(e.target.value))} style={{ width: 120 }} />
         </label>
-        <button type="button" className="btn" aria-pressed={compare} onClick={() => setCompare(!compare)} style={{ marginLeft: 'auto', height: 38 }}>Compare</button>
-        <button type="button" className="btn primary" style={{ height: 38 }} onClick={copyCss} disabled={!fa || !fb}>Copy CSS</button>
+        <button type="button" className="btn" aria-pressed={compare} onClick={() => setCompare(!compare)} style={{ marginLeft: 'auto', height: 38 }}>{t('Compare')}</button>
+        <button type="button" className="btn primary" style={{ height: 38 }} onClick={copyCss} disabled={!fa || !fb}>{t('Copy CSS')}</button>
       </div>
       <PairingSuggestions a={a} b={b} name={fa?.family} onPick={setB} />
       <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap' }}>
@@ -172,31 +174,31 @@ export function Playground() {
           </motion.div>
           </AnimatePresence>}
         </article>
-        <aside aria-label="Element settings" className="aside">
-          <h2 className="h-small">Elements</h2>
+        <aside aria-label={t('Element settings')} className="aside">
+          <h2 className="h-small">{t('Elements')}</h2>
           {elements.map(([tag, f, size]) => (
             <div key={tag} className="element-row">
               <span style={{ fontWeight: 500 }}>{tag}</span>
               <span className="muted">{f?.family ?? '—'} · {size}px</span>
             </div>
           ))}
-          <h2 className="h-small" style={{ marginTop: 8 }}>Colors</h2>
+          <h2 className="h-small" style={{ marginTop: 8 }}>{t('Colors')}</h2>
           {(Object.keys(COLOR_LABEL) as (keyof typeof COLOR_LABEL)[]).map((k) => (
             <label key={k} className="color-field">
-              {COLOR_LABEL[k]}
+              {t(COLOR_LABEL[k] /* i18n-dynamic */)}
               <input type="color" value={colors[k]} onChange={(e) => setColors({ ...colors, [k]: e.target.value })} />
             </label>
           ))}
           {colors !== DEFAULT_COLORS && (
-            <button type="button" className="btn small link" style={{ alignSelf: 'flex-start', paddingLeft: 0 }} onClick={() => setColors(DEFAULT_COLORS)}>Reset colors</button>
+            <button type="button" className="btn small link" style={{ alignSelf: 'flex-start', paddingLeft: 0 }} onClick={() => setColors(DEFAULT_COLORS)}>{t('Reset colors')}</button>
           )}
-          <AxisSliders label={`${fa?.family ?? 'Font A'} axes`} s={axA} set={setAxA} />
+          <AxisSliders label={t('{name} axes', { name: fa?.family ?? t('Font A') })} s={axA} set={setAxA} />
           <AxisPresets s={axA} set={setAxA} />
-          <AxisSliders label={`${fb?.family ?? 'Font B'} axes`} s={axB} set={setAxB} />
+          <AxisSliders label={t('{name} axes', { name: fb?.family ?? t('Font B') })} s={axB} set={setAxB} />
           <AxisPresets s={axB} set={setAxB} />
-          <p className="faint" style={{ margin: '4px 0 0', fontSize: 12, lineHeight: 1.5 }}>
-            Sizes follow the base size and scale. Copy CSS gives you the @font-face rules and these element styles, with colors and variable axis settings.
-          </p>
+          <span className="faint" style={{ marginTop: 4, fontSize: 12 }}>
+            {t('About sizes and CSS')} <Hint text={t('Sizes follow the base size and scale. Copy CSS gives you the @font-face rules and these element styles, with colors and variable axis settings.')} />
+          </span>
         </aside>
       </div>
     </div>

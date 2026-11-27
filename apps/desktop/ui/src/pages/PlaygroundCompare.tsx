@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { api, type Family } from '../api'
+import { t } from '../i18n'
 
 const TEXT = 'Hamburgefonstiv\nQuiet type, loud ideas'
 
@@ -21,6 +22,7 @@ export function PlaygroundCompare({ fa, fb, styleA, styleB, size, color, bodyCol
   const sizeB = Math.round(size * (ratio ?? 1) * 10) / 10
   // One line height for both, so the lines of A and B sit on the same rows.
   const line: CSSProperties = { gridArea: '1 / 1', margin: 0, whiteSpace: 'pre', lineHeight: `${Math.round(size * 1.35)}px` }
+  const nameA = fa?.family ?? t('Font A'), nameB = fb?.family ?? t('Font B')
   return (
     <div style={{ maxWidth: 680, display: 'flex', flexDirection: 'column', gap: 18 }}>
       <div style={{ display: 'grid', overflow: 'hidden' }}>
@@ -28,8 +30,11 @@ export function PlaygroundCompare({ fa, fb, styleA, styleB, size, color, bodyCol
         <p aria-hidden="true" style={{ ...styleB, ...line, fontSize: sizeB, color: 'var(--accent)', opacity: 0.55 }}>{TEXT}</p>
       </div>
       <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: bodyColor, opacity: 0.7 }}>
-        {fa?.family ?? 'Font A'} at {size}px, with {fb?.family ?? 'font B'} in blue on top at {sizeB}px
-        {ratio ? ', sized so the x-heights match.' : known ? '. One of them has no x-height in its metrics, so they share the font size.' : '.'}
+        {ratio
+          ? t('{a} at {size}px, with {b} in blue on top at {sizeB}px, sized so the x-heights match.', { a: nameA, size, b: nameB, sizeB })
+          : known
+            ? t('{a} at {size}px, with {b} in blue on top at {sizeB}px. One of them has no x-height in its metrics, so they share the font size.', { a: nameA, size, b: nameB, sizeB })
+            : t('{a} at {size}px, with {b} in blue on top at {sizeB}px.', { a: nameA, size, b: nameB, sizeB })}
       </p>
     </div>
   )

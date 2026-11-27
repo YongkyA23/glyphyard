@@ -1,6 +1,7 @@
 // Glyphs tab extras: copy a character as SVG, and whether Alt is held (for the anatomy card).
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api'
+import { t } from '../../i18n'
 import { useApp } from '../../state'
 import { errMsg } from '../../ui'
 
@@ -17,7 +18,7 @@ export function useCopySvg(hash: string) {
     } catch (e) {
       return toast(errMsg(e))
     }
-    navigator.clipboard.writeText(svg).then(() => toast(`Copied ${label} as SVG`), () => toast('Couldn’t copy to the clipboard.'))
+    navigator.clipboard.writeText(svg).then(() => toast(t('Copied {label} as SVG', { label })), () => toast(t('Couldn’t copy to the clipboard.')))
   }, [hash, toast])
 }
 
