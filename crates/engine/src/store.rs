@@ -5,7 +5,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::path::Path;
 
-const MIGRATIONS: &[&str] = &[r#"
+pub(crate) const MIGRATIONS: &[&str] = &[r#"
 CREATE TABLE folders (
     id INTEGER PRIMARY KEY,
     path TEXT NOT NULL,
@@ -132,6 +132,27 @@ INSERT OR IGNORE INTO settings (key, value) VALUES ('usage_since', '"' || strfti
 "#,
     // 7: ascender/descender joined the stored metrics; re-read every file so old rows get them.
     "UPDATE files SET mtime = -1;",
+    // 8: collections and project sets sync across the person's computers (organizer.rs). Recent keeps a NULL uid:
+    // it never syncs. `dirty` counts local changes since the last sync.
+    r#"
+ALTER TABLE collections ADD COLUMN uid TEXT;
+ALTER TABLE collections ADD COLUMN updated_at TEXT;
+ALTER TABLE project_sets ADD COLUMN uid TEXT;
+ALTER TABLE project_sets ADD COLUMN updated_at TEXT;
+ALTER TABLE project_set_items ADD COLUMN added_at TEXT;
+UPDATE collections SET uid = CASE builtin WHEN 'favorites' THEN 'favorites' ELSE lower(hex(randomblob(16))) END,
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE builtin IS NOT 'recent';
+UPDATE project_sets SET uid = lower(hex(randomblob(16))), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+UPDATE project_set_items SET added_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+CREATE UNIQUE INDEX collections_uid ON collections(uid);
+CREATE UNIQUE INDEX project_sets_uid ON project_sets(uid);
+CREATE TABLE organizer_tombstones (kind TEXT NOT NULL, uid TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT NOT NULL,
+    entry_json TEXT NOT NULL, PRIMARY KEY (kind, uid));
+CREATE TABLE organizer_removed (kind TEXT NOT NULL, owner_uid TEXT NOT NULL, family_key TEXT NOT NULL, removed_at TEXT NOT NULL,
+    PRIMARY KEY (kind, owner_uid, family_key));
+CREATE TABLE organizer_state (id INTEGER PRIMARY KEY CHECK (id = 1), rev INTEGER NOT NULL DEFAULT 0, dirty INTEGER NOT NULL DEFAULT 0);
+INSERT INTO organizer_state (id) VALUES (1);
+"#,
 ];
 
 pub(crate) fn open(path: &Path) -> rusqlite::Result<Connection> {

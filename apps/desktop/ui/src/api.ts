@@ -295,7 +295,7 @@ export async function tagsOf(keys: string[]): Promise<Map<string, string[]>> {
 
 // ---- Events ----
 export type Events = {
-  'library-changed': { reason: 'scan' | 'watch' | 'activation' | 'admin' | 'organize' }
+  'library-changed': { reason: 'scan' | 'watch' | 'activation' | 'admin' | 'organize' | 'sync' }
   'admin-change': { action: 'activated' | 'deactivated' | 'blocked' | 'delivered'; fonts: { family: string; style: string }[] }
   'organize-requested': Record<string, never>
   'connection-changed': Connection

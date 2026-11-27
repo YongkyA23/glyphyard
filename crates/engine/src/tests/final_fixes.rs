@@ -73,7 +73,11 @@ fn migration_7_forces_a_reread() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("t.db");
     {
-        let db = crate::store::open(&path).unwrap();
+        // A database at version 6: later migrations need not run twice.
+        let db = rusqlite::Connection::open(&path).unwrap();
+        for m in &crate::store::MIGRATIONS[..6] {
+            db.execute_batch(m).unwrap();
+        }
         db.execute("INSERT INTO folders (path, added_at) VALUES ('C:/f', 'x')", []).unwrap();
         db.execute(
             "INSERT INTO files (folder_id, rel_path, hash, size, mtime, format, added_at) VALUES (1, 'a.ttf', 'h', 1, 123, 'ttf', 'x')",

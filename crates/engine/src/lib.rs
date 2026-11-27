@@ -10,6 +10,7 @@ mod folders;
 mod google;
 mod library;
 mod organize;
+mod organizer;
 mod pairing;
 mod pdf;
 mod reconcile;
@@ -60,6 +61,8 @@ pub struct Engine {
     me: OnceLock<std::sync::Weak<Engine>>,
     /// The running background registration; the next one waits for it, so they apply in order.
     activation_job: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// The unsynced-change count in the last exported organizer document (organizer.rs).
+    organizer_seen: Mutex<i64>,
 }
 
 impl Engine {
@@ -83,6 +86,7 @@ impl Engine {
             google_catalog: Mutex::new(None),
             me: OnceLock::new(),
             activation_job: Mutex::new(None),
+            organizer_seen: Mutex::new(0),
         };
         engine.ensure_install_id()?;
         engine.refresh_folders()?;

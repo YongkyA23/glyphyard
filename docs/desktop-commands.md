@@ -95,6 +95,8 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `set_license` | `{ familyKey, label, file?, note? }` → `FamilyDetail["licenseInfo"]`. Omitted or null `file` / `note` keep the stored value, so a license file cannot be detached through this command |
 | `list_project_sets` / `save_project_set {id?, name, note, familyKeys}` / `delete_project_set {id}` | → `ProjectSet[]` |
 | `toggle_project_set` | `{ id, on }` → `ActivationResult[]` (same unknown-license rejection) |
+
+**Collections and project sets follow the person** (no command; the sync loop does it). With a server that has `GET`/`PUT /me/organizer` (docs/api.md), the shell pulls, merges (`typeshelf_core::organizer::merge`), pushes when the server lacks something, and adopts the server's answer: on every connect, on a live `organizer_changed` message, and within about 2 s of a local change. What syncs: every collection except Recent (Favorites by its families only), with name, parent and families; project sets with name, note and families. Not synced: Recent, whether a set is on and when it was last used, tags, licenses, pins. Every change through the commands above (create, rename, delete, add, remove, `save_project_set`, `delete_project_set`, a family rename that changes a family's key, `backup_restore` and its undo, `import_collections`) is stamped for the merge; a delete leaves a tombstone so it stays deleted on the other computers. A change that arrives emits `library-changed` with reason `sync`; local ids stay the same for existing items. A server without organizer sync (404) turns it off silently until the next connect; a 409 is merged and pushed once more.
 | `organize_plan` | `{ tidy }` → `{ changes: OrganizeChange[], scanned: number, scannedAt: string }` |
 | `organize_apply` | `{ tidy, excludeIds: number[] }` → `{ historyId, applied, failed: string[] }` (`failed`: "path: reason" for skipped changes, at most 20) |
 | `list_history` / `undo_history {id}` | → `{ id, kind, summary, at, undone }[]` |
@@ -124,7 +126,7 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 ## Events (backend → UI, `listen(name, cb)`)
 | Event | Payload |
 |---|---|
-| `library-changed` | `{ reason: "scan" \| "watch" \| "activation" \| "admin" \| "organize" }` |
+| `library-changed` | `{ reason: "scan" \| "watch" \| "activation" \| "admin" \| "organize" \| "sync" }` (`sync`: collections or project sets changed on another computer of the person; reload both lists) |
 | `admin-change` | `{ action: "activated" \| "deactivated" \| "blocked" \| "delivered", fonts: { family: string, style: string }[] }` (UI shows the blue banner) |
 | `organize-requested` | `{}` (admin asked; UI opens the auto-organize preview) |
 | `connection-changed` | `Connection` |

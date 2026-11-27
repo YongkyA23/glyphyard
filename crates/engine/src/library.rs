@@ -4,7 +4,7 @@ use crate::activation::{parse_source_opt, set_keys, version_key};
 use crate::scan::{family_key, numbered};
 use crate::search::{self, Term};
 use crate::{
-    not_found, store, ActivationResult, ActiveState, Axis, Builtin, Category, Collection, Engine, EngineError, ExportResult, Face,
+    not_found, ActivationResult, ActiveState, Axis, Builtin, Category, Collection, Engine, EngineError, ExportResult, Face,
     Family, FamilyDetail, FamilyFilter, FamilyPage, FamilyQuery, FileRow, FileStatus, FontDetails, GlyphMap, LanguageCount, LibraryCounts, License,
     LicenseInfo, ProjectSet, Result, SortBy, TagCount,
 };
@@ -697,20 +697,21 @@ impl Engine {
 
     pub fn create_collection(&self, name: &str, parent_id: Option<i64>) -> Result<Vec<Collection>> {
         let name = non_empty(name)?;
-        self.db().execute("INSERT INTO collections (name, parent_id) VALUES (?1, ?2)", params![name, parent_id])?;
+        self.organizer_edit(|c| Ok(c.execute("INSERT INTO collections (name, parent_id) VALUES (?1, ?2)", params![name, parent_id])?))?;
         self.list_collections()
     }
 
     pub fn rename_collection(&self, id: i64, name: &str) -> Result<Vec<Collection>> {
         let name = non_empty(name)?;
         self.editable_collection(id)?;
-        self.db().execute("UPDATE collections SET name = ?2 WHERE id = ?1", params![id, name])?;
+        self.organizer_edit(|c| Ok(c.execute("UPDATE collections SET name = ?2 WHERE id = ?1", params![id, name])?))?;
         self.list_collections()
     }
 
+    /// Sub-collections go with it (each one is a tombstone for sync).
     pub fn delete_collection(&self, id: i64) -> Result<Vec<Collection>> {
         self.editable_collection(id)?;
-        self.db().execute("DELETE FROM collections WHERE id = ?1", [id])?;
+        self.organizer_edit(|c| Ok(c.execute("DELETE FROM collections WHERE id = ?1", [id])?))?;
         self.list_collections()
     }
 
@@ -725,28 +726,26 @@ impl Engine {
     }
 
     pub fn add_to_collection(&self, id: i64, family_keys: &[String]) -> Result<Vec<Collection>> {
-        {
-            let mut db = self.db();
-            let tx = db.transaction()?;
-            let now = store::now();
+        self.organizer_edit(|tx| {
+            let now = crate::organizer::now();
             for k in family_keys {
                 tx.execute(
                     "INSERT OR IGNORE INTO collection_items (collection_id, family_key, added_at) VALUES (?1, ?2, ?3)",
                     params![id, k, now],
                 )?;
             }
-            tx.commit()?;
-        }
+            Ok(())
+        })?;
         self.list_collections()
     }
 
     pub fn remove_from_collection(&self, id: i64, family_keys: &[String]) -> Result<Vec<Collection>> {
-        {
-            let db = self.db();
+        self.organizer_edit(|db| {
             for k in family_keys {
                 db.execute("DELETE FROM collection_items WHERE collection_id = ?1 AND family_key = ?2", params![id, k])?;
             }
-        }
+            Ok(())
+        })?;
         self.list_collections()
     }
 
@@ -819,6 +818,8 @@ impl Engine {
         {
             let mut db = self.db();
             let tx = db.transaction()?;
+            // A family that moves to another key is a remove plus an add in its collections and sets.
+            let before = crate::organizer::Local::read(&tx)?;
             let mut moves = HashSet::new();
             for h in hashes {
                 match name {
@@ -849,6 +850,7 @@ impl Engine {
                     tx.execute("UPDATE OR IGNORE settings SET key = ?2 WHERE key = ?1", params![format!("axis_presets:{old}"), format!("axis_presets:{new}")])?;
                 }
             }
+            crate::organizer::record(&tx, &before)?;
             tx.commit()?;
         }
         self.library_changed("scan");
@@ -907,15 +909,16 @@ impl Engine {
 
     pub fn save_project_set(&self, id: Option<i64>, name: &str, note: &str, family_keys: &[String]) -> Result<Vec<ProjectSet>> {
         let name = non_empty(name)?;
-        {
-            let mut db = self.db();
-            let tx = db.transaction()?;
+        self.organizer_edit(|tx| {
             let id = match id {
                 Some(id) => {
                     if tx.execute("UPDATE project_sets SET name = ?2, note = ?3 WHERE id = ?1", params![id, name, note])? == 0 {
                         return Err(not_found("project set"));
                     }
-                    tx.execute("DELETE FROM project_set_items WHERE set_id = ?1", [id])?;
+                    // Families that stay keep their row, and so their sync stamp.
+                    for k in set_keys(tx, id)?.iter().filter(|k| !family_keys.contains(k)) {
+                        tx.execute("DELETE FROM project_set_items WHERE set_id = ?1 AND family_key = ?2", params![id, k])?;
+                    }
                     id
                 }
                 None => {
@@ -926,8 +929,8 @@ impl Engine {
             for k in family_keys {
                 tx.execute("INSERT OR IGNORE INTO project_set_items (set_id, family_key) VALUES (?1, ?2)", params![id, k])?;
             }
-            tx.commit()?;
-        }
+            Ok(())
+        })?;
         self.list_project_sets()
     }
 
@@ -941,7 +944,7 @@ impl Engine {
         if on {
             self.toggle_project_set(id, false)?;
         }
-        self.db().execute("DELETE FROM project_sets WHERE id = ?1", [id])?;
+        self.organizer_edit(|c| Ok(c.execute("DELETE FROM project_sets WHERE id = ?1", [id])?))?;
         self.list_project_sets()
     }
 }
