@@ -21,7 +21,8 @@ export function Hint({ text, label }: { text: string; label?: string }) {
       const h = tip.current!.offsetHeight
       const left = Math.max(8, Math.min(b.left + b.width / 2 - w / 2, window.innerWidth - w - 8))
       const below = b.bottom + 6
-      const top = below + h > window.innerHeight - 8 && b.top - 6 - h >= 8 ? b.top - 6 - h : below
+      const flipped = below + h > window.innerHeight - 8 && b.top - 6 - h >= 8 ? b.top - 6 - h : below
+      const top = Math.max(8, Math.min(flipped, window.innerHeight - h - 8))
       const el = tip.current!
       el.style.left = left + 'px'
       el.style.top = top + 'px'

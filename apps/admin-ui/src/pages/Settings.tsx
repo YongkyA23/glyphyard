@@ -386,7 +386,7 @@ function Updates({ owner }: { owner?: boolean }) {
   }
   return (
     <motion.section aria-labelledby="upd" className="card pad-20 stack-10" variants={fadeRise}>
-      <h2 id="upd" className="h2 title-row">{t('App updates')} <Hint text={t('Sign the setup program on the computer that keeps the private key, with typeshelf-server update-sign. Apps built with the matching public key check once a day, check the signature and the file, and install the new version when the user quits Glyphyard. The server refuses a setup program that doesn’t match its manifest.')} /></h2>
+      <div className="title-row"><h2 id="upd" className="h2">{t('App updates')}</h2><Hint text={t('Sign the setup program on the computer that keeps the private key, with typeshelf-server update-sign. Apps built with the matching public key check once a day, check the signature and the file, and install the new version when the user quits Glyphyard. The server refuses a setup program that doesn’t match its manifest.')} /></div>
       <Loaded state={state} skeleton={<Skel w="50%" />}>{(r) => (
         <span className="small">{r ? `Current release: version ${r.version} (${(r.size / 1_048_576).toFixed(1)} MB)` : 'No release uploaded. Desktop apps keep the version they have.'}</span>
       )}</Loaded>
@@ -446,8 +446,8 @@ function UnlockPassword({ allowEdit, isSet, owner, onChanged }: { allowEdit: boo
   return (
     <motion.section aria-labelledby="unl" className="card pad-20 stack-12" variants={fadeRise}>
       <div className="row-between">
-        <h2 id="unl" className="h2 title-row">{t('Unlock password')} <Hint text={t('Stored as a one-way hash on every computer so you can unlock offline. Use a long passphrase.')} /></h2>
-        <Badge tone={isSet ? 'ok' : 'outline'}>{isSet ? t('Set') : t('Not set')}</Badge>
+        <div className="title-row"><h2 id="unl" className="h2">{t('Unlock password')}</h2><Hint text={t('Stored as a one-way hash on every computer so you can unlock offline. Use a long passphrase.')} /></div>
+        <Badge tone={isSet ? 'ok' : 'outline'}>{isSet ? t('Password set') : t('No password')}</Badge>
       </div>
       {!allowEdit && !isSet && <p className="note warn">{t('Connection changes are locked and no unlock password is set, so nobody can change the connection on a locked computer.')}</p>}
       {owner === false && <span className="meta">{t('Only an owner can set or remove the unlock password.')}</span>}
