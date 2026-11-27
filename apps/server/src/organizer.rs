@@ -74,6 +74,19 @@ pub async fn put(State(s): State<AppState>, install: Install, body: Body) -> Api
     Ok(Json(Organizer { rev, doc }))
 }
 
+/// Tells every connected computer of `install_id`'s person to refetch the organizer; for changes that don't come
+/// from a PUT (merge, split, promotion). Best effort: every connect reads `GET /me/organizer` anyway.
+pub fn notify_all(c: &Connection, hub: &hub::Hub, install_id: &str) {
+    let res = (|| -> ApiResult<()> {
+        let rev = current(c, &db::person(c, install_id)?)?.rev;
+        hub::notify_person(c, hub, install_id, None, &ServerMessage::OrganizerChanged { rev })?;
+        Ok(())
+    })();
+    if res.is_err() {
+        tracing::warn!("telling {install_id}'s computers the organizer changed");
+    }
+}
+
 /// The person's rev (0 without a row) and the pruned merge of every row in the group.
 fn current(c: &Connection, person: &str) -> ApiResult<Organizer> {
     let rev = c.query_row("SELECT rev FROM organizer_docs WHERE install_id = ?1", [person], |r| r.get(0)).optional()?.unwrap_or(0);

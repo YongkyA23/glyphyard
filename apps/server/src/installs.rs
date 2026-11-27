@@ -651,6 +651,7 @@ async fn merge(State(s): State<AppState>, admin: Admin, Json(body): Json<MergeBo
     audit::record(&tx, &admin.email, "installs_merged", &primary, &format!("merged {secondary} into it, name {kept_name}"))?;
     tx.commit()?;
     hub::notify_identity(&db, &s.hub, &primary, None);
+    crate::organizer::notify_all(&db, &s.hub, &primary);
     Ok(Json(install_detail(&db, &s.hub, &primary)?))
 }
 
@@ -688,6 +689,8 @@ async fn split(State(s): State<AppState>, admin: Admin, Path(id): Path<String>) 
     tx.commit()?;
     hub::notify_identity(&db, &s.hub, &primary, None);
     hub::notify_identity(&db, &s.hub, &id, None);
+    crate::organizer::notify_all(&db, &s.hub, &primary);
+    crate::organizer::notify_all(&db, &s.hub, &id);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -779,6 +782,9 @@ async fn remove_computer(State(s): State<AppState>, admin: Admin, Path((id, comp
         person
     };
     s.hub.kick(&computer);
+    if person != id {
+        crate::organizer::notify_all(&s.db(), &s.hub, &person);
+    }
     Ok(Json(json!({ "person": person })))
 }
 

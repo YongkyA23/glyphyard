@@ -11,7 +11,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::Notify;
 use typeshelf_engine::{ConnectionStatus, Engine, EngineError};
 use typeshelf_protocol::{Command, CommandKind, RegisterRequest, ServerMessage, TimedEvent};
-use typeshelf_sync::{CancellationToken, Config, Status, SyncClient, SyncError};
+use typeshelf_sync::{CancellationToken, Config, OrganizerSync, Status, SyncClient, SyncError};
 
 use crate::{blocking, Ctx};
 
@@ -351,17 +351,22 @@ async fn organizer_round(engine: &Arc<Engine>, client: &SyncClient, cancel: &Can
     };
     let cancel = cancel.clone();
     match answer {
-        Ok(Some(o)) => match blocking(engine, move |e| {
+        Ok(Some(OrganizerSync { organizer: o, pushed })) => match blocking(engine, move |e| {
             // Checked again under the engine call, right before the writes.
             if cancel.is_cancelled() {
                 return Ok(());
             }
             e.apply_organizer(&o.doc)?;
-            e.set_organizer_synced(o.rev)
+            // A refused push keeps the changes dirty; the pull above still reached this computer.
+            if pushed {
+                e.set_organizer_synced(o.rev)?;
+            }
+            Ok(())
         })
         .await
         {
-            Ok(()) => Round::Done,
+            Ok(()) if pushed => Round::Done,
+            Ok(()) => Round::Failed,
             Err(e) => {
                 tracing::warn!("applying synced collections and project sets: {e}");
                 Round::Failed

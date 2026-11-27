@@ -34,6 +34,8 @@ struct Mock {
     organizer_sneak: Mutex<Option<OrganizerDoc>>,
     /// Every PUT's `(base_rev, doc)`.
     organizer_puts: Mutex<Vec<(i64, OrganizerDoc)>>,
+    /// When set, every PUT is refused with this status (after being recorded).
+    organizer_put_status: Mutex<Option<StatusCode>>,
 }
 
 type S = State<Arc<Mock>>;
@@ -55,6 +57,9 @@ async fn put_organizer(State(m): S, h: HeaderMap, Json(body): Json<Value>) -> Re
     }
     let (base, doc): (i64, OrganizerDoc) = (body["base_rev"].as_i64().unwrap(), serde_json::from_value(body["doc"].clone()).unwrap());
     m.organizer_puts.lock().unwrap().push((base, doc.clone()));
+    if let Some(status) = *m.organizer_put_status.lock().unwrap() {
+        return (status, Json(json!({ "error": "refused", "message": "" }))).into_response();
+    }
     let mut stored = m.organizer.lock().unwrap();
     let (rev, cur) = stored.clone().expect("PUT only after GET");
     if let Some(other) = m.organizer_sneak.lock().unwrap().take() {
@@ -495,12 +500,28 @@ async fn push_retries_after_conflict() {
     let client = SyncClient::new(config(&url, Some(TOKEN), &dir.path().join("outbox.jsonl")));
 
     let local = sets(&[("c", "Local")]);
-    let got = client.sync_organizer(&local, false).await.unwrap().expect("the server syncs organizers");
+    let got = client.sync_organizer(&local, false).await.unwrap().expect("the server syncs organizers").organizer;
     let all = sets(&[("a", "Remote"), ("b", "Other"), ("c", "Local")]);
     assert_eq!(got, Organizer { rev: 5, doc: all.clone() }, "nothing is lost");
     let puts = mock.organizer_puts.lock().unwrap().clone();
     assert_eq!(puts.iter().map(|p| p.0).collect::<Vec<_>>(), [3, 4], "one retry, on the rev the conflict returned");
     assert_eq!(puts[1].1, all, "the retry carries the merge with the server's current document");
+}
+
+#[tokio::test]
+async fn a_refused_push_still_hands_back_the_pull() {
+    let mock = Arc::new(Mock::default());
+    let remote = sets(&[("a", "Remote")]);
+    *mock.organizer.lock().unwrap() = Some((7, remote.clone()));
+    *mock.organizer_put_status.lock().unwrap() = Some(StatusCode::BAD_REQUEST);
+    let url = serve(mock.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let client = SyncClient::new(config(&url, Some(TOKEN), &dir.path().join("outbox.jsonl")));
+
+    let got = client.sync_organizer(&sets(&[("c", "Local")]), true).await.unwrap().expect("the pull is not lost to the failed push");
+    assert!(!got.pushed, "the caller keeps dirty");
+    assert_eq!(got.organizer.doc, remote, "the remote document is there to apply");
+    assert_eq!(mock.organizer_puts.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -513,7 +534,7 @@ async fn organizer_pushes_only_what_the_server_lacks() {
 
     let remote = sets(&[("a", "Remote"), ("c", "Local")]);
     *mock.organizer.lock().unwrap() = Some((7, remote.clone()));
-    let got = client.sync_organizer(&sets(&[("c", "Local")]), false).await.unwrap().unwrap();
+    let got = client.sync_organizer(&sets(&[("c", "Local")]), false).await.unwrap().unwrap().organizer;
     assert_eq!(got, Organizer { rev: 7, doc: remote.clone() }, "the pull is adopted");
     assert!(mock.organizer_puts.lock().unwrap().is_empty(), "the server already has everything: no push");
 

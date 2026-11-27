@@ -489,6 +489,7 @@ async fn merge_tells_the_merged_computer_its_name() {
     let mut ws_b = s.open_ws("b", &b).await;
     s.merge("a", "b").await;
     assert_eq!(next_identity(&mut ws_b).await, ("Budi".to_string(), None));
+    assert_eq!(organizer_changed(&mut ws_b, std::time::Duration::from_secs(5)).await, Some(0), "a merge wakes the organizer sync");
     assert_eq!(s.desktop(Method::GET, "/me", &b, None).await.json()["name"], "Budi");
 
     // A split hands the computer its own name back, and tells the primary too.
@@ -496,6 +497,8 @@ async fn merge_tells_the_merged_computer_its_name() {
     assert_eq!(s.admin(Method::POST, "/installs/b/split", None).await.status, StatusCode::NO_CONTENT);
     assert_eq!(next_identity(&mut ws_b).await.0, "Budi Mac");
     assert_eq!(next_identity(&mut ws_a).await, ("Budi".to_string(), None));
+    assert_eq!(organizer_changed(&mut ws_b, std::time::Duration::from_secs(5)).await, Some(0), "a split wakes both sides");
+    assert_eq!(organizer_changed(&mut ws_a, std::time::Duration::from_secs(5)).await, Some(0));
 }
 
 #[tokio::test]
@@ -558,6 +561,7 @@ async fn removing_the_primary_promotes_the_next() {
     s.merge("a", "c").await;
     let hash = s.library_font().await;
     s.admin(Method::POST, &format!("/library/{hash}/deliver"), Some(json!({ "target": ["a"] }))).await;
+    let mut ws_b = s.open_ws("b", &b).await;
     let d = s.admin(Method::GET, "/installs/a", None).await.json();
     let computers = d["computers"].as_array().unwrap();
     assert_eq!(computers.iter().map(|c| c["id"].as_str().unwrap()).collect::<Vec<_>>(), ["a", "b", "c"], "the person first");
@@ -568,6 +572,7 @@ async fn removing_the_primary_promotes_the_next() {
     let r = s.admin(Method::DELETE, "/installs/a/computers/a", None).await;
     assert_eq!(r.status, StatusCode::OK, "{}", String::from_utf8_lossy(&r.body));
     assert_eq!(r.json(), json!({ "person": "b" }));
+    assert_eq!(organizer_changed(&mut ws_b, std::time::Duration::from_secs(5)).await, Some(0), "a promotion wakes the remaining computers");
     assert_eq!(s.desktop(Method::GET, "/me", &a, None).await.json()["error"], "revoked");
     let list = s.admin(Method::GET, "/installs", None).await.json();
     assert_eq!(list["total"], 1);
@@ -591,6 +596,24 @@ async fn removing_the_primary_promotes_the_next() {
     let timeline = s.admin(Method::GET, "/installs/b/timeline", None).await.json();
     let texts: Vec<&str> = timeline["items"].as_array().unwrap().iter().map(|e| e["text"].as_str().unwrap()).collect();
     assert!(texts.contains(&"Removed computer a") && texts.contains(&"Now listed under this computer (was a)"), "{texts:?}");
+}
+
+#[tokio::test]
+async fn organizer_survives_promotion() {
+    let s = Server::new().await;
+    let a = s.register("a", "Ana").await;
+    let b = s.register("b", "Ana (Mac)").await;
+    assert_eq!(s.put_organizer(&a, 0, organizer("from-a", "Inter", "2026-01-15T08:00:00Z")).await.status, StatusCode::OK);
+    s.merge("a", "b").await;
+    assert_eq!(s.admin(Method::DELETE, "/installs/a/computers/a", None).await.json(), json!({ "person": "b" }));
+
+    let got = s.desktop(Method::GET, "/me/organizer", &b, None).await.json();
+    assert_eq!((got["rev"].as_i64(), collection_uids(&got["doc"])), (Some(0), vec!["from-a"]), "the whole doc, under the new person's rev");
+    let r = s.put_organizer(&b, 0, organizer("from-a", "Lora", "2026-01-15T09:00:00Z")).await;
+    assert_eq!((r.status, r.json()["rev"].as_i64()), (StatusCode::OK, Some(1)));
+    let got = s.desktop(Method::GET, "/me/organizer", &b, None).await.json();
+    assert_eq!(got["rev"], 1);
+    assert_eq!(got["doc"]["collections"][0]["items"].as_array().unwrap().len(), 2, "both families of the one row");
 }
 
 #[tokio::test]

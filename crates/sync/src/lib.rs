@@ -124,6 +124,14 @@ fn status_for(e: &SyncError) -> Status {
 
 type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
+/// What [`SyncClient::sync_organizer`] hands back: the document to adopt, and whether this computer's changes
+/// reached the server (when not, they stay dirty).
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrganizerSync {
+    pub organizer: Organizer,
+    pub pushed: bool,
+}
+
 pub struct SyncClient {
     config: Config,
     token: RwLock<Option<String>>,
@@ -258,22 +266,30 @@ impl SyncClient {
     }
 
     /// One sync round: pull, merge with `local`, and push only when the merge has something the server lacks or
-    /// `dirty` is set. A conflict is merged with the server's current document and pushed once more; a second
-    /// one is returned as the error. `Ok(Some)` is the server's document to adopt (also when nothing was
-    /// pushed); `Ok(None)` means the server has no organizer sync.
-    pub async fn sync_organizer(&self, local: &OrganizerDoc, dirty: bool) -> Result<Option<Organizer>, SyncError> {
+    /// `dirty` is set. A conflict is merged with the server's current document and pushed once more. `Ok(Some)`
+    /// is the server's document to adopt (also when nothing was pushed); a push that failed (a second conflict
+    /// included) still returns the pulled document, with `pushed` false so the caller keeps its changes dirty.
+    /// `Ok(None)` means the server has no organizer sync.
+    pub async fn sync_organizer(&self, local: &OrganizerDoc, dirty: bool) -> Result<Option<OrganizerSync>, SyncError> {
         let Some(remote) = self.get_organizer().await? else { return Ok(None) };
         let merged = organizer::merge(&remote.doc, local);
         if merged == remote.doc && !dirty {
-            return Ok(Some(remote));
+            return Ok(Some(OrganizerSync { organizer: remote, pushed: true }));
         }
-        match self.put_organizer(remote.rev, &merged).await {
+        let put = match self.put_organizer(remote.rev, &merged).await {
             Err(SyncError::OrganizerConflict(current)) => {
                 let merged = organizer::merge(&current.doc, &merged);
-                self.put_organizer(current.rev, &merged).await.map(Some)
+                self.put_organizer(current.rev, &merged).await
             }
-            res => res.map(Some),
-        }
+            res => res,
+        };
+        Ok(Some(match put {
+            Ok(organizer) => OrganizerSync { organizer, pushed: true },
+            Err(e) => {
+                tracing::warn!("pushing collections and project sets: {e}");
+                OrganizerSync { organizer: remote, pushed: false }
+            }
+        }))
     }
 
     pub async fn put_snapshot(&self, snapshot: &FontSnapshot) -> Result<(), SyncError> {
