@@ -164,7 +164,9 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     // After "Restart now" the window comes back even for a start-in-tray user.
     let marker = data_dir.join("update").join("show");
-    let show = !settings.start_hidden || std::fs::remove_file(&marker).is_ok();
+    // Removed first, so the marker never outlives this start (`||` would skip it).
+    let restarted = std::fs::remove_file(&marker).is_ok();
+    let show = !settings.start_hidden || restarted;
     if show {
         show_main(&handle);
     }
