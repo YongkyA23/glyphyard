@@ -1,5 +1,6 @@
 // A render error in one page shows a plain message instead of a blank page (the sidebar stays usable).
 import { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
+import { t } from './i18n'
 
 /** `resetKey` (the location key) clears the error on navigation; `sidebar`: there is a sidebar to go elsewhere. */
 type Props = { children: ReactNode; resetKey?: string; sidebar?: boolean }
@@ -32,12 +33,12 @@ function Fallback({ details, sidebar }: { details: string; sidebar: boolean }) {
   const copy = () => navigator.clipboard.writeText(details).then(() => setCopied('yes'), () => setCopied('no'))
   return (
     <div className="stack-8" role="alert" style={{ maxWidth: 560 }}>
-      <h1 ref={heading} tabIndex={-1}>This page ran into a problem</h1>
-      <p className="mute">Nothing was changed. Reload to try again{sidebar ? ', or open another page from the sidebar' : ''}.</p>
+      <h1 ref={heading} tabIndex={-1}>{t('This page ran into a problem')}</h1>
+      <p className="mute">{sidebar ? t('Nothing was changed. Reload to try again, or open another page from the sidebar.') : t('Nothing was changed. Reload to try again.')}</p>
       <div className="toolbar">
-        <button type="button" className="btn btn-primary" onClick={() => location.reload()}>Reload</button>
-        <button type="button" className="btn" onClick={copy}>Copy details</button>
-        <span className="small mute" role="status">{copied === 'yes' ? 'Copied.' : copied === 'no' ? 'Couldn’t copy.' : ''}</span>
+        <button type="button" className="btn btn-primary" onClick={() => location.reload()}>{t('Reload')}</button>
+        <button type="button" className="btn" onClick={copy}>{t('Copy details')}</button>
+        <span className="small mute" role="status">{copied === 'yes' ? t('Copied.') : copied === 'no' ? t('Couldn’t copy.') : ''}</span>
       </div>
     </div>
   )

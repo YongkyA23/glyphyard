@@ -14,6 +14,10 @@ import { Hint } from './Hint'
 
 /* ---------- data ---------- */
 
+/** A thrown error's message, translated when it is one of the backend's known English messages. */
+// oxlint-disable-next-line react/only-export-components -- shared helper, kept beside useLoad
+export const errMsg =(e: unknown) => t(errorText(e)) // i18n-dynamic: the dictionary holds the known backend messages
+
 export type Load<T> = {
   data?: T; error?: string; loading: boolean; at?: Date
   reload: (quiet?: boolean) => Promise<void>
@@ -32,7 +36,7 @@ export function useLoad<T>(load: () => Promise<T>, deps: DependencyList, pollMs 
       const data = await run()
       if (n === seq.current) setState({ data, loading: false, at: new Date() })
     } catch (e) {
-      if (n === seq.current) setState((s) => ({ ...s, loading: false, error: errorText(e) }))
+      if (n === seq.current) setState((s) => ({ ...s, loading: false, error: errMsg(e) }))
     }
   }, [run])
   useEffect(() => { void reload() }, [reload])
@@ -69,7 +73,7 @@ export function usePage(key: string): [number, (n: number) => void] {
  * Loading / error / empty states around a loaded value. While loading it shows `skeleton`
  * (shaped like the final layout); once loaded, motion children using variants stagger in.
  */
-export function Loaded<T>({ state, children, label = 'Loading…', skeleton }: {
+export function Loaded<T>({ state, children, label = t('Loading…'), skeleton }: {
   state: Load<T>; children: (d: T) => ReactNode; label?: string; skeleton?: ReactNode
 }) {
   if (state.data === undefined) {
@@ -83,7 +87,7 @@ export function Loaded<T>({ state, children, label = 'Loading…', skeleton }: {
   }
   return (
     <>
-      {state.error && <ErrorBox message={`Couldn’t refresh: ${state.error}`} retry={() => void state.reload()} />}
+      {state.error && <ErrorBox message={t('Couldn’t refresh: {error}', { error: state.error })} retry={() => void state.reload()} />}
       {/* display: contents keeps the page's flex/gap layout; this element only orchestrates the stagger */}
       <motion.div style={{ display: 'contents' }} initial="hidden" animate="show" variants={stagger(0.05)}>
         {children(state.data)}
@@ -100,7 +104,7 @@ export const Skel = ({ w = '100%', h = 12, r }: { w?: number | string; h?: numbe
 export function TableSkeleton({ head, minWidth, rows = 5, inset }: { head: HeadItem[]; minWidth: number; rows?: number; inset?: boolean }) {
   const widths = ['70%', '55%', '80%', '45%', '65%']
   return (
-    <Table caption="Loading" minWidth={minWidth} head={head} inset={inset}>
+    <Table caption={t('Loading')} minWidth={minWidth} head={head} inset={inset}>
       {Array.from({ length: rows }, (_, r) => (
         <tr key={r}>{head.map((_, c) => <td key={c}><Skel w={widths[(r + c) % widths.length]} /></td>)}</tr>
       ))}
@@ -112,7 +116,7 @@ export function ErrorBox({ message, retry }: { message: string; retry?: () => vo
   return (
     <div className="error-box" role="alert">
       <span>{message}</span>
-      {retry && <button type="button" className="btn btn-sm" onClick={retry}>Try again</button>}
+      {retry && <button type="button" className="btn btn-sm" onClick={retry}>{t('Try again')}</button>}
     </div>
   )
 }
@@ -177,22 +181,23 @@ function Sidebar() {
   const [openOn, setOpenOn] = useState<string | null>(null)
   const menuOpen = openOn === pathname
   const menuBtn = useRef<HTMLButtonElement>(null)
+  const keepLang = useKeepLangFocus()
   const countOf: Record<string, number | undefined> = { '/users': counts.data?.users, '/library': counts.data?.library, '/requests': counts.data?.requests }
   const signOut = async () => {
     try { await api.logout() } finally { navigate('/login') }
   }
   const requests = counts.data?.requests ?? 0
   return (
-    <nav aria-label="Admin" className="sidebar" onKeyDown={(e) => { if (e.key === 'Escape' && menuOpen) { setOpenOn(null); menuBtn.current?.focus() } }}>
+    <nav aria-label={t('Admin')} className="sidebar" onKeyDown={(e) => { if (e.key === 'Escape' && menuOpen) { setOpenOn(null); menuBtn.current?.focus() } }}>
       <div className="sidebar-bar">
         <div className="brand">
           {brand.data?.brand_logo ? <img className="brand-logo" src={brand.data.brand_logo} alt="" /> : brand.data && <span className="gy-mark" aria-hidden="true" />}
           <span className="brand-text">
-            <span className="brand-name">{brand.data?.brand_name || 'Glyphyard'}</span><span className="brand-sub">Admin</span>
+            <span className="brand-name">{brand.data?.brand_name || 'Glyphyard'}</span><span className="brand-sub">{t('Admin')}</span>
           </span>
         </div>
-        {requests > 0 && <NavLink to="/requests" className="bar-count" aria-label={`${requests} open font requests`}>{requests}</NavLink>}
-        <button ref={menuBtn} type="button" className="btn btn-sm menu-btn" aria-expanded={menuOpen} aria-controls="admin-nav" onClick={() => setOpenOn(menuOpen ? null : pathname)}>Menu</button>
+        {requests > 0 && <NavLink to="/requests" className="bar-count" aria-label={t('{n} open font requests', { n: requests })}>{requests}</NavLink>}
+        <button ref={menuBtn} type="button" className="btn btn-sm menu-btn" aria-expanded={menuOpen} aria-controls="admin-nav" onClick={() => setOpenOn(menuOpen ? null : pathname)}>{t('Menu')}</button>
       </div>
       <div id="admin-nav" className={menuOpen ? 'sidebar-menu open' : 'sidebar-menu'}>
         <div className="nav-list">
@@ -200,25 +205,36 @@ function Sidebar() {
             <NavLink key={to} to={to} end={to === '/'} className="nav-item">
               {({ isActive }) => <>
                 {isActive && <motion.span layoutId="nav-active" className="nav-pill" transition={spring} />}
-                <span>{label}</span>
+                <span>{t(label /* i18n-dynamic */)}</span>
                 {count !== undefined && <span className="nav-count fade-in">{count}</span>}
               </>}
             </NavLink>
           )})}
         </div>
         <button type="button" className="nav-search" onClick={() => window.dispatchEvent(new Event(OPEN_PALETTE))}>
-          <span>Search</span><kbd>{isMac ? '⌘ K' : 'Ctrl K'}</kbd>
+          <span>{t('Search')}</span><kbd>{isMac ? '⌘ K' : 'Ctrl K'}</kbd>
         </button>
-        <div className="account">
+        <div className="account" onChange={keepLang}>
           <span className="account-email">{me.data?.email ?? '…'}</span>
-          <Chips small label="Theme" value={pref} onChange={(p) => { setThemePref(p); setPref(p) }}
-            options={[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']]} />
+          <Chips small label={t('Theme')} value={pref} onChange={(p) => { setThemePref(p); setPref(p) }}
+            options={[['system', t('System')], ['light', t('Light')], ['dark', t('Dark')]]} />
           <LanguageSelect />
-          <button type="button" className="link-btn account-out" onClick={signOut}>Sign out</button>
+          <button type="button" className="link-btn account-out" onClick={signOut}>{t('Sign out')}</button>
         </div>
       </div>
     </nav>
   )
+}
+
+let refocusLang = false
+/** Handler for the wrapper around a LanguageSelect. A language change remounts the page, so the new select takes focus back. */
+export function useKeepLangFocus() {
+  useEffect(() => {
+    if (!refocusLang) return
+    refocusLang = false
+    document.querySelector<HTMLElement>('.lang-select')?.focus()
+  }, [])
+  return () => { refocusLang = true; setTimeout(() => { refocusLang = false }, 1000) }
 }
 
 export function PageHeader({ title, sub, actions, back, align = 'center', children }: {
@@ -226,7 +242,7 @@ export function PageHeader({ title, sub, actions, back, align = 'center', childr
 }) {
   return (
     <>
-      {back && <Link to="/users" className="back">← Users</Link>}
+      {back && <Link to="/users" className="back">{t('← Users')}</Link>}
       <div className="page-head" style={{ alignItems: align === 'start' ? 'flex-start' : align }}>
         <div className={children ? 'stack-8' : 'stack-4'}>
           {typeof sub === 'string' ? <div className="title-row"><h1>{title}</h1><Hint text={sub} /></div> : <h1>{title}</h1>}
@@ -316,7 +332,7 @@ export function Dialog({ onClose, labelledBy, small, children }: { onClose: () =
 /** Promise-based replacement for window.confirm with an animated dialog. Render `dialog` somewhere in the tree. */
 export function useConfirm() {
   const [req, setReq] = useState<{ text: string; ok: string; danger: boolean; resolve: (v: boolean) => void }>()
-  const ask = useCallback((text: string, ok = 'OK', danger = false) =>
+  const ask = useCallback((text: string, ok = t('OK'), danger = false) =>
     new Promise<boolean>((resolve) => setReq({ text, ok, danger, resolve })), [])
   const answer = (v: boolean) => { req?.resolve(v); setReq(undefined) }
   const dialog = (
@@ -326,7 +342,7 @@ export function useConfirm() {
           <div className="stack-18">
             <p id="confirm-text" className="confirm-text">{req.text}</p>
             <div className="row-8 end">
-              <button type="button" className="btn" onClick={() => answer(false)}>Cancel</button>
+              <button type="button" className="btn" onClick={() => answer(false)}>{t('Cancel')}</button>
               <button type="button" autoFocus className={req.danger ? 'btn btn-danger' : 'btn btn-primary'} onClick={() => answer(true)}>{req.ok}</button>
             </div>
           </div>
@@ -342,7 +358,8 @@ export const Badge = ({ tone, children, className = '' }: { tone: Tone; children
   <span className={`badge tone-${tone} ${className}`}>{children}</span>
 
 export const byTone: Record<By, Tone> = { user: 'user', admin: 'admin', system: 'system' }
-export const byLabel: Record<By, string> = { user: 'User', admin: 'Admin', system: 'System' }
+// Getters, so each read follows the current language.
+export const byLabel: Record<By, string> = { get user() { return t('User') }, get admin() { return t('Admin') }, get system() { return t('System') } }
 
 export function Chips<K extends string>({ options, value, onChange, small, label }: {
   options: [K, string][]; value: K; onChange: (k: K) => void; small?: boolean; label: string
@@ -361,7 +378,7 @@ export function Chips<K extends string>({ options, value, onChange, small, label
 const num = (n: number) => n.toLocaleString(numLocale())
 
 /** Numbered pager: "1–50 of 1,234", Prev/Next, and first, last and current ±1 with gaps. `page` is 1-based. */
-export function Pager({ page, total, size = PAGE_SIZE, onPage, label = 'Pages' }: {
+export function Pager({ page, total, size = PAGE_SIZE, onPage, label = t('Pages') }: {
   page: number; total: number; size?: number; onPage: (n: number) => void; label?: string
 }) {
   if (total === 0) return null
@@ -369,18 +386,18 @@ export function Pager({ page, total, size = PAGE_SIZE, onPage, label = 'Pages' }
   const nums = [...new Set([1, page - 1, page, page + 1, pages])].filter((n) => n >= 1 && n <= pages).sort((a, b) => a - b)
   return (
     <nav className="pager" aria-label={label}>
-      <span className="meta">{num(Math.min(total, (page - 1) * size + 1))}–{num(Math.min(total, page * size))} of {num(total)}</span>
+      <span className="meta">{t('{from}–{to} of {total}', { from: num(Math.min(total, (page - 1) * size + 1)), to: num(Math.min(total, page * size)), total: num(total) })}</span>
       {pages > 1 && (
         <span className="pager-pages">
-          <button type="button" className="btn btn-xs" disabled={page <= 1} onClick={() => onPage(page - 1)}>Prev</button>
+          <button type="button" className="btn btn-xs" disabled={page <= 1} onClick={() => onPage(page - 1)}>{t('Prev')}</button>
           {nums.map((n, i) => (
             <Fragment key={n}>
               {i > 0 && n - nums[i - 1] > 1 && <span className="pager-gap" aria-hidden="true">…</span>}
               <button type="button" className="btn btn-xs pager-num" aria-current={n === page ? 'page' : undefined}
-                aria-label={`Page ${n}`} onClick={() => onPage(n)}>{n}</button>
+                aria-label={t('Page {n}', { n })} onClick={() => onPage(n)}>{n}</button>
             </Fragment>
           ))}
-          <button type="button" className="btn btn-xs" disabled={page >= pages} onClick={() => onPage(page + 1)}>Next</button>
+          <button type="button" className="btn btn-xs" disabled={page >= pages} onClick={() => onPage(page + 1)}>{t('Next')}</button>
         </span>
       )}
     </nav>
@@ -445,7 +462,7 @@ export function ago(iso: string) {
 }
 
 // Callers pass English words; Indonesian has no plural form, so the dictionary maps both to one word.
-export const plural = (n: number, one: string, many = one + 's') => `${num(n)} ${t(n === 1 ? one : many)}`
+export const plural = (n: number, one: string, many = one + 's') => `${num(n)} ${t(n === 1 ? one : many)}` // i18n-dynamic
 export const firstName = (name: string) => name.trim().split(/\s+/)[0] || name
 
 export function downloadCsv(filename: string, rows: (string | number)[][]) {
