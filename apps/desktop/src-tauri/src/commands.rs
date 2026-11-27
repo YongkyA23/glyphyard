@@ -1,7 +1,6 @@
 //! One command per row of docs/desktop-commands.md. Engine calls run on the blocking pool and return
 //! the engine's types unchanged; every error rejects as `{ code, message, ...extra }`.
 
-use std::sync::atomic::Ordering;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -487,7 +486,6 @@ pub async fn update_settings(app: AppHandle, ctx: St<'_>, patch: Value) -> R<cra
             err = Some(e);
         }
     }
-    ctx.tray_mode.store(new.start_hidden, Ordering::Relaxed);
     match err {
         Some(e) => {
             ctx.run(move |en| en.update_settings(Value::Object(revert))).await?;

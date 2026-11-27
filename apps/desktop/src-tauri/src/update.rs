@@ -297,8 +297,8 @@ fn io(e: std::io::Error) -> UpdateError {
 /// At quit, from `shutdown`: installs the waiting release when updates are still on and no Glyphyard Setup or
 /// uninstall is the one closing the app. Windows: silent Setup updates the registered install folder in place.
 /// macOS: the new bundle is swapped into this one's place; a swap macOS blocks leaves `<dir>/blocked` for `run`.
-// ponytail: only a real quit installs; with "Start in the tray" on, closing the window only hides it, so a tray-mode
-// user installs the update at their next explicit Quit (the file is kept and reused across starts until then).
+// ponytail: only a real quit installs; closing the window only hides it to the tray, so the update installs at the
+// user's next explicit Quit (the file is kept and reused across starts until then).
 pub fn on_quit(app: &AppHandle) {
     let Some(ready) = app.state::<Pending>().ready.lock().unwrap().take() else { return };
     let auto_update = app.state::<Ctx>().engine.get_settings().is_ok_and(|s| s.auto_update);

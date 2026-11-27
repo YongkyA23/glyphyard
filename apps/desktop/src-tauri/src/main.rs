@@ -9,7 +9,6 @@ mod update;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -34,8 +33,6 @@ pub struct Ctx {
     /// Adobe pairing prompts waiting for `adobe_pair_respond`, by requestId.
     pub pairs: Mutex<HashMap<String, oneshot::Sender<bool>>>,
     pub bridge: Mutex<Option<BridgeHandle>>,
-    /// Settings › "Start in the tray": closing the main window only hides it.
-    pub tray_mode: AtomicBool,
     events_task: Mutex<Option<JoinHandle<()>>>,
     log_guard: Mutex<Option<WorkerGuard>>,
 }
@@ -161,7 +158,6 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         sync: Mutex::new((idle, CancellationToken::new())),
         pairs: Mutex::default(),
         bridge: Mutex::default(),
-        tray_mode: AtomicBool::new(settings.start_hidden),
         events_task: Mutex::new(Some(tauri::async_runtime::spawn(sync::drain_events(handle.clone(), rx)))),
         log_guard: Mutex::new(log_guard),
     });
@@ -277,13 +273,10 @@ fn on_window_event(window: &Window, event: &WindowEvent) {
             api.prevent_close();
             let _ = window.hide();
         }
+        // The close button sends the app to the tray; the tray menu's Quit (or ⌘Q) quits.
         ("main", WindowEvent::CloseRequested { api, .. }) => {
-            if window.state::<Ctx>().tray_mode.load(Ordering::Relaxed) {
-                api.prevent_close();
-                let _ = window.hide();
-            } else {
-                window.app_handle().exit(0);
-            }
+            api.prevent_close();
+            let _ = window.hide();
         }
         _ => {}
     }

@@ -49,7 +49,7 @@ pub fn app_running() -> bool {
     }
 }
 
-/// taskkill without /F posts WM_CLOSE; with the tray setting on the app only hides, so force after 5 s.
+/// taskkill without /F posts WM_CLOSE; closing the window only hides the app to the tray, so force after 5 s.
 pub fn close_app() {
     let taskkill = |force: bool| {
         let mut cmd = hidden("taskkill");
