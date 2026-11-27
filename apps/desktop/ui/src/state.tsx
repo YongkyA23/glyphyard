@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { api, on, type ActivationResult, type AppState, type Events } from './api'
 import { pop, spring } from './motion'
 import { andList, Dialog, errMsg, plural, Skel } from './ui'
-import { applyLanguage } from './i18n'
+import { applyLanguage, t, useLang } from './i18n'
 
 type Toast = { id: number; msg: string; action?: { label: string; run: () => void } }
 type Ctx = {
@@ -30,6 +30,7 @@ const ADOBE_LABEL = { photoshop: 'Photoshop', illustrator: 'Illustrator', indesi
 
 /** `main` = the library window. The quick-activate window skips the global listeners. */
 export function AppProvider({ main, children }: { main: boolean; children: ReactNode }) {
+  useLang() // this component's own toasts, dialog and pill sit outside the routed remount
   const [app, setAppState] = useState<AppState | null>(null)
   const [bootError, setBootError] = useState<string | null>(null)
   const [libVersion, setLibVersion] = useState(0)
@@ -87,7 +88,7 @@ export function AppProvider({ main, children }: { main: boolean; children: React
   useEffect(() => {
     if (!main) return
     return on('activation-done', ({ failed }) => {
-      if (failed.length) toast(`${plural(failed.length, 'font')} couldn’t be turned on and ${failed.length === 1 ? 'was' : 'were'} switched back off. ${failed[0]}`)
+      if (failed.length) toast(failed.length === 1 ? t('{what} couldn’t be turned on and was switched back off. {why}', { what: plural(1, 'font'), why: failed[0] }) : t('{what} couldn’t be turned on and were switched back off. {why}', { what: plural(failed.length, 'font'), why: failed[0] }))
     })
   }, [main, toast])
 
@@ -99,7 +100,7 @@ export function AppProvider({ main, children }: { main: boolean; children: React
       if (seen.has(msg)) return
       if (seen.size >= 50) seen.clear() // ponytail: forget old messages rather than grow forever
       seen.add(msg)
-      toast(`Something didn’t work: ${msg}`)
+      toast(t('Something didn’t work: {msg}', { msg }))
     }
     addEventListener('unhandledrejection', onRejection)
     return () => removeEventListener('unhandledrejection', onRejection)
@@ -110,13 +111,13 @@ export function AppProvider({ main, children }: { main: boolean; children: React
       const report = (res: ActivationResult[]) => {
         const failed = res.filter((r) => !r.ok)
         if (failed.length && !opts?.quiet)
-          toast(`${plural(failed.length, 'font')} couldn’t be changed. ${failed[0].message ?? ''}`.trim())
+          toast(t('{what} couldn’t be changed. {why}', { what: plural(failed.length, 'font'), why: failed[0].message ?? '' }).trim())
         // InDesign only sees font changes after a restart; say so at most every 10 minutes.
         if (res.some((r) => r.ok) && Date.now() - indesignNoted.current > 600_000)
           api.indesignRunning().then((open) => {
             if (!open) return
             indesignNoted.current = Date.now()
-            toast('InDesign is open: restart it to see these font changes. Photoshop and Illustrator pick them up right away.')
+            toast(t('InDesign is open: restart it to see these font changes. Photoshop and Illustrator pick them up right away.'))
           }, () => {})
         return res
       }
@@ -147,15 +148,14 @@ export function AppProvider({ main, children }: { main: boolean; children: React
         on('admin-change', (p) => (setAdminChange({ ...p, at: new Date().toISOString() }), bump())),
         on('organize-requested', () => navigate('/organize')),
         on('adobe-pair-request', setPair),
-        on('badge-earned', (b) => toast(`Badge earned: ${b.name}. ${b.description}`, { label: 'See badges', run: () => navigate('/stats') })),
-        on('events-dropped', () => toast('Your Glyphyard server didn’t accept some updates from this computer. It may need updating: tell your admin.')),
-        on('adobe-activated', ({ app: a, document, activated, missing }) =>
-          toast(
-            `${ADOBE_LABEL[a]} · ${document}: turned on ${plural(activated.length, 'font')}` +
-              (missing.length ? `, ${missing.length} not in your library (${andList(missing.slice(0, 3))})` : '') +
-              (a === 'indesign' && activated.length ? '. Restart InDesign to use them.' : ''),
-          ),
-        ),
+        on('badge-earned', (b) => toast(t('Badge earned: {name}. {description}', { name: b.name, description: b.description }), { label: t('See badges'), run: () => navigate('/stats') })),
+        on('events-dropped', () => toast(t('Your Glyphyard server didn’t accept some updates from this computer. It may need updating: tell your admin.'))),
+        on('adobe-activated', ({ app: a, document, activated, missing }) => {
+          let msg = t('{app} · {document}: turned on {fonts}', { app: ADOBE_LABEL[a], document, fonts: plural(activated.length, 'font') })
+          if (missing.length) msg = t('{base}, {n} not in your library ({names})', { base: msg, n: missing.length, names: andList(missing.slice(0, 3)) })
+          if (a === 'indesign' && activated.length) msg = t('{base}. Restart InDesign to use them.', { base: msg })
+          toast(msg)
+        }),
       )
     return () => offs.forEach((off) => off())
   }, [main, bump, navigate, setApp, toast])
@@ -163,8 +163,8 @@ export function AppProvider({ main, children }: { main: boolean; children: React
   if (bootError)
     return (
       <div className="center-screen">
-        <p role="alert">Glyphyard couldn’t start: {bootError}</p>
-        <button type="button" className="btn" onClick={load}>Try again</button>
+        <p role="alert">{t('Glyphyard couldn’t start: {error}', { error: bootError })}</p>
+        <button type="button" className="btn" onClick={load}>{t('Try again')}</button>
       </div>
     )
   if (!app) return main ? <BootSkeleton /> : <div className="center-screen" aria-busy="true" />
@@ -180,21 +180,20 @@ export function AppProvider({ main, children }: { main: boolean; children: React
     >
       {children}
 
-      <Dialog open={!!pair} onClose={() => respondPair(false)} title={`Allow ${pair ? ADOBE_LABEL[pair.app] : ''} to turn on fonts automatically?`}>
+      <Dialog open={!!pair} onClose={() => respondPair(false)} title={t('Allow {app} to turn on fonts automatically?', { app: pair ? ADOBE_LABEL[pair.app] : '' })}>
         <p>
-          {pair && `${ADOBE_LABEL[pair.app]} ${pair.appVersion}`} wants to connect to Glyphyard. When you open a document, it will turn on the fonts
-          the document uses from your library. Only allow this if you just installed the plug-in.
+          {pair && t('{app} {version} wants to connect to Glyphyard. When you open a document, it will turn on the fonts the document uses from your library. Only allow this if you just installed the plug-in.', { app: ADOBE_LABEL[pair.app], version: pair.appVersion })}
         </p>
         <div className="dialog-actions">
-          <button type="button" className="btn" onClick={() => respondPair(false)}>Don’t allow</button>
-          <button type="button" className="btn primary" onClick={() => respondPair(true)}>Allow</button>
+          <button type="button" className="btn" onClick={() => respondPair(false)}>{t('Don’t allow')}</button>
+          <button type="button" className="btn primary" onClick={() => respondPair(true)}>{t('Allow')}</button>
         </div>
       </Dialog>
 
       <AnimatePresence>
         {progress && (
           <motion.div key="progress" className="progress-pill" role="status" {...pop} initial={{ opacity: 0, y: -12 }} transition={spring.pop}>
-            <span>{progress.active ? 'Turning on' : 'Turning off'} fonts… {progress.done.toLocaleString('en-US')} / {progress.total.toLocaleString('en-US')}</span>
+            <span>{progress.active ? t('Turning on fonts… {done} / {total}', { done: progress.done, total: progress.total }) : t('Turning off fonts… {done} / {total}', { done: progress.done, total: progress.total })}</span>
             <span className="progress-track" aria-hidden="true">
               <motion.span className="progress-fill" animate={{ scaleX: progress.done / Math.max(1, progress.total) }} transition={spring.glide} />
             </span>
@@ -204,13 +203,13 @@ export function AppProvider({ main, children }: { main: boolean; children: React
 
       <div className="toast-region" role="status" aria-live="polite">
         <AnimatePresence initial={false} mode="popLayout">
-          {toasts.map((t) => (
-            <motion.div key={t.id} layout className="toast" {...pop} initial={{ opacity: 0, y: 24, scale: 0.94 }} transition={spring.pop}>
-              <span>{t.msg}</span>
-              {t.action && (
-                <button type="button" onClick={() => (t.action!.run(), dismissToast(t.id))}>{t.action.label}</button>
+          {toasts.map((x) => (
+            <motion.div key={x.id} layout className="toast" {...pop} initial={{ opacity: 0, y: 24, scale: 0.94 }} transition={spring.pop}>
+              <span>{x.msg}</span>
+              {x.action && (
+                <button type="button" onClick={() => (x.action!.run(), dismissToast(x.id))}>{x.action.label}</button>
               )}
-              <button type="button" aria-label="Dismiss" className="toast-x" onClick={() => dismissToast(t.id)}>✕</button>
+              <button type="button" aria-label={t('Dismiss')} className="toast-x" onClick={() => dismissToast(x.id)}>✕</button>
             </motion.div>
           ))}
         </AnimatePresence>

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import type { Family } from '../api'
 import { familyStyle } from '../fonts'
+import { t } from '../i18n'
 import { errMsg } from '../ui'
 import { pick, randomFamilies } from './effects'
 
@@ -32,7 +33,7 @@ export function KernIt() {
   useEffect(() => {
     let live = true
     randomFamilies(1).then(
-      ([f]) => live && (f ? (setFam(f), setWord(pick(WORDS))) : setError('Add some fonts to your library to play.')),
+      ([f]) => live && (f ? (setFam(f), setWord(pick(WORDS))) : setError(t('Add some fonts to your library to play.'))),
       (e) => live && setError(errMsg(e)),
     )
     return () => void (live = false)
@@ -78,24 +79,24 @@ export function KernIt() {
   const width = natural ? natural[natural.length - 1] + SIZE * 1.5 : 0
   return (
     <>
-      <p>Drag the letters (or focus one and use the arrow keys, Shift for bigger steps) until the spacing looks even, then check it against the font’s own.</p>
+      <p>{t('Drag the letters (or focus one and use the arrow keys, Shift for bigger steps) until the spacing looks even, then check it against the font’s own.')}</p>
       <div className="egg-kern" style={{ height: SIZE * 1.3, width: width + PAD }} aria-busy={!natural}>
         {natural && [...word].map((ch, i) => (
           <span
             key={i} role="slider" tabIndex={0} className="egg-kern-letter" style={{ ...style, fontSize: SIZE, left: PAD + xs[i] }}
-            aria-label={`Letter ${ch}, ${i + 1} of ${word.length}`} aria-valuemin={-PAD} aria-valuemax={width} aria-valuenow={Math.round(xs[i])}
+            aria-label={t('Letter {ch}, {i} of {n}', { ch, i: i + 1, n: word.length })} aria-valuemin={-PAD} aria-valuemax={width} aria-valuenow={Math.round(xs[i])}
             onPointerDown={down(i)} onPointerMove={moveTo} onPointerUp={() => (drag.current = null)} onKeyDown={nudge(i)}
           >{ch}</span>
         ))}
       </div>
       <div className={score === null ? 'egg-kern-ref' : 'egg-kern-ref shown'} aria-hidden={score === null}>
-        <span className="faint" style={{ fontSize: 12 }}>{fam?.family}’s own spacing</span>
+        <span className="faint" style={{ fontSize: 12 }}>{t('{family}’s own spacing', { family: fam?.family ?? '' })}</span>
         <span ref={ref} style={{ ...style, fontSize: SIZE, lineHeight: 1 }}>{word}</span>
       </div>
-      <p aria-live="polite" style={{ minHeight: '1.55em' }}>{score !== null && `Your spacing scores ${score} out of 100.`}</p>
+      <p aria-live="polite" style={{ minHeight: '1.55em' }}>{score !== null && t('Your spacing scores {score} out of 100.', { score })}</p>
       <div className="dialog-actions">
-        <button type="button" className="btn" onClick={() => (setFam(null), setNatural(null), setScore(null), setGame((g) => g + 1))}>New word</button>
-        <button type="button" className="btn primary" disabled={!natural} onClick={() => natural && setScore(scoreOf(xs, natural))}>Check my spacing</button>
+        <button type="button" className="btn" onClick={() => (setFam(null), setNatural(null), setScore(null), setGame((g) => g + 1))}>{t('New word')}</button>
+        <button type="button" className="btn primary" disabled={!natural} onClick={() => natural && setScore(scoreOf(xs, natural))}>{t('Check my spacing')}</button>
       </div>
     </>
   )

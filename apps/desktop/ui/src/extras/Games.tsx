@@ -1,5 +1,6 @@
 // The version number in Settings; three quick clicks reveal the hidden games.
 import { useState } from 'react'
+import { t } from '../i18n'
 import { Dialog } from '../ui'
 import { playful, useTaps } from './effects'
 import { KernIt } from './KernIt'
@@ -16,14 +17,14 @@ export function VersionGames({ version }: { version: string }) {
       <button type="button" className="egg-plain" onClick={tap}>Glyphyard {version}</button>
       {shown && (
         <>
-          {' · Games: '}
-          <button type="button" className="egg-plain egg-link" onClick={() => open('kern')}>Kern it</button>
+          {' · '}{t('Games:')}{' '}
+          <button type="button" className="egg-plain egg-link" onClick={() => open('kern')}>{t('Kern it')}</button>
           {', '}
-          <button type="button" className="egg-plain egg-link" onClick={() => open('name')}>Name that font</button>
+          <button type="button" className="egg-plain egg-link" onClick={() => open('name')}>{t('Name that font')}</button>
         </>
       )}
-      <Dialog open={game === 'kern'} onClose={() => setGame(null)} title="Kern it" wide><KernIt /></Dialog>
-      <Dialog open={game === 'name'} onClose={() => setGame(null)} title="Name that font" wide><NameThatFont /></Dialog>
+      <Dialog open={game === 'kern'} onClose={() => setGame(null)} title={t('Kern it')} wide><KernIt /></Dialog>
+      <Dialog open={game === 'name'} onClose={() => setGame(null)} title={t('Name that font')} wide><NameThatFont /></Dialog>
     </span>
   )
 }

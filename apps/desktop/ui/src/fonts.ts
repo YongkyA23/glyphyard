@@ -4,6 +4,7 @@ import type { CSSProperties } from 'react'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { inTauri, type Axis, type Face, type Family } from './api'
 import { MOCK_GF } from './mock-fonts'
+import { t } from './i18n'
 
 const done = new Set<string>()
 let sheet: HTMLStyleElement | null = null
@@ -54,8 +55,18 @@ export const familyStyle = (fam: Pick<Family, 'faces'> | null | undefined, weigh
   return { ...faceStyle(face), ...(face?.isVariable && weight !== 400 ? { fontVariationSettings: `'wght' ${weight}` } : {}) }
 }
 
+// Getters, so every reader gets the current language.
 export const AXIS_NAME: Record<string, string> = {
-  wght: 'Weight', wdth: 'Width', opsz: 'Optical size', ital: 'Italic', slnt: 'Slant', SOFT: 'Softness', WONK: 'Wonky', GRAD: 'Grade', CASL: 'Casual', MONO: 'Monospace',
+  get wght() { return t('Weight') },
+  get wdth() { return t('Width') },
+  get opsz() { return t('Optical size') },
+  get ital() { return t('Italic') },
+  get slnt() { return t('Slant') },
+  get SOFT() { return t('Softness') },
+  get WONK() { return t('Wonky') },
+  get GRAD() { return t('Grade') },
+  get CASL() { return t('Casual') },
+  get MONO() { return t('Monospace') },
 }
 /** Slider step: whole numbers, tenths for short ranges. */
 export const axisStep = (a: Axis) => (a.max - a.min > 2 ? 1 : a.max - a.min > 1 ? 0.1 : 1)

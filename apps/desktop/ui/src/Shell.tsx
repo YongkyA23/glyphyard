@@ -11,6 +11,7 @@ import { useContextMenu, type MenuItem } from './menu'
 import { dur, easeOut, pop, route, spring } from './motion'
 import { useApp } from './state'
 import { Extras } from './extras/Extras'
+import { t } from './i18n'
 import { ErrorBoundary } from './ErrorBoundary'
 import { Logo } from './extras/Roulette'
 import { ago, basename, collectionTree, Dialog, errMsg, initials, keysBusy, LICENSE_LABEL, Num, plural, PromptDialog, Spinner } from './ui'
@@ -19,7 +20,9 @@ import { ago, basename, collectionTree, Dialog, errMsg, initials, keysBusy, LICE
 const Hi = ({ id }: { id: string }) => <motion.span layoutId={id} className="side-hi" transition={spring.glide} />
 
 const LIC_DOT: Record<License, string> = { licensed: 'var(--ok-dot)', personal: 'var(--accent)', client: 'var(--violet-dot)', unknown: 'var(--amber)' }
-const LIC_NAME: Record<License, string> = { ...LICENSE_LABEL, unknown: 'Unknown' }
+const LIC_KEYS = Object.keys(LICENSE_LABEL) as License[]
+/** Read at render time, so the label follows the language. */
+const licName = (l: License) => (l === 'unknown' ? t('Unknown') : LICENSE_LABEL[l])
 
 /** Inside `dir` (not `dir` itself), for either path separator. */
 const isUnder = (path: string | null, dir: string) => !!path && (path.startsWith(dir + '\\') || path.startsWith(dir + '/'))
@@ -31,7 +34,7 @@ type NodeMenu = (e: ReactMouseEvent<Element>, node: FolderNode, folder?: Folder)
  *  an empty ring when none is. `extra` adds a folder state (offline / scanning). */
 function OnDot({ on, total, extra }: { on: number; total: number; extra?: string }) {
   const state = on <= 0 || total <= 0 ? 'none' : on >= total ? 'all' : 'some'
-  const label = state === 'all' ? 'All on' : state === 'some' ? `${on} of ${total} on` : 'None on'
+  const label = state === 'all' ? t('All on') : state === 'some' ? t('{on} of {total} on', { on, total }) : t('None on')
   return (
     <span className={`on-dot ${state}${extra ? ` ${extra}` : ''}`} title={label}>
       <span className="sr-only">{label}</span>
@@ -52,7 +55,7 @@ function TreeNode({ node, depth, folder, showHidden, onMenu }: { node: FolderNod
     <>
       <div className={node.hidden ? 'tree-row is-hidden' : 'tree-row'} style={{ paddingLeft: depth * 12 }}>
         {kids.length ? (
-          <button type="button" className="tree-caret" aria-expanded={open} aria-label={`${open ? 'Collapse' : 'Expand'} ${node.name}`} onClick={() => setOpen((o) => !o)}>
+          <button type="button" className="tree-caret" aria-expanded={open} aria-label={open ? t('Collapse {name}', { name: node.name }) : t('Expand {name}', { name: node.name })} onClick={() => setOpen((o) => !o)}>
             <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M3 1.5 6.5 5 3 8.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </button>
         ) : <span className="tree-caret" aria-hidden="true" />}
@@ -63,12 +66,12 @@ function TreeNode({ node, depth, folder, showHidden, onMenu }: { node: FolderNod
           {here && <Hi id="side-item-hi" />}
           <OnDot on={node.activeCount} total={node.fontCount} extra={status === 'offline' || status === 'scanning' ? status : undefined} />
           <span className="ellipsis" style={{ flex: 1 }}>{node.name}</span>
-          {node.hidden && <span className="tree-flag" title="Its fonts are left out of the library">HIDDEN</span>}
-          {node.autoActivate && <span className="tree-auto" title="New fonts here are turned on automatically">AUTO</span>}
+          {node.hidden && <span className="tree-flag" title={t('Its fonts are left out of the library')}>{t('HIDDEN')}</span>}
+          {node.autoActivate && <span className="tree-auto" title={t('New fonts here are turned on automatically')}>{t('AUTO')}</span>}
           {status === 'offline' ? (
-            <span className="side-count" style={{ color: 'var(--warn)' }}>Offline</span>
+            <span className="side-count" style={{ color: 'var(--warn)' }}>{t('Offline')}</span>
           ) : status === 'scanning' ? (
-            <span className="side-count">Scanning…</span>
+            <span className="side-count">{t('Scanning…')}</span>
           ) : (
             <span className="side-count"><Num value={node.fontCount} /></span>
           )}
@@ -79,7 +82,7 @@ function TreeNode({ node, depth, folder, showHidden, onMenu }: { node: FolderNod
   )
 }
 
-const JSON_FILES = [{ name: 'Collections (JSON)', extensions: ['json'] }]
+const jsonFiles = () => [{ name: t('Collections (JSON)'), extensions: ['json'] }]
 
 type Prompt = { title: string; label: string; initial?: string; confirm: string; run: (value: string) => Promise<unknown> }
 type Confirm = { title: string; body: string; action: string; run: () => Promise<unknown> }
@@ -99,9 +102,9 @@ function Sidebar() {
   const [params] = useSearchParams()
   const { pathname } = useLocation()
   const navigate = useNavigate()
-  const { show, menu } = useContextMenu('Sidebar actions')
+  const { show, menu } = useContextMenu(t('Sidebar actions'))
   const current = (to: string) => (to === '/' ? pathname === '/' || pathname.startsWith('/family/') : pathname.startsWith(to))
-  const bin = app.platform === 'macos' ? 'Trash' : 'Recycle Bin'
+  const bin = app.platform === 'macos' ? t('Trash') : t('Recycle Bin')
   const add = useAddFonts()
 
   useEffect(() => {
@@ -119,27 +122,28 @@ function Sidebar() {
   }, [organizeCount, setOrganizeCount])
 
   const nav: [string, string, number | null][] = [
-    ['/', 'Library', counts ? counts.library : null],
-    ['/playground', 'Playground', null],
-    ['/sets', 'Project sets', sets.length || null],
+    ['/', t('Library'), counts ? counts.library : null],
+    ['/playground', t('Playground'), null],
+    ['/sets', t('Project sets'), sets.length || null],
     ['/google', 'Google Fonts', null],
-    ['/organize', 'Auto-organize', organizeCount || null],
-    ['/pdf', 'Fonts in a document', null],
-    ['/stats', 'Stats', null],
-    ['/settings', 'Settings', null],
+    ['/organize', t('Auto-organize'), organizeCount || null],
+    ['/pdf', t('Fonts in a document'), null],
+    ['/stats', t('Stats'), null],
+    ['/settings', t('Settings'), null],
   ]
+  const tour: Record<string, string> = { '/': 'nav-library', '/sets': 'nav-sets', '/settings': 'nav-settings' }
   const licCount = (l: License) => counts?.licenses[l] ?? 0
   const systemCount = counts?.system ?? 0
   const sel = (k: string, v: string | number) => params.get(k) === String(v)
   const c = app.connection
   const sync =
     !app.serverConfigured
-      ? { color: 'var(--mute)', text: 'Local library' }
+      ? { color: 'var(--mute)', text: t('Local library') }
       : c.status === 'connected'
-      ? { color: 'var(--ok)', text: `Synced · ${ago(c.lastSync)}` }
+      ? { color: 'var(--ok)', text: t('Synced · {when}', { when: ago(c.lastSync) }) }
       : c.status === 'offline'
-        ? { color: 'var(--warn)', text: 'Offline · will sync later' }
-        : { color: 'var(--bad)', text: 'Can’t reach server' }
+        ? { color: 'var(--warn)', text: t('Offline · will sync later') }
+        : { color: 'var(--bad)', text: t('Can’t reach server') }
 
   const fail = (e: unknown) => toast(errMsg(e))
   const saveCollections = (p: Promise<Collection[]>) => p.then((cs) => (setCollections(cs), bump()), fail)
@@ -150,7 +154,7 @@ function Sidebar() {
     if (res) toast(`${done} · ${plural(res.filter((r) => r.ok).length, 'font')}`)
   }
   const newCollection = () =>
-    setPrompt({ title: 'New collection', label: 'Name', confirm: 'Create', run: (name) => saveCollections(api.createCollection(name, null)) })
+    setPrompt({ title: t('New collection'), label: t('Name'), confirm: t('Create'), run: (name) => saveCollections(api.createCollection(name, null)) })
 
   // FontBase shortcuts: F add fonts, D add a folder (copied), W watch a folder, C new collection.
   const keys = useRef({ add, newCollection })
@@ -169,35 +173,33 @@ function Sidebar() {
 
   async function exportCollections() {
     try {
-      const dest = await api.pickSaveFile('typeshelf-collections.json', JSON_FILES)
+      const dest = await api.pickSaveFile('typeshelf-collections.json', jsonFiles())
       if (!dest) return
       const r = await api.exportCollections(dest)
-      toast(`Exported ${plural(r.collections, 'collection')} to ${basename(dest)}`, { label: 'Show', run: () => void api.showInFolder(dest).catch(fail) })
+      toast(t('Exported {what} to {file}', { what: plural(r.collections, 'collection'), file: basename(dest) }), { label: t('Show'), run: () => void api.showInFolder(dest).catch(fail) })
     } catch (e) {
       fail(e)
     }
   }
   async function importCollections() {
     try {
-      const path = await api.pickFile(JSON_FILES)
+      const path = await api.pickFile(jsonFiles())
       if (!path) return
       const r = await api.importCollections(path)
       bump()
-      toast(
-        `Imported ${plural(r.collections, 'collection')} with ${plural(r.families, 'font family', 'font families')}` +
-          (r.missing ? ` · ${plural(r.missing, 'font')} not in your library` : ''),
-      )
+      const base = t('Imported {what} with {families}', { what: plural(r.collections, 'collection'), families: plural(r.families, 'font family', 'font families') })
+      toast(r.missing ? t('{base} · {n} not in your library', { base, n: plural(r.missing, 'font') }) : base)
     } catch (e) {
       fail(e)
     }
   }
 
   async function exportZip(col: Collection) {
-    const dest = await api.pickSaveFile(`${col.name.replace(/[\\/:*?"<>|]/g, '-')}.zip`, [{ name: 'ZIP archive', extensions: ['zip'] }]).catch((e) => (fail(e), null))
+    const dest = await api.pickSaveFile(`${col.name.replace(/[\\/:*?"<>|]/g, '-')}.zip`, [{ name: t('ZIP archive'), extensions: ['zip'] }]).catch((e) => (fail(e), null))
     if (!dest) return
     try {
       const r = await api.exportCollection(col.id, dest)
-      toast(`Exported ${plural(r.files, 'font file')} to ${basename(r.path)}`, { label: 'Show', run: () => void api.showInFolder(r.path).catch(fail) })
+      toast(t('Exported {what} to {file}', { what: plural(r.files, 'font file'), file: basename(r.path) }), { label: t('Show'), run: () => void api.showInFolder(r.path).catch(fail) })
     } catch (e) {
       fail(e)
     }
@@ -205,27 +207,27 @@ function Sidebar() {
 
   function collectionMenu(e: ReactMouseEvent<Element>, col: Collection) {
     const items: MenuItem[] = [
-      { label: 'Activate all', disabled: !col.count, onSelect: () => turn(() => api.setCollectionActive(col.id, true), `${col.name} turned on`) },
-      { label: 'Deactivate all', disabled: !col.count, onSelect: () => turn(() => api.setCollectionActive(col.id, false), `${col.name} turned off`) },
+      { label: t('Activate all'), disabled: !col.count, onSelect: () => turn(() => api.setCollectionActive(col.id, true), t('{name} turned on', { name: col.name })) },
+      { label: t('Deactivate all'), disabled: !col.count, onSelect: () => turn(() => api.setCollectionActive(col.id, false), t('{name} turned off', { name: col.name })) },
       'sep',
-      { label: 'Export as ZIP…', disabled: !col.count, onSelect: () => exportZip(col) },
-      { label: 'Print / Save as PDF…', disabled: !col.count, onSelect: () => navigate(`/print/collection/${col.id}`) },
+      { label: t('Export as ZIP…'), disabled: !col.count, onSelect: () => exportZip(col) },
+      { label: t('Print / Save as PDF…'), disabled: !col.count, onSelect: () => navigate(`/print/collection/${col.id}`) },
     ]
     if (!col.builtin)
       items.push(
         'sep',
         {
-          label: 'Add sub-collection…',
-          onSelect: () => setPrompt({ title: `New collection in ${col.name}`, label: 'Name', confirm: 'Create', run: (name) => saveCollections(api.createCollection(name, col.id)) }),
+          label: t('Add sub-collection…'),
+          onSelect: () => setPrompt({ title: t('New collection in {name}', { name: col.name }), label: t('Name'), confirm: t('Create'), run: (name) => saveCollections(api.createCollection(name, col.id)) }),
         },
         {
-          label: 'Rename…',
-          onSelect: () => setPrompt({ title: 'Rename collection', label: 'Name', initial: col.name, confirm: 'Rename', run: (name) => saveCollections(api.renameCollection(col.id, name)) }),
+          label: t('Rename…'),
+          onSelect: () => setPrompt({ title: t('Rename collection'), label: t('Name'), initial: col.name, confirm: t('Rename'), run: (name) => saveCollections(api.renameCollection(col.id, name)) }),
         },
         {
-          label: 'Delete…', danger: true,
+          label: t('Delete…'), danger: true,
           onSelect: () => setConfirm({
-            title: `Delete “${col.name}”?`, body: 'The fonts stay in your library; only the collection goes.', action: 'Delete collection',
+            title: t('Delete “{name}”?', { name: col.name }), body: t('The fonts stay in your library; only the collection goes.'), action: t('Delete collection'),
             run: async () => {
               await saveCollections(api.deleteCollection(col.id))
               if (sel('collection', col.id)) navigate('/')
@@ -239,43 +241,44 @@ function Sidebar() {
   // Order and wording follow FontBase's folder menu.
   const folderMenu: NodeMenu = (e, node, folder) => {
     const items: MenuItem[] = [
-      { label: 'Activate', disabled: !node.fontCount, onSelect: () => turn(() => api.setFolderActive(node.path, true), `${node.name} turned on`) },
-      { label: 'Deactivate', disabled: !node.activeCount, onSelect: () => turn(() => api.setFolderActive(node.path, false), `${node.name} turned off`) },
+      { label: t('Activate'), disabled: !node.fontCount, onSelect: () => turn(() => api.setFolderActive(node.path, true), t('{name} turned on', { name: node.name })) },
+      { label: t('Deactivate'), disabled: !node.activeCount, onSelect: () => turn(() => api.setFolderActive(node.path, false), t('{name} turned off', { name: node.name })) },
       {
-        label: `Autoactivate: ${node.autoActivate ? 'Disable' : 'Enable'}`,
-        onSelect: () => turn(() => api.setFolderAuto(node.path, !node.autoActivate), node.autoActivate ? 'Autoactivate off' : 'Autoactivate on'),
+        label: node.autoActivate ? t('Autoactivate: Disable') : t('Autoactivate: Enable'),
+        onSelect: () => turn(() => api.setFolderAuto(node.path, !node.autoActivate), node.autoActivate ? t('Autoactivate off') : t('Autoactivate on')),
       },
       'sep',
       {
-        label: node.hidden ? 'Show folder' : 'Hide folder',
-        onSelect: () => api.setFolderHidden(node.path, !node.hidden).then((t) => {
-          setTree(t)
+        label: node.hidden ? t('Show folder') : t('Hide folder'),
+        onSelect: () => api.setFolderHidden(node.path, !node.hidden).then((nodes) => {
+          setTree(nodes)
           bump()
-          toast(node.hidden ? `${node.name} is back in the library` : `${node.name} is hidden; its fonts are left out of the library`)
+          toast(node.hidden ? t('{name} is back in the library', { name: node.name }) : t('{name} is hidden; its fonts are left out of the library', { name: node.name }))
         }, fail),
       },
-      { label: 'Show in folder', onSelect: () => void api.showInFolder(node.path).catch(fail) },
+      { label: t('Show in folder'), onSelect: () => void api.showInFolder(node.path).catch(fail) },
       'sep',
     ]
     if (folder)
       items.push({
-        label: 'Remove from Glyphyard',
+        label: t('Remove from Glyphyard'),
         onSelect: () => api.removeFolder(folder.id).then((fs) => {
           setFolders(fs)
           bump()
-          toast(`Removed ${node.name} from Glyphyard. The files are still on disk.`)
+          toast(t('{name} removed from Glyphyard. The files are still on disk.', { name: node.name }))
           if (sel('path', node.path) || isUnder(params.get('path'), node.path)) navigate('/')
         }, fail),
       })
     items.push({
-      label: 'Delete…', danger: true,
+      label: t('Delete…'), danger: true,
       onSelect: () => setConfirm({
-        title: `Delete “${node.name}”?`,
-        body: `The folder and everything in it goes to the ${bin}: ${plural(node.fontCount, 'font')} and any other files. Its fonts are turned off and leave your library.`,
-        action: `Move to ${bin}`,
+        title: t('Delete “{name}”?', { name: node.name }),
+        body: t('The folder and everything in it goes to the {bin}: {fonts} and any other files. Its fonts are turned off and leave your library.', { bin, fonts: plural(node.fontCount, 'font') }),
+        action: t('Move to {bin}', { bin }),
         run: async () => {
           const r = await api.deleteFolder(node.path)
-          toast(`Moved ${node.name} to the ${bin}${r.failed.length ? ` · ${plural(r.failed.length, 'file')} couldn’t be moved` : ''}`)
+          const moved = t('Moved {what} to the {bin}', { what: node.name, bin })
+          toast(r.failed.length ? t('{base} · {n} couldn’t be moved', { base: moved, n: plural(r.failed.length, 'file') }) : moved)
           if (sel('path', node.path) || isUnder(params.get('path'), node.path)) navigate('/')
           bump()
         },
@@ -299,28 +302,38 @@ function Sidebar() {
 
   const hiddenCount = countHidden(tree)
   return (
-    <nav aria-label="Main" className="sidebar">
+    <nav aria-label={t('Main')} className="sidebar" data-tour="sidebar">
       <Logo brand={app.brandName} logo={app.brandLogo} />
       <div className="side-group">
         {nav.map(([to, label, count]) => (
-          <Link key={to} to={to} className="side-nav" aria-current={current(to) ? 'page' : undefined}>
+          <Link key={to} to={to} className="side-nav" aria-current={current(to) ? 'page' : undefined} data-tour={tour[to]}>
             {current(to) && <Hi id="side-nav-hi" />}
             <span>{label}</span>
             <span className="side-count">{count !== null && <Num value={count} />}</span>
           </Link>
         ))}
       </div>
-      <div className="side-group">
-        <span className="side-head">Folders</span>
+      <div className="side-group" data-tour="folders">
+        <div className="side-head-row">
+          <span className="side-head">{t('Folders')}</span>
+          <button
+            type="button" className="side-add" aria-label={t('Add folders')} title={t('Add fonts or folders')} aria-haspopup="menu" data-tour="folders-add"
+            onClick={(e) => show(e, [
+              { label: t('Add fonts…'), hint: 'F', onSelect: add.addFonts },
+              { label: t('Add a folder (copied)…'), hint: 'D', onSelect: add.addFolder },
+              { label: t('Watch a folder…'), hint: 'W', onSelect: add.watchFolder },
+            ], true)}
+          >+</button>
+        </div>
         {folders.map((f) => {
           const node = tree.find((n) => n.path === f.path) ?? { path: f.path, name: f.path, fontCount: f.fontCount, activeCount: 0, autoActivate: false, hidden: false, children: [] }
           return node.hidden && !showHidden ? null : <TreeNode key={f.id} node={node} depth={0} folder={f} showHidden={showHidden} onMenu={folderMenu} />
         })}
         {!!systemCount && (
-          <Link to="/?system=1" className="side-item" aria-current={sel('system', 1) ? 'true' : undefined} title="Fonts installed in the operating system (always on)">
+          <Link to="/?system=1" className="side-item" aria-current={sel('system', 1) ? 'true' : undefined} title={t('Fonts installed in the operating system (always on)')}>
             {sel('system', 1) && <Hi id="side-item-hi" />}
             <OnDot on={1} total={1} />
-            <span className="ellipsis" style={{ flex: 1 }}>System fonts</span>
+            <span className="ellipsis" style={{ flex: 1 }}>{t('System fonts')}</span>
             <span className="side-count"><Num value={systemCount} /></span>
           </Link>
         )}
@@ -330,23 +343,23 @@ function Sidebar() {
               <path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8Z" /><circle cx="8" cy="8" r="2" />
               {!showHidden && <path d="M2.5 13.5l11-11" />}
             </svg>
-            <span style={{ flex: 1 }}>{showHidden ? 'Hide hidden folders' : 'Show hidden folders'}</span>
+            <span style={{ flex: 1 }}>{showHidden ? t('Hide hidden folders') : t('Show hidden folders')}</span>
             <span className="side-count">{hiddenCount}</span>
           </button>
         )}
       </div>
       <div className="side-group">
         <div className="side-head-row">
-          <span className="side-head">Collections</span>
+          <span className="side-head">{t('Collections')}</span>
           <span style={{ display: 'flex', gap: 2 }}>
             <button
-              type="button" className="side-add" aria-label="Collection options" title="Import or export collections" aria-haspopup="menu"
+              type="button" className="side-add" aria-label={t('Collection options')} title={t('Import or export collections')} aria-haspopup="menu"
               onClick={(e) => show(e, [
-                { label: 'Export collections…', onSelect: exportCollections },
-                { label: 'Import collections…', onSelect: importCollections },
+                { label: t('Export collections…'), onSelect: exportCollections },
+                { label: t('Import collections…'), onSelect: importCollections },
               ], true)}
             >⋯</button>
-            <button type="button" className="side-add" aria-label="New collection" title="New collection (C)" onClick={newCollection}>+</button>
+            <button type="button" className="side-add" aria-label={t('New collection')} title={t('New collection (C)')} onClick={newCollection} data-tour="collections-add">+</button>
           </span>
         </div>
         {collectionTree(collections).map(({ c: col, depth }) => (
@@ -365,24 +378,24 @@ function Sidebar() {
       </div>
       {tags.length > 0 && (
         <div className="side-group">
-          <span className="side-head">Tags</span>
-          {tags.map((t) => (
-            <Link key={t.name} to={`/?tag=${encodeURIComponent(t.name)}`} className="side-item" aria-current={sel('tag', t.name) ? 'true' : undefined}>
-              {sel('tag', t.name) && <Hi id="side-item-hi" />}
+          <span className="side-head">{t('Tags')}</span>
+          {tags.map((tg) => (
+            <Link key={tg.name} to={`/?tag=${encodeURIComponent(tg.name)}`} className="side-item" aria-current={sel('tag', tg.name) ? 'true' : undefined}>
+              {sel('tag', tg.name) && <Hi id="side-item-hi" />}
               <span aria-hidden="true" className="faint" style={{ width: 10, textAlign: 'center' }}>#</span>
-              <span className="ellipsis" style={{ flex: 1 }}>{t.name}</span>
-              <span className="side-count"><Num value={t.count} /></span>
+              <span className="ellipsis" style={{ flex: 1 }}>{tg.name}</span>
+              <span className="side-count"><Num value={tg.count} /></span>
             </Link>
           ))}
         </div>
       )}
       <div className="side-group">
-        <span className="side-head">Licenses</span>
-        {(Object.keys(LIC_NAME) as License[]).map((l) => (
+        <span className="side-head">{t('Licenses')}</span>
+        {LIC_KEYS.map((l) => (
           <Link key={l} to={`/?license=${l}`} className="side-item" aria-current={sel('license', l) ? 'true' : undefined}>
             {sel('license', l) && <Hi id="side-item-hi" />}
             <span aria-hidden="true" className="lic-dot" style={{ background: LIC_DOT[l] }} />
-            <span style={{ flex: 1 }}>{LIC_NAME[l]}</span>
+            <span style={{ flex: 1 }}>{licName(l)}</span>
             <span className="side-count"><Num value={licCount(l)} /></span>
           </Link>
         ))}
@@ -397,13 +410,13 @@ function Sidebar() {
 
       {menu}
       <PromptDialog
-        open={!!prompt} title={prompt?.title ?? ''} label={prompt?.label ?? ''} initial={prompt?.initial} confirm={prompt?.confirm ?? 'OK'}
+        open={!!prompt} title={prompt?.title ?? ''} label={prompt?.label ?? ''} initial={prompt?.initial} confirm={prompt?.confirm ?? t('OK')}
         onClose={() => setPrompt(null)} onSubmit={(v) => (prompt?.run(v), setPrompt(null))}
       />
       <Dialog open={!!confirm} onClose={() => !busy && setConfirm(null)} title={confirm?.title ?? ''}>
         <p>{confirm?.body}</p>
         <div className="dialog-actions">
-          <button type="button" className="btn" onClick={() => setConfirm(null)} disabled={busy}>Cancel</button>
+          <button type="button" className="btn" onClick={() => setConfirm(null)} disabled={busy}>{t('Cancel')}</button>
           <button type="button" className="btn primary danger-fill" onClick={runConfirm} disabled={busy} aria-busy={busy}>{busy && <Spinner />}{confirm?.action}</button>
         </div>
       </Dialog>
@@ -475,8 +488,8 @@ function FileDrop() {
             <svg width="40" height="40" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 4v11M7 10l5 5 5-5M5 19h14" />
             </svg>
-            <strong style={{ fontSize: 18 }}>Drop to add fonts</strong>
-            <span className="muted" style={{ fontSize: 13, textAlign: 'center' }}>Font files and folders are copied into “Imported fonts” and added to your library.</span>
+            <strong style={{ fontSize: 18 }}>{t('Drop to add fonts')}</strong>
+            <span className="muted" style={{ fontSize: 13, textAlign: 'center' }}>{t('Font files and folders are copied into “{folder}” and added to your library.', { folder: 'Imported fonts' })}</span>
           </motion.div>
         </motion.div>
       )}

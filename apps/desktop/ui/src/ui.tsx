@@ -5,12 +5,20 @@ import { api, isApiError, type Collection, type Family, type FontCategory, type 
 import { dur, easeOut, pop, spring } from './motion'
 import { locale, numLocale, t } from './i18n'
 
+// Getters, so every reader of these tables gets the current language.
 export const LICENSE_LABEL: Record<License, string> = {
-  licensed: 'Licensed', personal: 'Personal use', client: 'Client-provided', unknown: 'Unknown license',
+  get licensed() { return t('Licensed') },
+  get personal() { return t('Personal use') },
+  get client() { return t('Client-provided') },
+  get unknown() { return t('Unknown license') },
 }
 
 export const CATEGORY_LABEL: Record<FontCategory, string> = {
-  serif: 'Serif', sans: 'Sans', display: 'Display', handwriting: 'Handwriting', mono: 'Mono',
+  get serif() { return t('Serif') },
+  get sans() { return t('Sans') },
+  get display() { return t('Display') },
+  get handwriting() { return t('Handwriting') },
+  get mono() { return t('Mono') },
 }
 
 export const num = (n: number) => n.toLocaleString(numLocale())
@@ -59,7 +67,7 @@ export function collectionTree(all: Collection[]): { c: Collection; depth: numbe
 
 /** "A", "A and B", "A, B and C" */
 export function andList(items: string[]) {
-  return items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
+  return items.length <= 1 ? items.join('') : t('{list} and {last}', { list: items.slice(0, -1).join(', '), last: items.at(-1)! })
 }
 
 export function Switch({ on, mixed, label, onClick, disabled, title }: { on: boolean; mixed?: boolean; label: string; onClick: () => void; disabled?: boolean; title?: string }) {
@@ -171,7 +179,7 @@ function PromptForm({ label, initial, confirm, onClose, onSubmit, children }: {
       </label>
       <div className="dialog-actions">
         {children}
-        <button type="button" className="btn" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn" onClick={onClose}>{t('Cancel')}</button>
         <button type="submit" className="btn primary" disabled={!value.trim()}>{confirm}</button>
       </div>
     </form>
@@ -218,24 +226,24 @@ export function Pager({ page, size, total, onPage }: { page: number; size: numbe
   const pages = Math.max(1, Math.ceil(total / size))
   if (!total) return null
   return (
-    <nav aria-label="Pages" className="pager">
+    <nav aria-label={t('Pages')} className="pager">
       <span className="faint" role="status" style={{ fontSize: 12 }}>
-        {num((page - 1) * size + 1)}–{num(Math.min(page * size, total))} of {num(total)}
+        {t('{from}–{to} of {total}', { from: (page - 1) * size + 1, to: Math.min(page * size, total), total })}
       </span>
       {pages > 1 && (
         <span className="pager-buttons">
-          <button type="button" className="btn small" disabled={page === 1} onClick={() => onPage(page - 1)}>‹ Prev</button>
+          <button type="button" className="btn small" disabled={page === 1} onClick={() => onPage(page - 1)}>{t('‹ Prev')}</button>
           {pageList(page, pages).map((p, i) =>
             p === null ? (
               <span key={`gap-${i}`} className="faint" aria-hidden="true">…</span>
             ) : (
               <button
                 key={p} type="button" className={p === page ? 'btn small primary' : 'btn small'} aria-current={p === page ? 'page' : undefined}
-                aria-label={`Page ${p}`} onClick={() => onPage(p)}
+                aria-label={t('Page {p}', { p })} onClick={() => onPage(p)}
               >{p}</button>
             ),
           )}
-          <button type="button" className="btn small" disabled={page === pages} onClick={() => onPage(page + 1)}>Next ›</button>
+          <button type="button" className="btn small" disabled={page === pages} onClick={() => onPage(page + 1)}>{t('Next ›')}</button>
         </span>
       )}
     </nav>
@@ -263,7 +271,7 @@ export function FamilyPicker({ id, label, value, onChange }: { id: string; label
       <input
         id={id} className="input" style={{ minWidth: 200 }} role="combobox" aria-expanded={open} aria-controls={`${id}-list`} aria-autocomplete="list"
         aria-activedescendant={open && hits[hi] ? `${id}-${hi}` : undefined}
-        placeholder={value?.family ?? 'Search fonts'} value={open ? q : (value?.family ?? '')}
+        placeholder={value?.family ?? t('Search fonts')} value={open ? q : (value?.family ?? '')}
         onFocus={() => (setQ(''), setOpen(true))} onBlur={() => setOpen(false)} onChange={(e) => setQ(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown') (e.preventDefault(), setHi((i) => Math.min(i + 1, hits.length - 1)))
@@ -277,7 +285,7 @@ export function FamilyPicker({ id, label, value, onChange }: { id: string; label
           {hits.map((f, i) => (
             <li key={f.key} id={`${id}-${i}`} role="option" aria-selected={i === hi} onMouseDown={(e) => (e.preventDefault(), choose(f))}>{f.family}</li>
           ))}
-          {!hits.length && <li className="faint" aria-disabled="true">No fonts match</li>}
+          {!hits.length && <li className="faint" aria-disabled="true">{t('No fonts match')}</li>}
         </ul>
       )}
     </label>

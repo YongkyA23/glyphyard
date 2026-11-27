@@ -1,6 +1,7 @@
 // The easter eggs' window-wide listeners, mounted once in Shell: the Konami code, Escape, and frying a tofu.
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router'
+import { t } from '../i18n'
 import { useApp } from '../state'
 import { clearFont, playful, playfulOff, reducedMotion, refreshPlayful, swapFont } from './effects'
 import { tofuAt } from './tofu'
@@ -39,7 +40,7 @@ export function Extras() {
         // Viewport coordinates, so they still point at the same character after the settings read.
         const box = on && tofuAt(e.clientX, e.clientY)
         if (!box) return
-        if (reducedMotion()) return toast('Fried! That box stands for a character this font doesn’t have.')
+        if (reducedMotion()) return toast(t('Fried! That box stands for a character this font doesn’t have.'))
         const size = Math.max(box.width, box.height)
         setFries((fs) => [...fs, { id: ++id, left: box.left + box.width / 2 - size / 2, top: box.top + box.height / 2 - size / 2, size }])
       })

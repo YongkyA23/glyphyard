@@ -1,5 +1,6 @@
 // Fonts turned on with "Turn on for…": the words for when they turn off, and the small clock mark on their row.
 import type { Family } from './api'
+import { t } from './i18n'
 import { fmtWhen } from './ui'
 
 /** When the family's temporary fonts turn off; null when none of its fonts is on temporarily. */
@@ -7,7 +8,7 @@ import { fmtWhen } from './ui'
 export function turnsOff(f: Pick<Family, 'faces'>): string | null {
   const until = f.faces.find((x) => x.active && x.temporaryUntil)?.temporaryUntil
   if (!until) return null
-  return until === 'restart' ? 'Turns off when Glyphyard restarts' : `Turns off ${fmtWhen(until)}`
+  return until === 'restart' ? t('Turns off when Glyphyard restarts') : t('Turns off {when}', { when: fmtWhen(until) })
 }
 
 /** The clock mark for a row (a plain function, so this file exports no component). */
