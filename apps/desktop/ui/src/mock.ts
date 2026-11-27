@@ -177,7 +177,7 @@ const axisPresets: Record<string, AxisPreset[]> = {
 const serverMode = new URLSearchParams(location.search).get('server')
 const DEFAULT_CONN = serverMode === 'none' ? { serverUrl: '', installKey: '' } : { serverUrl: 'https://fonts.northwind-studio.com', installKey: 'tsk_live_4f8a2c91e7d3' }
 // `?locked=1`: the admin locked the connection and set the unlock password "glyphyard".
-const locked = new URLSearchParams(location.search).has('locked')
+const locked = new URLSearchParams(location.search).get('locked') === '1'
 const UNLOCK_PASSWORD = 'glyphyard'
 let connection: Connection = {
   status: serverMode ? 'offline' : 'connected', ...DEFAULT_CONN, editable: !locked, unlockable: locked, lastSync: serverMode ? null : iso(-60_000), installId: '7F3A-2C9E-91C2', error: null,
@@ -190,6 +190,7 @@ function verifyUnlock(password: string) {
   const wait = unlockLockedUntil - Date.now()
   if (wait > 0) {
     const retryAfterSecs = Math.ceil(wait / 1000)
+    // Word for word what the engine sends ("1 minutes" included); errMsg() builds the translated text from retryAfterSecs.
     throw err('unlock_throttled', `Too many wrong passwords. Try again in ${Math.max(1, Math.ceil(retryAfterSecs / 60))} minutes.`, { retryAfterSecs })
   }
   if (password !== UNLOCK_PASSWORD) {

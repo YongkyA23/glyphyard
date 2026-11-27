@@ -15,6 +15,17 @@ export default {
   'No unlock password is set for this computer.': 'Belum ada kata sandi buka kunci untuk komputer ini.',
   'That password isn’t right.': 'Kata sandi itu salah.',
   'That password isn\'t right.': 'Kata sandi itu salah.',
+  'Too many wrong passwords. Try again in {m} minutes.': 'Terlalu banyak kata sandi salah. Coba lagi dalam {m} menit.',
+
+  // Dates and times (ui.tsx fmtWhen / ago).
+  'today {time}': 'hari ini {time}',
+  'today': 'hari ini',
+  'yesterday': 'kemarin',
+  'never': 'belum pernah',
+  'just now': 'baru saja',
+  '{n} min ago': '{n} menit lalu',
+  '{n} days ago': '{n} hari lalu',
+  '{n} weeks ago': '{n} minggu lalu',
 
   'Language': 'Bahasa',
   'Match system': 'Ikuti sistem',

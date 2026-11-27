@@ -18,6 +18,8 @@
 .tour-foot { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .tour-count { margin-right: auto; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
 .tour-foot .btn.link { padding: 0 8px; color: var(--mute); }
+/* After a tour that changed page, focus lands on <main> (Tour.tsx); it's a starting point, not a control. */
+main[tabindex="-1"]:focus { outline: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .tour, .tour-pop { animation: none; }

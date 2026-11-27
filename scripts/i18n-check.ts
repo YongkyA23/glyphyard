@@ -58,6 +58,7 @@ for (const file of files) {
       if (arg && ts.isStringLiteral(arg)) {
         if (!dict.has(arg.text)) (missing++, console.log(`${where}  ${JSON.stringify(arg.text)}`))
       } else if (!lines[line].includes('i18n-dynamic')) {
+        // An `i18n-dynamic` comment exempts every t()/tk() call on its whole line (the line the call starts on).
         problems.push(`${where}: ${node.expression.text}() needs a string literal as its first argument`)
       }
     }

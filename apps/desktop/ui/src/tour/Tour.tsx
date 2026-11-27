@@ -77,7 +77,9 @@ function TourRun({ guide, onClose }: { guide: Guide; onClose: () => void }) {
   const titleId = useId(), bodyId = useId()
   const [index, setIndex] = useState(0)
   // null box = centred; ready = target found or given up on (the popover is hidden while waiting).
-  const [view, setView] = useState<{ index: number; box: Box | null } | null>(null)
+  // vw/vh make a resize re-render even when the box didn't change (the centred popover and hole move).
+  const [view, setView] = useState<{ index: number; box: Box | null; vw: number; vh: number } | null>(null)
+  const navigated = useRef(-1)
   const pop = useRef<HTMLDivElement>(null)
   const next = useRef<HTMLButtonElement>(null)
   const step = guide.steps[index]
@@ -91,7 +93,12 @@ function TourRun({ guide, onClose }: { guide: Guide; onClose: () => void }) {
     if (root) root.inert = true
     return () => {
       if (root) root.inert = false
-      if (back?.isConnected) back.focus({ preventScroll: true })
+      if (back?.isConnected) return back.focus({ preventScroll: true })
+      // The tour changed page and the element is gone: start from the page content instead.
+      const main = document.querySelector<HTMLElement>('main')
+      if (!main) return
+      if (!main.hasAttribute('tabindex')) main.tabIndex = -1
+      main.focus({ preventScroll: true })
     }
   }, [])
 
@@ -118,45 +125,57 @@ function TourRun({ guide, onClose }: { guide: Guide; onClose: () => void }) {
     return () => removeEventListener('keydown', onKey, true)
   }, [onClose, go])
 
-  // Find the step's target (navigating to its page first), then follow it through scroll, resize and re-renders.
+  // Go to the step's page once per step. useNavigate changes identity on every route change, so without the
+  // guard a redirect (e.g. / → /onboarding) would bounce back and forth.
   useEffect(() => {
+    if (navigated.current === index) return
+    navigated.current = index
     if (step.route && location.pathname !== step.route) navigate(step.route)
+  }, [index, step, navigate])
+
+  // Find the step's target, then follow it through scroll, resize and re-renders.
+  useEffect(() => {
     const target = step.target
     let el: HTMLElement | null = null
     let frame = 0
     let poll = 0
     let ro: ResizeObserver | null = null
-    const show = (box: Box | null) => setView((v) => (v?.index === index && sameBox(v.box, box) ? v : { index, box }))
+    const show = (box: Box | null) => {
+      const vw = innerWidth, vh = innerHeight
+      setView((v) => (v?.index === index && v.vw === vw && v.vh === vh && sameBox(v.box, box) ? v : { index, box, vw, vh }))
+    }
     const measure = () => {
       frame = 0
-      if (target && !el?.isConnected) el = find(target) // the page re-rendered the anchor
+      if (target && !el?.isConnected) {
+        // The page re-rendered the anchor, or it turned up after the wait: follow the new element.
+        el = find(target)
+        ro?.disconnect()
+        if (el) ro?.observe(el)
+      }
       show(el ? boxOf(el) : null)
     }
     const schedule = () => void (frame ||= requestAnimationFrame(measure))
     const lock = (found: HTMLElement | null) => {
       el = found
+      ro = new ResizeObserver(schedule)
       if (el) {
         // Centre it unless it's already in view; one taller than the window shows its top.
         const r = el.getBoundingClientRect()
         if (r.top < 0 || r.bottom > innerHeight || r.left < 0 || r.right > innerWidth)
           el.scrollIntoView({ block: r.height > innerHeight ? 'start' : 'center', inline: 'nearest' })
-        ro = new ResizeObserver(schedule)
         ro.observe(el)
       }
       addEventListener('scroll', schedule, true)
       addEventListener('resize', schedule)
-      schedule()
+      measure() // now, not on the next frame: a window without frames (hidden) still gets its popover
     }
-    if (!target) lock(null)
-    else {
-      const startedAt = performance.now()
-      const look = () => {
-        const found = find(target)
-        if (found || performance.now() - startedAt >= WAIT_MS) lock(found)
-        else poll = window.setTimeout(look, POLL_MS)
-      }
-      poll = window.setTimeout(look, 0)
+    const startedAt = performance.now()
+    const look = () => {
+      const found = target ? find(target) : null
+      if (!target || found || performance.now() - startedAt >= WAIT_MS) lock(found)
+      else poll = window.setTimeout(look, POLL_MS)
     }
+    poll = window.setTimeout(look, 0)
     return () => {
       window.clearTimeout(poll)
       cancelAnimationFrame(frame)
@@ -164,7 +183,7 @@ function TourRun({ guide, onClose }: { guide: Guide; onClose: () => void }) {
       removeEventListener('scroll', schedule, true)
       removeEventListener('resize', schedule)
     }
-  }, [index, step, navigate])
+  }, [index, step])
 
   // Place the popover after each layout change, and move focus to Next when a step appears.
   const box = ready ? view.box : null
@@ -178,14 +197,15 @@ function TourRun({ guide, onClose }: { guide: Guide; onClose: () => void }) {
     if (ready) next.current?.focus({ preventScroll: true })
   }, [ready, index])
 
-  // No target: a zero-size hole in the middle dims the whole window.
-  const hole = box ?? { x: innerWidth / 2, y: innerHeight / 2, w: 0, h: 0 }
+  // While the next target is looked for, the spotlight stays where it was. No target: a zero-size hole in the middle dims everything.
+  const spot = view?.box ?? null
+  const hole = spot ?? { x: innerWidth / 2, y: innerHeight / 2, w: 0, h: 0 }
   return createPortal(
     <div className="tour">
       <div className="tour-block" onPointerDown={(e) => e.preventDefault()} />
       <div
         className="tour-spot" aria-hidden="true"
-        style={{ width: hole.w, height: hole.h, transform: `translate(${hole.x}px, ${hole.y}px)`, borderRadius: box ? 10 : 0 }}
+        style={{ width: hole.w, height: hole.h, transform: `translate(${hole.x}px, ${hole.y}px)`, borderRadius: spot ? 10 : 0 }}
       />
       <div ref={pop} className="tour-pop" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={bodyId} hidden={!ready}>
         <h2 id={titleId}>{t(step.title) /* i18n-dynamic: guide text is marked with tk() */}</h2>
