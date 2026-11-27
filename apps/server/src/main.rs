@@ -2,7 +2,7 @@ use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use typeshelf_core::update;
+use typeshelf_core::update::{self, Platform};
 use typeshelf_server::{admin, app, audit, auth, db, AppState};
 
 #[derive(Parser)]
@@ -57,7 +57,22 @@ enum Cmd {
         /// The setup program's version; read from a `Glyphyard-Setup-<version>.exe` (or older `Typeshelf-Setup-…`) file name when left out.
         #[arg(long)]
         version: Option<String>,
+        /// `windows` or `macos`; read from the file name when left out.
+        #[arg(long)]
+        platform: Option<String>,
     },
+}
+
+/// What a release file's name says: its platform and version text.
+fn platform_and_version(file_name: &str) -> (Option<Platform>, Option<&str>) {
+    let setup = ["Glyphyard-Setup-", "Typeshelf-Setup-"].iter().find_map(|p| file_name.strip_prefix(p)).and_then(|v| v.strip_suffix(".exe"));
+    if let Some(v) = setup {
+        return (Some(Platform::Windows), Some(v));
+    }
+    match file_name.strip_prefix("Glyphyard-").and_then(|v| v.strip_suffix(".app.tar.gz")) {
+        Some(v) => (Some(Platform::Macos), Some(v)),
+        None => (None, None),
+    }
 }
 
 fn open_db(data: &Path) -> anyhow::Result<rusqlite::Connection> {
@@ -101,20 +116,27 @@ async fn main() -> anyhow::Result<()> {
             println!("Private key written to {}. Keep it offline; anyone who has it can ship updates.", out.display());
             println!("Public key (pass to scripts/build-windows.ps1 -UpdateKey):\n{public}");
         }
-        Cmd::UpdateSign { setup, key, version } => {
+        Cmd::UpdateSign { setup, key, version, platform } => {
             let name = setup.file_name().and_then(|n| n.to_str()).unwrap_or_default();
-            let from_name = ["Glyphyard-Setup-", "Typeshelf-Setup-"].iter().find_map(|p| name.strip_prefix(p)).and_then(|v| v.strip_suffix(".exe"));
-            let Some(version) = version.as_deref().or(from_name).and_then(update::Version::parse) else {
-                bail!("give the version as major.minor.patch with --version (or name the file Glyphyard-Setup-<version>.exe)");
+            let (name_platform, name_version) = platform_and_version(name);
+            let platform = match platform.as_deref() {
+                Some(p) => Platform::from_name(p),
+                None => name_platform,
+            };
+            let Some(platform) = platform else {
+                bail!("say which platform with --platform windows|macos (or name the file Glyphyard-Setup-<version>.exe / Glyphyard-<version>.app.tar.gz)");
+            };
+            let Some(version) = version.as_deref().or(name_version).and_then(update::Version::parse) else {
+                bail!("give the version as major.minor.patch with --version (or name the file Glyphyard-Setup-<version>.exe / Glyphyard-<version>.app.tar.gz)");
             };
             let private = std::fs::read_to_string(&key).with_context(|| format!("reading {}", key.display()))?;
             let bytes = std::fs::read(&setup).with_context(|| format!("reading {}", setup.display()))?;
-            let manifest = update::Manifest::for_bytes(version, &bytes).to_text();
+            let manifest = update::Manifest::for_bytes(version, platform, &bytes).to_text();
             let (signature, public) = update::sign(&private, manifest.as_bytes())?;
             let (m_path, s_path) = (PathBuf::from(format!("{}.manifest", setup.display())), PathBuf::from(format!("{}.manifest.sig", setup.display())));
             std::fs::write(&m_path, &manifest)?;
             std::fs::write(&s_path, format!("{signature}\n"))?;
-            println!("Signed version {version} ({} bytes).\n{}\n{}\nThe app must be built with update key {public}.", bytes.len(), m_path.display(), s_path.display());
+            println!("Signed version {version} for {} ({} bytes).\n{}\n{}\nThe app must be built with update key {public}.", platform.as_str(), bytes.len(), m_path.display(), s_path.display());
         }
         Cmd::CreateAdmin { email, data } => {
             if !email.contains('@') {
@@ -144,4 +166,17 @@ async fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_sign_reads_platform_and_version_from_the_name() {
+        assert_eq!(platform_and_version("Glyphyard-Setup-0.4.0.exe"), (Some(Platform::Windows), Some("0.4.0")));
+        assert_eq!(platform_and_version("Typeshelf-Setup-0.1.0.exe"), (Some(Platform::Windows), Some("0.1.0")));
+        assert_eq!(platform_and_version("Glyphyard-0.4.0.app.tar.gz"), (Some(Platform::Macos), Some("0.4.0")));
+        assert_eq!(platform_and_version("release.tar.gz"), (None, None));
+    }
 }

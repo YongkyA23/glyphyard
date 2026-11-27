@@ -34,12 +34,38 @@ impl fmt::Display for Version {
     }
 }
 
+/// Which app a release is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Platform {
+    Windows,
+    Macos,
+}
+
+impl Platform {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Platform::Windows => "windows",
+            Platform::Macos => "macos",
+        }
+    }
+
+    pub fn from_name(s: &str) -> Option<Platform> {
+        match s {
+            "windows" => Some(Platform::Windows),
+            "macos" => Some(Platform::Macos),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Manifest {
     pub version: Version,
     pub size: u64,
     /// Lowercase hex BLAKE3 of the setup program.
     pub blake3: String,
+    /// Windows manifests carry no platform line (installed apps expect that text); Mac ones add `platform macos`.
+    pub platform: Platform,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,13 +94,14 @@ impl fmt::Display for UpdateError {
 impl std::error::Error for UpdateError {}
 
 impl Manifest {
-    pub fn for_bytes(version: Version, bytes: &[u8]) -> Self {
-        Manifest { version, size: bytes.len() as u64, blake3: crate::file_hash(bytes) }
+    pub fn for_bytes(version: Version, platform: Platform, bytes: &[u8]) -> Self {
+        Manifest { version, size: bytes.len() as u64, blake3: crate::file_hash(bytes), platform }
     }
 
     /// The canonical text that gets signed.
     pub fn to_text(&self) -> String {
-        format!("{HEADER}\nversion {}\nsize {}\nblake3 {}\n", self.version, self.size, self.blake3)
+        let platform = if self.platform == Platform::Macos { "platform macos\n" } else { "" };
+        format!("{HEADER}\nversion {}\nsize {}\nblake3 {}\n{platform}", self.version, self.size, self.blake3)
     }
 
     /// Accepts only the canonical text `to_text` writes.
@@ -86,10 +113,16 @@ impl Manifest {
         let version = field("version").and_then(Version::parse);
         let size = field("size").and_then(|v| v.bytes().all(|b| b.is_ascii_digit()).then(|| v.parse().ok()).flatten());
         let hash = field("blake3").filter(|h| h.len() == 64 && h.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')));
-        let (true, Some(version), Some(size), Some(hash)) = (header_ok, version, size, hash) else {
+        // A missing line (the blank tail of a Windows manifest) is Windows; only `macos` is spelled out.
+        let platform = match field("platform") {
+            None => Some(Platform::Windows),
+            Some("macos") => Some(Platform::Macos),
+            Some(_) => None,
+        };
+        let (true, Some(version), Some(size), Some(hash), Some(platform)) = (header_ok, version, size, hash, platform) else {
             return Err(UpdateError::BadManifest);
         };
-        let m = Manifest { version, size, blake3: hash.to_string() };
+        let m = Manifest { version, size, blake3: hash.to_string(), platform };
         // Byte-for-byte canonical: no extra lines, no CRLF, no leading zeros.
         if m.to_text() != text {
             return Err(UpdateError::BadManifest);
@@ -177,9 +210,31 @@ mod tests {
     }
 
     fn release(version: &str, file: &[u8], private: &str) -> (String, String) {
-        let text = Manifest::for_bytes(Version::parse(version).unwrap(), file).to_text();
+        let text = Manifest::for_bytes(Version::parse(version).unwrap(), Platform::Windows, file).to_text();
         let (sig, _) = sign(private, text.as_bytes()).unwrap();
         (text, sig)
+    }
+
+    #[test]
+    fn windows_manifest_text_is_unchanged() {
+        let m = Manifest::for_bytes(Version::parse("1.2.3").unwrap(), Platform::Windows, b"x");
+        assert_eq!(m.to_text(), format!("typeshelf-update 1\nversion 1.2.3\nsize 1\nblake3 {}\n", m.blake3));
+        assert_eq!(Manifest::parse(m.to_text().as_bytes()).unwrap().platform, Platform::Windows);
+    }
+
+    #[test]
+    fn macos_manifest_adds_one_line_and_round_trips() {
+        let m = Manifest::for_bytes(Version::parse("1.2.3").unwrap(), Platform::Macos, b"x");
+        assert_eq!(m.to_text(), format!("typeshelf-update 1\nversion 1.2.3\nsize 1\nblake3 {}\nplatform macos\n", m.blake3));
+        assert_eq!(Manifest::parse(m.to_text().as_bytes()), Ok(m));
+    }
+
+    #[test]
+    fn other_platform_lines_are_refused() {
+        let w = Manifest::for_bytes(Version::parse("1.2.3").unwrap(), Platform::Windows, b"x").to_text();
+        for extra in ["platform windows\n", "platform linux\n", "platform macos\nmore\n", "platform  macos\n"] {
+            assert_eq!(Manifest::parse(format!("{w}{extra}").as_bytes()), Err(UpdateError::BadManifest), "{extra:?}");
+        }
     }
 
     #[test]
@@ -240,7 +295,7 @@ mod tests {
         assert!(!m.is_newer_than("0.1.1"));
         assert!(m.is_newer_than("0.1.0"));
         // Numeric, not string, comparison.
-        let ten = Manifest { version: Version::parse("0.10.0").unwrap(), size: 0, blake3: String::new() };
+        let ten = Manifest { version: Version::parse("0.10.0").unwrap(), size: 0, blake3: String::new(), platform: Platform::Windows };
         assert!(ten.is_newer_than("0.9.9"));
         assert!(!Manifest { version: Version::parse("0.9.9").unwrap(), ..ten.clone() }.is_newer_than("0.10.0"));
         // An unreadable running version never installs anything.
@@ -250,7 +305,7 @@ mod tests {
     #[test]
     fn only_the_canonical_manifest_parses() {
         let (key, private) = keys();
-        let m = Manifest::for_bytes(Version::parse("1.2.3").unwrap(), b"x");
+        let m = Manifest::for_bytes(Version::parse("1.2.3").unwrap(), Platform::Windows, b"x");
         assert_eq!(Manifest::parse(m.to_text().as_bytes()), Ok(m.clone()));
         let good = m.to_text();
         for bad in [

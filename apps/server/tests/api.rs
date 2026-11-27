@@ -1650,9 +1650,9 @@ impl Server {
 
 /// A setup program, its manifest and signature, signed with a key made here; returns the public key too.
 fn signed_release(version: &str, file: &[u8]) -> (String, String, [u8; 32]) {
-    use typeshelf_core::update::{self, Manifest, Version};
+    use typeshelf_core::update::{self, Manifest, Platform, Version};
     let (private, public) = update::generate_key().unwrap();
-    let manifest = Manifest::for_bytes(Version::parse(version).unwrap(), file).to_text();
+    let manifest = Manifest::for_bytes(Version::parse(version).unwrap(), Platform::Windows, file).to_text();
     let (signature, _) = update::sign(&private, manifest.as_bytes()).unwrap();
     (manifest, signature, update::public_key(Some(&public)).unwrap())
 }

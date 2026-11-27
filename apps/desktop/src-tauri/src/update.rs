@@ -291,11 +291,11 @@ pub fn launch(ready: &Ready, args: &[OsString]) -> Result<(), UpdateError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use typeshelf_core::update::Version;
+    use typeshelf_core::update::{Platform, Version};
     use typeshelf_sync::Config;
 
     fn manifest_for(bytes: &[u8]) -> Manifest {
-        Manifest::for_bytes(Version::parse("9.0.0").unwrap(), bytes)
+        Manifest::for_bytes(Version::parse("9.0.0").unwrap(), Platform::Windows, bytes)
     }
 
     #[test]
@@ -382,7 +382,7 @@ mod tests {
         let (private, public) = update::generate_key().unwrap();
         let key = update::public_key(Some(&public)).unwrap();
         let verified = |v: &str| {
-            let text = Manifest::for_bytes(Version::parse(v).unwrap(), b"file").to_text();
+            let text = Manifest::for_bytes(Version::parse(v).unwrap(), Platform::Windows, b"file").to_text();
             let (sig, _) = update::sign(&private, text.as_bytes()).unwrap();
             update::verify_manifest(&key, text.as_bytes(), &sig).unwrap()
         };
