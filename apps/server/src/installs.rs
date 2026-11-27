@@ -703,7 +703,7 @@ pub fn free_revoked_id(c: &Connection, id: &str) -> rusqlite::Result<()> {
     let moved = format!("{id}~revoked-{}", auth::random_hex(4));
     // The children are re-pointed before their parent row; the check runs at commit.
     c.pragma_update(None, "defer_foreign_keys", true)?;
-    for table in ["name_changes", "name_limit_resets", "font_states", "events", "commands", "font_requests"] {
+    for table in ["name_changes", "name_limit_resets", "font_states", "events", "commands", "font_requests", "organizer_docs"] {
         c.execute(&format!("UPDATE {table} SET install_id = ?1 WHERE install_id = ?2"), [&moved, id])?;
     }
     c.execute("UPDATE installs SET merged_into = ?1 WHERE merged_into = ?2", [&moved, id])?;

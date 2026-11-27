@@ -1,11 +1,12 @@
 //! Pure logic shared by the desktop app and the server: font parsing, hashing,
-//! the auto-organize planner and the name-change rule. No I/O beyond reading bytes.
+//! the auto-organize planner, the name-change rule and the synced-organizer merge. No I/O beyond reading bytes.
 
 pub mod face;
 pub mod glyphs;
 pub mod languages;
 pub mod name_rule;
 pub mod organize;
+pub mod organizer;
 pub mod update;
 
 pub use face::{font_details, parse_faces, Axis, Category, FaceInfo, FontDetails, Metrics, ParseError};
