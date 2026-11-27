@@ -268,6 +268,17 @@ function AppSection() {
     refocusLanguage = false
     document.getElementById('s-language')?.focus()
   }, [s])
+  const [checkMsg, setCheckMsg] = useState<{ text: string; bad?: boolean } | null>(null)
+  const checking = checkMsg?.text === t('Checking…')
+  const checkNow = () => {
+    setCheckMsg({ text: t('Checking…') })
+    api.checkUpdate().then(
+      (r) => r.status === 'upToDate'
+        ? setCheckMsg({ text: t('Glyphyard is up to date ({v})', { v: r.version }) })
+        : (setCheckMsg(null), api.getSettings().then(setS, (e) => toast(errMsg(e)))),
+      (e) => setCheckMsg({ text: errMsg(e), bad: true }),
+    )
+  }
   const flip = async (k: keyof Settings) => {
     if (!s) return
     const patch = { [k]: !s[k] } as Partial<Settings>
@@ -297,8 +308,19 @@ function AppSection() {
         <div key={k} className="setting-row">
           <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span style={titleRow}>{t(label) /* i18n-dynamic: APP_TOGGLES */}<Hint text={t(hint) /* i18n-dynamic */} /></span>
-            {k === 'autoUpdate' && s?.autoUpdate && s.updateReady && <span style={{ fontSize: 12, color: 'var(--accent-ink)' }}>{t('Version {v} will be installed when you quit Glyphyard.', { v: s.updateReady })}</span>}
+            {k === 'autoUpdate' && s?.updateReady && (
+              <span style={{ fontSize: 12, color: 'var(--accent-ink)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                {t('Version {v} will be installed when you quit Glyphyard.', { v: s.updateReady })}
+                <button type="button" className="btn small" onClick={() => api.restartToUpdate().catch((e) => toast(errMsg(e)))}>{t('Restart now')}</button>
+              </span>
+            )}
             {k === 'autoUpdate' && s?.autoUpdate && s.updateProblem && <span role="status" style={{ fontSize: 12, color: 'var(--bad)' }}>{t(s.updateProblem /* i18n-dynamic */)}</span>}
+            {k === 'autoUpdate' && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                <button type="button" className="btn small" disabled={checking} onClick={checkNow}>{t('Check for updates')}</button>
+                {checkMsg && <span role="status" style={{ color: checkMsg.bad ? 'var(--bad)' : 'var(--mute)' }}>{checkMsg.text}</span>}
+              </span>
+            )}
           </span>
           <Switch on={!!s?.[k]} label={t(label) /* i18n-dynamic */} onClick={() => flip(k)} disabled={!s} />
         </div>
