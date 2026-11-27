@@ -1,8 +1,9 @@
 // Small shared pieces: switches, chips, badges, dialog, formatting.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { animate, AnimatePresence, motion, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
-import { api, type Collection, type Family, type FontCategory, type License } from './api'
+import { api, isApiError, type Collection, type Family, type FontCategory, type License } from './api'
 import { dur, easeOut, pop, spring } from './motion'
+import { locale, numLocale, t } from './i18n'
 
 export const LICENSE_LABEL: Record<License, string> = {
   licensed: 'Licensed', personal: 'Personal use', client: 'Client-provided', unknown: 'Unknown license',
@@ -12,27 +13,28 @@ export const CATEGORY_LABEL: Record<FontCategory, string> = {
   serif: 'Serif', sans: 'Sans', display: 'Display', handwriting: 'Handwriting', mono: 'Mono',
 }
 
-export const num = (n: number) => n.toLocaleString('en-US')
-export const plural = (n: number, one: string, many = one + 's') => `${num(n)} ${n === 1 ? one : many}`
+export const num = (n: number) => n.toLocaleString(numLocale())
+// The words come from callers as literals; src/i18n/id/common.ts holds them.
+export const plural = (n: number, one: string, many = one + 's') => `${num(n)} ${n === 1 ? t(one) : t(many)}` // i18n-dynamic
 export const basename = (p: string) => p.split(/[\\/]/).pop() ?? p
 export const dirname = (p: string) => p.slice(0, Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')))
 export const initials = (name: string) => name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('') || '?'
 
-export const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-const hm = (d: Date) => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+export const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(locale(), { day: 'numeric', month: 'short', year: 'numeric' })
+const hm = (d: Date) => d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })
 export function fmtWhen(iso: string) {
   const d = new Date(iso)
-  return d.toDateString() === new Date().toDateString() ? `today ${hm(d)}` : `${fmtDate(iso)}, ${hm(d)}`
+  return d.toDateString() === new Date().toDateString() ? t('today {time}', { time: hm(d) }) : `${fmtDate(iso)}, ${hm(d)}`
 }
 export function ago(iso: string | null) {
-  if (!iso) return 'never'
+  if (!iso) return t('never')
   const s = (Date.now() - new Date(iso).getTime()) / 1000
-  if (s < 45) return 'just now'
-  if (s < 3600) return `${Math.max(1, Math.round(s / 60))} min ago`
-  if (new Date(iso).toDateString() === new Date().toDateString()) return 'today'
+  if (s < 45) return t('just now')
+  if (s < 3600) return t('{n} min ago', { n: Math.max(1, Math.round(s / 60)) })
+  if (new Date(iso).toDateString() === new Date().toDateString()) return t('today')
   const days = Math.max(1, Math.round(s / 86400))
-  if (days < 14) return days === 1 ? 'yesterday' : `${days} days ago`
-  if (days < 60) return `${Math.round(days / 7)} weeks ago`
+  if (days < 14) return days === 1 ? t('yesterday') : t('{n} days ago', { n: days })
+  if (days < 60) return t('{n} weeks ago', { n: Math.round(days / 7) })
   return fmtDate(iso)
 }
 export const daysUntil = (iso: string) => Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000))
@@ -178,9 +180,12 @@ function PromptForm({ label, initial, confirm, onClose, onSubmit, children }: {
 
 /** Unknown props aside, an ApiError message or a generic fallback. */
 export const errMsg = (e: unknown) =>
-  e && typeof e === 'object' && 'message' in e && typeof (e as { message: unknown }).message === 'string'
-    ? (e as { message: string }).message
-    : 'Something went wrong.'
+  isApiError(e, 'unlock_throttled') && typeof e.retryAfterSecs === 'number'
+    ? // The engine's text has the minutes baked in; rebuild it so it can be translated.
+      t('Too many wrong passwords. Try again in {m} minutes.', { m: Math.max(1, Math.ceil(e.retryAfterSecs / 60)) })
+    : e && typeof e === 'object' && 'message' in e && typeof (e as { message: unknown }).message === 'string'
+      ? t((e as { message: string }).message) // i18n-dynamic: known backend messages have dictionary entries
+      : t('Something went wrong.')
 
 /** Page numbers to show: first, last, and two around the current one, with gaps as null. */
 export function pageList(current: number, last: number): (number | null)[] {

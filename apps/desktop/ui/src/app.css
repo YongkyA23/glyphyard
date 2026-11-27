@@ -562,3 +562,16 @@ button.glyph:focus-visible { border-color: var(--accent); }
   --accent-hover: color-mix(in srgb, var(--brand), #fff 72%);
   --accent-ink: color-mix(in srgb, var(--brand), #fff 75%);
 }
+
+/* ---- Hint: the ⓘ button and its tooltip (Hint.tsx) ---- */
+.hint {
+  display: inline-grid; place-items: center; width: 20px; height: 20px; margin: -3px 0 -3px 2px; padding: 0; vertical-align: middle;
+  border: 0; border-radius: 50%; background: transparent; color: var(--faint); cursor: help; transition: color var(--dur-fast), background-color var(--dur-fast);
+}
+.hint:hover, .hint:focus-visible { color: var(--ink); background: var(--neutral-soft); }
+.hint-tip {
+  position: fixed; left: 0; top: 0; z-index: 70; max-width: min(280px, calc(100vw - 16px)); padding: 8px 10px; border-radius: var(--radius);
+  background: var(--ink); color: var(--on-ink); font-size: 12.5px; font-weight: 400; line-height: 1.45; letter-spacing: normal; text-transform: none;
+  white-space: normal; text-align: left; box-shadow: 0 8px 24px rgb(var(--shadow-rgb) / .25); animation: fade-in var(--dur-fast) var(--ease-out);
+}
+.hint-tip[hidden] { display: none; }

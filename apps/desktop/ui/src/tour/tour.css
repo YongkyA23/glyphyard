@@ -1,0 +1,27 @@
+/* Spotlight tours (Tour.tsx). Colours from tokens only. */
+.tour { position: fixed; inset: 0; z-index: 80; animation: fade-in var(--dur-base) var(--ease-out); }
+/* Swallows clicks outside the popover; the app behind is inert as well. */
+.tour-block { position: absolute; inset: 0; }
+.tour-spot {
+  position: fixed; left: 0; top: 0; pointer-events: none;
+  box-shadow: 0 0 0 9999px rgb(var(--shadow-rgb) / .55), 0 0 0 2px var(--accent);
+  transition: transform var(--dur-slow) var(--ease-out), width var(--dur-slow) var(--ease-out), height var(--dur-slow) var(--ease-out), border-radius var(--dur-slow);
+}
+.tour-pop {
+  position: fixed; left: 0; top: 0; width: min(340px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 8px; padding: 18px 18px 14px;
+  background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius-card); box-shadow: 0 20px 50px rgb(var(--shadow-rgb) / .3);
+  animation: rise-in var(--dur-base) var(--ease-out);
+}
+.tour-pop[hidden] { display: none; }
+.tour-pop h2 { font-size: 16px; font-weight: 600; }
+.tour-pop p { margin: 0; color: var(--ink-2); line-height: 1.55; }
+.tour-foot { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.tour-count { margin-right: auto; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.tour-foot .btn.link { padding: 0 8px; color: var(--mute); }
+/* After a tour that changed page, focus lands on <main> (Tour.tsx); it's a starting point, not a control. */
+main[tabindex="-1"]:focus { outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tour, .tour-pop { animation: none; }
+  .tour-spot { transition: none; }
+}
