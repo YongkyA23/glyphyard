@@ -350,7 +350,7 @@ function OwnPassword() {
 }
 
 const UPDATE_FIELDS: [string, string, string][] = [
-  ['file', tk('Setup program'), '.exe'],
+  ['file', tk('Release file'), '.exe,.gz'],
   ['manifest', tk('Manifest'), '.manifest'],
   ['signature', tk('Signature'), '.sig'],
 ]
@@ -365,15 +365,15 @@ function Updates({ owner }: { owner?: boolean }) {
     const formEl = e.currentTarget
     const form = new FormData(formEl)
     if (UPDATE_FIELDS.some(([name]) => !(form.get(name) instanceof File) || (form.get(name) as File).size === 0)) {
-      return setError(t('Choose the setup program, its manifest and its signature.'))
+      return setError(t('Choose the release file, its manifest and its signature.'))
     }
     setBusy(true)
     setError('')
     setDone('')
     try {
       const r = await api.uploadUpdate(form)
-      state.setData(() => r)
-      setDone(t('Version {version} is now offered to every computer.', { version: r.version }))
+      state.setData((cur) => ({ ...cur!, [r.platform]: { version: r.version, size: r.size } }))
+      setDone(t('Version {version} for {platform} is now offered to every computer.', { version: r.version, platform: r.platform === 'macos' ? 'macOS' : 'Windows' }))
       formEl.reset()
     } catch (err) {
       setError(err instanceof ApiError && err.status === 413 ? t('The upload is larger than 100 MB, the most the server accepts. Check that you chose the setup program.') : errMsg(err))
@@ -383,9 +383,14 @@ function Updates({ owner }: { owner?: boolean }) {
   }
   return (
     <motion.section aria-labelledby="upd" className="card pad-20 stack-10" variants={fadeRise}>
-      <div className="title-row"><h2 id="upd" className="h2">{t('App updates')}</h2><Hint text={t('Sign the setup program on the computer that keeps the private key, with typeshelf-server update-sign. Apps built with the matching public key check once a day, check the signature and the file, and install the new version when the user quits Glyphyard. The server refuses a setup program that doesn’t match its manifest.')} /></div>
+      <div className="title-row"><h2 id="upd" className="h2">{t('App updates')}</h2><Hint text={t('Sign the Windows setup program or the Mac .app.tar.gz on the computer that keeps the private key, with typeshelf-server update-sign; the server files it under the platform its manifest names. Apps built with the matching public key check once a day, check the signature and the file, and install the new version when the user quits Glyphyard. The server refuses a file that doesn’t match its manifest.')} /></div>
       <Loaded state={state} skeleton={<Skel w="50%" />}>{(r) => (
-        <span className="small">{r ? t('Current release: version {version} ({size} MB)', { version: r.version, size: (r.size / 1_048_576).toFixed(1) }) : t('No release uploaded. Desktop apps keep the version they have.')}</span>
+        <div className="stack-10">
+          {([['windows', 'Windows'], ['macos', 'macOS']] as const).map(([k, name]) => (
+            <span key={k} className="small">{r[k] ? t('{platform}: version {version} ({size} MB)', { platform: name, version: r[k].version, size: (r[k].size / 1_048_576).toFixed(1) }) : t('{platform}: no release uploaded', { platform: name })}</span>
+          ))}
+          <span className="small mute">{t('Desktop apps keep the version they have.')}</span>
+        </div>
       )}</Loaded>
       <form className="stack-10" onSubmit={submit} noValidate>
         <div className="file-grid">
