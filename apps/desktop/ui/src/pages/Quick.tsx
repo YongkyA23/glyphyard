@@ -8,6 +8,7 @@ import { cssStagger, spring } from '../motion'
 import { useApp } from '../state'
 import { turnsOff } from '../temporary'
 import { formatShortcut, Switch } from '../ui'
+import { t } from '../i18n'
 
 export function Quick() {
   const { app, activate } = useApp()
@@ -51,28 +52,28 @@ export function Quick() {
   return (
     <div className="quick" onKeyDown={onKey}>
       <div style={{ padding: 14, borderBottom: '1px solid var(--line)' }}>
-        <label htmlFor="qa" className="sr-only">Search fonts to turn on or off</label>
+        <label htmlFor="qa" className="sr-only">{t('Search fonts to turn on or off')}</label>
         <input
-          id="qa" type="search" className="input quick-input" value={q} placeholder="Search fonts…" autoFocus autoComplete="off"
+          id="qa" type="search" className="input quick-input" value={q} placeholder={t('Search fonts…')} autoFocus autoComplete="off"
           role="combobox" aria-expanded aria-controls="qa-list" aria-activedescendant={rows[hi] ? `qa-${rows[hi].hash}` : undefined}
           onChange={(e) => setQ(e.target.value)}
         />
       </div>
-      <div id="qa-list" role="listbox" aria-label="Fonts" style={{ flex: 1, overflowY: 'auto', padding: '6px 8px' }}>
+      <div id="qa-list" role="listbox" aria-label={t('Fonts')} style={{ flex: 1, overflowY: 'auto', padding: '6px 8px' }}>
         {rows.map((f, i) => (
           <div key={f.hash} id={`qa-${f.hash}`} role="option" aria-selected={i === hi} className="quick-row enter" style={cssStagger(i)} onMouseEnter={() => setHi(i)}>
             {i === hi && <motion.span layoutId="quick-hi" className="quick-hi" transition={spring.glide} />}
             <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span className="ellipsis" style={{ fontSize: 20, ...faceStyle(f) }}>{f.fullName}</span>
-              <span className="faint" style={{ fontSize: 12 }}>{f.family} · {f.isVariable ? 'Variable' : f.style}{f.active && f.source === 'admin' ? ' · Set by admin' : ''}{turnsOff({ faces: [f] }) && ` · ${turnsOff({ faces: [f] })}`}</span>
+              <span className="faint" style={{ fontSize: 12 }}>{f.family} · {f.isVariable ? t('Variable') : f.style}{f.active && f.source === 'admin' ? ` · ${t('Set by admin')}` : ''}{turnsOff({ faces: [f] }) && ` · ${turnsOff({ faces: [f] })}`}</span>
             </span>
-            <Switch on={f.active} label={`${f.active ? 'Turn off' : 'Turn on'} ${f.fullName}`} onClick={() => toggle(f)} />
+            <Switch on={f.active} label={f.active ? t('Turn off {name}', { name: f.fullName }) : t('Turn on {name}', { name: f.fullName })} onClick={() => toggle(f)} />
           </div>
         ))}
-        {rows.length === 0 && q.trim() && <p className="faint" style={{ margin: '24px 8px', textAlign: 'center' }}>No fonts match “{q}”.</p>}
+        {rows.length === 0 && q.trim() && <p className="faint" style={{ margin: '24px 8px', textAlign: 'center' }}>{t('No fonts match “{q}”.', { q })}</p>}
       </div>
       <div className="quick-foot">
-        <span>Enter turns on · Esc closes</span>
+        <span>{t('Enter turns on · Esc closes')}</span>
         <span>{formatShortcut(shortcut, app.platform)}</span>
       </div>
     </div>
