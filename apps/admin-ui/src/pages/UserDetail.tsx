@@ -13,6 +13,9 @@ import {
   useConfirm, useLoad, usePage,
 } from '../ui'
 
+/** "Today 09:03" → "today 09:03" after "Last seen"; a date like "18 Oct 2026" keeps its month capitalised. */
+const seen = (iso: string) => { const s = ago(iso); return s.charAt(0).toLowerCase() + s.slice(1) }
+
 const eventsSkeleton = (
   <div>
     {[70, 55, 80, 45].map((w) => (
@@ -98,7 +101,7 @@ function Detail({ u, reload }: { u: InstallDetail; reload: () => void }) {
           </div>
         }>
           <span className="pills">
-            <Badge tone={u.online ? 'ok' : 'outline'}>{u.online ? t('● Online') : t('Last seen {when}', { when: ago(u.last_seen).toLowerCase() })}</Badge>
+            <Badge tone={u.online ? 'ok' : 'outline'}>{u.online ? t('● Online') : t('Last seen {when}', { when: seen(u.last_seen) })}</Badge>
             <Badge tone="outline">{u.os}</Badge>
             <Badge tone="outline">Glyphyard {u.app_version}</Badge>
             <Badge tone="outline" className="mono">{u.id}</Badge>
@@ -229,7 +232,7 @@ function Computers({ u, reload }: { u: InstallDetail; reload: () => void }) {
         <div key={c.id} className="kv computer">
           <span className="stack-2">
             <span className="row-6"><span aria-hidden="true" className={c.online ? 'dot dot-on' : 'dot'} />{c.os} · Glyphyard {c.app_version}</span>
-            <span className="meta"><span className="mono">{c.id}</span> · {c.online ? t('Online') : t('Last seen {when}', { when: ago(c.last_seen).toLowerCase() })}</span>
+            <span className="meta"><span className="mono">{c.id}</span> · {c.online ? t('Online') : t('Last seen {when}', { when: seen(c.last_seen) })}</span>
           </span>
           <span className="row-6">
             {canSplit(c) && (
