@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { api, on, type ActivationResult, type AppState, type Events } from './api'
 import { pop, spring } from './motion'
 import { andList, Dialog, errMsg, plural, Skel } from './ui'
+import { applyLanguage } from './i18n'
 
 type Toast = { id: number; msg: string; action?: { label: string; run: () => void } }
 type Ctx = {
@@ -55,6 +56,7 @@ export function AppProvider({ main, children }: { main: boolean; children: React
   const load = useCallback(() => {
     setBootError(null)
     api.getAppState().then(setAppState, (e) => setBootError(errMsg(e)))
+    api.getSettings().then((s) => applyLanguage(s.language), () => {})
   }, [])
   useEffect(load, [load])
 

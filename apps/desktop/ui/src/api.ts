@@ -63,6 +63,8 @@ export type OrganizeChange = { id: number; case: OrganizeCase; action: { op: str
 export type Connection = {
   status: 'connected' | 'offline' | 'error'; serverUrl: string; installKey: string; editable: boolean
   lastSync: string | null; installId: string; error: string | null
+  /** Locked, but the admin set an unlock password (unlock_connection works). */
+  unlockable: boolean
 }
 export type AppState = {
   onboarded: boolean; name: string; nextNameChange: string | null; nameChangeDays: number
@@ -129,6 +131,8 @@ export type Settings = {
   canUpdate?: boolean; updateReady?: string | null
   /** Read-only. Set when the last check refused the server's release (it was not installed). */
   updateProblem?: string | null
+  /** UI language; 'system' follows the OS. */
+  language: 'system' | 'en' | 'id'
 }
 export type AdobeApp = 'photoshop' | 'illustrator' | 'indesign'
 export type AdobeRow = { app: AdobeApp; label: string; versions: string[]; installed: boolean; paired: boolean }
@@ -234,8 +238,12 @@ export const api = {
 
   getConnection: () => call<Connection>('get_connection'),
   testConnection: (serverUrl: string, installKey: string) => call<{ ok: boolean; error: string | null }>('test_connection', { serverUrl, installKey }),
-  saveConnection: (serverUrl: string, installKey: string) => call<Connection>('save_connection', { serverUrl, installKey }),
-  resetConnection: () => call<Connection>('reset_connection'),
+  /** `password`: the admin unlock password, needed while the connection is locked. */
+  saveConnection: (serverUrl: string, installKey: string, password?: string) => call<Connection>('save_connection', { serverUrl, installKey, password }),
+  resetConnection: (password?: string) => call<Connection>('reset_connection', { password }),
+  /** Checks the admin unlock password only; save and reset check it again. */
+  unlockConnection: (password: string) => call<void>('unlock_connection', { password }),
+  setTrayLanguage: (lang: 'en' | 'id') => call<void>('set_tray_language', { lang }),
 
   quickSearch: (query: string) => call<Face[]>('quick_search', { query }),
   showInFolder: (path: string) => call<void>('show_in_folder', { path }),

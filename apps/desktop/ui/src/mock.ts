@@ -176,8 +176,37 @@ const axisPresets: Record<string, AxisPreset[]> = {
 // `?server=none` starts like the standalone build (no server set up); `?server=offline` with a server that doesn't answer.
 const serverMode = new URLSearchParams(location.search).get('server')
 const DEFAULT_CONN = serverMode === 'none' ? { serverUrl: '', installKey: '' } : { serverUrl: 'https://fonts.northwind-studio.com', installKey: 'tsk_live_4f8a2c91e7d3' }
+// `?locked=1`: the admin locked the connection and set the unlock password "glyphyard".
+const locked = new URLSearchParams(location.search).has('locked')
+const UNLOCK_PASSWORD = 'glyphyard'
 let connection: Connection = {
-  status: serverMode ? 'offline' : 'connected', ...DEFAULT_CONN, editable: true, lastSync: serverMode ? null : iso(-60_000), installId: '7F3A-2C9E-91C2', error: null,
+  status: serverMode ? 'offline' : 'connected', ...DEFAULT_CONN, editable: !locked, unlockable: locked, lastSync: serverMode ? null : iso(-60_000), installId: '7F3A-2C9E-91C2', error: null,
+}
+// Same rule as the engine: the 5th wrong password in a row blocks unlocking for 5 minutes; a right one resets it.
+let unlockFailures = 0
+let unlockLockedUntil = 0
+function verifyUnlock(password: string) {
+  if (!connection.unlockable) throw err('unlock_unavailable', 'No unlock password is set for this computer.')
+  const wait = unlockLockedUntil - Date.now()
+  if (wait > 0) {
+    const retryAfterSecs = Math.ceil(wait / 1000)
+    throw err('unlock_throttled', `Too many wrong passwords. Try again in ${Math.max(1, Math.ceil(retryAfterSecs / 60))} minutes.`, { retryAfterSecs })
+  }
+  if (password !== UNLOCK_PASSWORD) {
+    if (++unlockFailures >= 5) {
+      unlockFailures = 0
+      unlockLockedUntil = Date.now() + 5 * 60_000
+    }
+    throw err('wrong_password', 'That password isn’t right.')
+  }
+  unlockFailures = 0
+  unlockLockedUntil = 0
+}
+/** Locked connection: no password → connection_locked, otherwise it must be the unlock password. */
+function authorizeConnectionChange(password: unknown) {
+  if (connection.editable) return
+  if (typeof password !== 'string') throw err('connection_locked', 'Your admin has locked the connection settings.')
+  verifyUnlock(password)
 }
 // The onboarding name survives reloads within the tab so `bun run dev` doesn't ask every time;
 // `?mockName=Ayu` skips onboarding (used for README screenshots with a headless browser).
@@ -198,6 +227,16 @@ let settings: Settings = {
     'Typography is the craft of endowing human language with a durable visual form.',
   ],
   playful: true,
+  language: mockLanguage(),
+}
+// The language setting survives reloads, like the engine's stored settings.
+function mockLanguage(): Settings['language'] {
+  try {
+    const l = localStorage.getItem('typeshelf.mock.language')
+    return l === 'en' || l === 'id' ? l : 'system'
+  } catch {
+    return 'system'
+  }
 }
 let history: HistoryEntry[] = [
   { id: 2, kind: 'organize', summary: 'Auto-organize · 89 changes applied', at: '2026-10-21T14:05:00', undone: false },
@@ -706,20 +745,34 @@ const handlers: Record<string, (a: Args) => unknown> = {
     return { path, at: iso() }
   },
   get_settings: () => settings,
-  update_settings: ({ patch }) => (settings = { ...settings, ...patch }),
+  update_settings: ({ patch }) => {
+    settings = { ...settings, ...patch }
+    try {
+      localStorage.setItem('typeshelf.mock.language', settings.language)
+    } catch {
+      // Blocked storage: the setting lasts until reload.
+    }
+    return settings
+  },
   get_connection: () => connection,
   test_connection: ({ serverUrl, installKey }) =>
     /^https:\/\/\S+$/.test(serverUrl) && installKey.trim()
       ? { ok: true, error: null }
       : { ok: false, error: 'The server didn’t accept this address and install key.' },
-  save_connection: ({ serverUrl, installKey }) => {
-    if (!connection.editable) throw err('locked', 'Your admin has locked the connection settings.')
+  save_connection: ({ serverUrl, installKey, password }) => {
+    authorizeConnectionChange(password)
     const ok = /^https:\/\/\S+$/.test(serverUrl) && installKey.trim()
     if (!serverUrl.trim()) setConnection({ serverUrl: '', installKey, status: 'offline', error: null })
     else setConnection({ serverUrl, installKey, status: ok ? 'connected' : 'error', lastSync: ok ? iso() : connection.lastSync, error: ok ? null : 'Can’t reach the server.' })
     return connection
   },
-  reset_connection: () => (setConnection({ ...DEFAULT_CONN, status: DEFAULT_CONN.serverUrl ? 'connected' : 'offline', lastSync: iso(), error: null }), connection),
+  reset_connection: ({ password }) => {
+    authorizeConnectionChange(password)
+    setConnection({ ...DEFAULT_CONN, status: DEFAULT_CONN.serverUrl ? 'connected' : 'offline', lastSync: iso(), error: null })
+    return connection
+  },
+  unlock_connection: ({ password }) => verifyUnlock(String(password ?? '')),
+  set_tray_language: () => undefined,
   quick_search: ({ query }) => {
     const q = query.trim().toLowerCase()
     return families.flatMap((f) => f.faces).filter((x) => !q || x.fullName.toLowerCase().includes(q)).slice(0, 20)

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { animate, AnimatePresence, motion, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
 import { api, type Collection, type Family, type FontCategory, type License } from './api'
 import { dur, easeOut, pop, spring } from './motion'
+import { locale, numLocale, t } from './i18n'
 
 export const LICENSE_LABEL: Record<License, string> = {
   licensed: 'Licensed', personal: 'Personal use', client: 'Client-provided', unknown: 'Unknown license',
@@ -12,14 +13,15 @@ export const CATEGORY_LABEL: Record<FontCategory, string> = {
   serif: 'Serif', sans: 'Sans', display: 'Display', handwriting: 'Handwriting', mono: 'Mono',
 }
 
-export const num = (n: number) => n.toLocaleString('en-US')
-export const plural = (n: number, one: string, many = one + 's') => `${num(n)} ${n === 1 ? one : many}`
+export const num = (n: number) => n.toLocaleString(numLocale())
+// The words come from callers as literals; src/i18n/id/common.ts holds them.
+export const plural = (n: number, one: string, many = one + 's') => `${num(n)} ${n === 1 ? t(one) : t(many)}` // i18n-dynamic
 export const basename = (p: string) => p.split(/[\\/]/).pop() ?? p
 export const dirname = (p: string) => p.slice(0, Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')))
 export const initials = (name: string) => name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('') || '?'
 
-export const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-const hm = (d: Date) => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+export const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(locale(), { day: 'numeric', month: 'short', year: 'numeric' })
+const hm = (d: Date) => d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })
 export function fmtWhen(iso: string) {
   const d = new Date(iso)
   return d.toDateString() === new Date().toDateString() ? `today ${hm(d)}` : `${fmtDate(iso)}, ${hm(d)}`
@@ -179,8 +181,8 @@ function PromptForm({ label, initial, confirm, onClose, onSubmit, children }: {
 /** Unknown props aside, an ApiError message or a generic fallback. */
 export const errMsg = (e: unknown) =>
   e && typeof e === 'object' && 'message' in e && typeof (e as { message: unknown }).message === 'string'
-    ? (e as { message: string }).message
-    : 'Something went wrong.'
+    ? t((e as { message: string }).message) // i18n-dynamic: known backend messages have dictionary entries
+    : t('Something went wrong.')
 
 /** Page numbers to show: first, last, and two around the current one, with gaps as null. */
 export function pageList(current: number, last: number): (number | null)[] {
