@@ -177,6 +177,8 @@ h1, h2 { margin: 0; }
   .shell-main { overflow: visible; }
 }
 .shell-main > * { flex: 1; }
+.shell-main > .update-banner { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: var(--accent); color: var(--on-accent); font-size: 13px; }
+.update-banner > span { flex: 1; }
 .route { display: flex; flex-direction: column; min-width: 0; }
 .route > * { flex: 1; }
 .sidebar {

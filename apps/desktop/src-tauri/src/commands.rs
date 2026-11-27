@@ -37,6 +37,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         backup_create, backup_restore,
         get_settings, update_settings,
         get_connection, test_connection, save_connection, reset_connection, unlock_connection, set_tray_language,
+        check_update, restart_to_update,
         quick_search, show_in_folder, open_url,
         adobe_status, adobe_install, adobe_remove, adobe_pair_respond, indesign_running,
         pick_folder, pick_file, pick_files, pick_save_file,
@@ -564,19 +565,73 @@ pub async fn unlock_connection(ctx: St<'_>, password: String) -> R<()> {
 pub struct TrayItems {
     pub open: tauri::menu::MenuItem<tauri::Wry>,
     pub quit: tauri::menu::MenuItem<tauri::Wry>,
+    pub menu: tauri::menu::Menu<tauri::Wry>,
+    /// "Restart to update": not in `menu` until an update is ready.
+    pub update: tauri::menu::MenuItem<tauri::Wry>,
+    pub shown: std::sync::atomic::AtomicBool,
 }
 
-pub fn tray_labels(indonesian: bool) -> (&'static str, &'static str) {
-    if indonesian { ("Buka Glyphyard", "Keluar") } else { ("Open Glyphyard", "Quit") }
+/// Open, Quit, Restart to update. The update label carries no version: it is fixed text.
+pub fn tray_labels(indonesian: bool) -> (&'static str, &'static str, &'static str) {
+    if indonesian { ("Buka Glyphyard", "Keluar", "Restart untuk update") } else { ("Open Glyphyard", "Quit", "Restart to update") }
+}
+
+/// Adds "Restart to update" above Quit, once.
+pub fn show_update_item(app: &AppHandle) {
+    let items = app.state::<TrayItems>();
+    if items.shown.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    if let Err(e) = items.menu.insert(&items.update, 1) {
+        items.shown.store(false, std::sync::atomic::Ordering::SeqCst);
+        tracing::warn!("tray update item: {e}");
+    }
 }
 
 #[tauri::command]
 pub fn set_tray_language(app: AppHandle, lang: String) -> R<()> {
     let items = app.state::<TrayItems>();
-    let (open, quit) = tray_labels(lang == "id");
+    let (open, quit, update) = tray_labels(lang == "id");
     items.open.set_text(open).map_err(|e| EngineError::new("tray", e.to_string()))?;
+    items.update.set_text(update).map_err(|e| EngineError::new("tray", e.to_string()))?;
     items.quit.set_text(quit).map_err(|e| EngineError::new("tray", e.to_string()))?;
     Ok(())
+}
+
+// ---- Updates ----
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckView {
+    /// "upToDate" or "ready".
+    status: &'static str,
+    version: String,
+}
+
+/// Settings › "Check for updates": one check now, downloading even when "Update automatically" is off.
+#[tauri::command]
+pub async fn check_update(app: AppHandle, ctx: St<'_>) -> R<CheckView> {
+    let err = |m: &str| EngineError::new("update", m);
+    if crate::update::key().is_none() {
+        return Err(err("this build has no update key"));
+    }
+    let (server, token) = ctx.run(|e| Ok((e.get_app_state()?.server_configured, e.token()?.is_some()))).await?;
+    if !server || !token {
+        return Err(err("connect to your team server first"));
+    }
+    match crate::update::check_now(&app).await.map_err(|e| match e {
+        crate::update::CheckError::Refused(_) => err(crate::update::PROBLEM),
+        e => err(&e.to_string()),
+    })? {
+        Some(v) => Ok(CheckView { status: "ready", version: v.to_string() }),
+        None => Ok(CheckView { status: "upToDate", version: env!("CARGO_PKG_VERSION").into() }),
+    }
+}
+
+/// Quits, installs the waiting update and starts the app again (the current one if nothing was installed).
+#[tauri::command]
+pub fn restart_to_update(app: AppHandle) {
+    crate::update::request_restart(&app);
 }
 
 // ---- OS integration ----

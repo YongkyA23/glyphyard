@@ -1,22 +1,26 @@
 //! Updates from the team server. Off unless the build carries an update public key
 //! (`TYPESHELF_UPDATE_KEY`, baked in by scripts/build-windows.ps1 and scripts/build-macos.sh) and Settings › "Update automatically" is on.
 //!
-//! Checks a minute after start, then daily: fetch the manifest and signature, verify the signature with the
+//! Checks 15 s after start, then hourly (and on demand from Settings, which downloads even with the switch off):
+//! fetch the manifest and signature, verify the signature with the
 //! baked-in key, ignore anything not newer than this app or meant for the other platform, download the release
 //! file into `<data>/update/`, check it against the manifest's size and hash, and only then mark it ready.
 //! At quit the file is checked again (it sat on disk). Windows: while a handle denies writes to it, the setup
 //! program is started detached with `--silent`. macOS: the `.app.tar.gz` is read into memory, checked, unpacked
-//! next to the app and swapped into its place (`mac_install`); no relaunch.
+//! next to the app and swapped into its place (`mac_install`). A plain Quit never relaunches; "Restart to update"
+//! (`request_restart`) installs even with the switch off and brings the app back, on the new version when the
+//! install worked and on the current one when it did not.
 //! Any failure deletes the file and is logged; nothing unverified is ever started or installed.
 
 use std::ffi::OsString;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use typeshelf_core::update::{self, Manifest, Platform, UpdateError, Version};
 use typeshelf_engine::AppSettings;
 use typeshelf_sync::SyncClient;
@@ -57,10 +61,20 @@ pub struct Ready {
 pub struct Pending {
     ready: Mutex<Option<Ready>>,
     problem: Mutex<Option<String>>,
+    /// Held for a whole check, so the hourly loop and a manual check never run at once.
+    checking: tokio::sync::Mutex<()>,
+    /// Set by "Restart to update": `on_quit` installs regardless of the switch and relaunches.
+    relaunch: AtomicBool,
+    /// The version already shown in the banner and tray, so it is announced once.
+    announced: Mutex<Option<Version>>,
 }
 
+/// First check after start (sync has registered by then), then every hour; a failure waits the same hour.
+pub const FIRST_CHECK: Duration = Duration::from_secs(15);
+pub const CHECK_EVERY: Duration = Duration::from_secs(60 * 60);
+
 /// Shown in Settings when the server offered a release that failed verification.
-const PROBLEM: &str = "The update from your server could not be verified and was not installed. Tell your admin: the update may be signed with a different key than this app was built with.";
+pub(crate) const PROBLEM: &str = "The update from your server could not be verified and was not installed. Tell your admin: the update may be signed with a different key than this app was built with.";
 
 /// Why a check stopped.
 #[derive(Debug)]
@@ -126,10 +140,10 @@ fn dir(data_dir: &Path) -> PathBuf {
 }
 
 pub async fn run(app: AppHandle) {
-    let Some(key) = key() else {
+    if key().is_none() {
         tracing::info!("this build has no update key, so it never checks for updates");
         return;
-    };
+    }
     let ctx = app.state::<Ctx>();
     let dir = dir(&ctx.data_dir);
     // An interrupted download is never resumed. A finished installer is kept: `check` reuses it when it is still
@@ -142,39 +156,57 @@ pub async fn run(app: AppHandle) {
         *app.state::<Pending>().problem.lock().unwrap() = Some(BLOCKED.into());
         let _ = std::fs::remove_file(&blocked);
     }
-    let mut wait = Duration::from_secs(60);
+    let mut wait = FIRST_CHECK;
     loop {
         tokio::time::sleep(wait).await;
-        wait = Duration::from_secs(24 * 60 * 60);
+        wait = CHECK_EVERY;
         let gate = ctx.run(|e| Ok(should_check(e.get_settings()?.auto_update, e.get_app_state()?.server_configured, e.token()?.is_some()))).await;
         if !gate.unwrap_or(false) {
             continue;
         }
-        let pending = app.state::<Pending>();
-        #[cfg(target_os = "macos")]
-        if let Some(msg) = crate::mac_install::blocker() {
-            *pending.problem.lock().unwrap() = Some(msg.into());
-            continue;
+        if let Err(e) = check_now(&app).await {
+            tracing::warn!("update check: {e}");
         }
-        let have = pending.ready.lock().unwrap().as_ref().map(|r| r.manifest.version);
-        match check(&ctx.client(), Some(&key), &dir, CURRENT, have, PLATFORM).await {
-            Ok(found) => {
-                if let Some(ready) = found {
-                    tracing::info!(version = %ready.manifest.version, "update downloaded and verified; it installs when Glyphyard quits");
-                    if let Some(old) = pending.ready.lock().unwrap().replace(ready) {
-                        let _ = std::fs::remove_file(old.path);
-                    }
+    }
+}
+
+/// One check, as the hourly loop and the Settings button run it. Returns the version now waiting, if any. A new
+/// waiting version is announced (`update-ready`, tray item) once.
+pub async fn check_now(app: &AppHandle) -> Result<Option<Version>, CheckError> {
+    let Some(key) = key() else { return Ok(None) };
+    let pending = app.state::<Pending>();
+    let _one_at_a_time = pending.checking.lock().await;
+    let ctx = app.state::<Ctx>();
+    #[cfg(target_os = "macos")]
+    if let Some(msg) = crate::mac_install::blocker() {
+        *pending.problem.lock().unwrap() = Some(msg.into());
+        return Err(CheckError::Failed(msg.into()));
+    }
+    let was_blocked = pending.problem.lock().unwrap().as_deref() == Some(BLOCKED);
+    let have = pending.ready.lock().unwrap().as_ref().map(|r| r.manifest.version);
+    match check(&ctx.client(), Some(&key), &dir(&ctx.data_dir), CURRENT, have, PLATFORM).await {
+        Ok(found) => {
+            if let Some(ready) = found {
+                tracing::info!(version = %ready.manifest.version, "update downloaded and verified; it installs when Glyphyard quits");
+                if let Some(old) = pending.ready.lock().unwrap().replace(ready) {
+                    let _ = std::fs::remove_file(old.path);
                 }
-                let waiting = pending.ready.lock().unwrap().is_some();
-                *pending.problem.lock().unwrap() = problem_after_check(was_blocked, waiting);
             }
-            Err(e) => {
-                tracing::warn!("update check: {e}");
-                if matches!(e, CheckError::Refused(_)) {
-                    *pending.problem.lock().unwrap() = Some(PROBLEM.into());
+            let waiting = pending.ready.lock().unwrap().as_ref().map(|r| r.manifest.version);
+            *pending.problem.lock().unwrap() = problem_after_check(was_blocked, waiting.is_some());
+            if let Some(version) = waiting {
+                if pending.announced.lock().unwrap().replace(version) != Some(version) {
+                    let _ = app.emit("update-ready", serde_json::json!({ "version": version.to_string() }));
+                    crate::commands::show_update_item(app);
                 }
-                wait = Duration::from_secs(60 * 60);
             }
+            Ok(waiting)
+        }
+        Err(e) => {
+            if matches!(e, CheckError::Refused(_)) {
+                *pending.problem.lock().unwrap() = Some(PROBLEM.into());
+            }
+            Err(e)
         }
     }
 }
@@ -255,9 +287,10 @@ pub fn wanted(manifest: &Manifest, current: &str, have: Option<Version>) -> bool
 /// Glyphyard Setup and the uninstaller hold this mutex for their whole run (apps/setup/src/main.rs).
 pub const SETUP_MUTEX: &str = "Local\\TypeshelfSetupRunning";
 
-/// Whether to start the waiting release at quit. Not when a Setup or uninstall is the one closing the app.
-pub fn should_launch(has_key: bool, auto_update: bool, setup_running: bool) -> bool {
-    has_key && auto_update && !setup_running
+/// Whether to install the waiting release at quit: updates on, or the user pressed "Restart to update". Never when
+/// a Setup or uninstall is the one closing the app.
+pub fn should_install(has_key: bool, auto_update: bool, setup_running: bool, restart: bool) -> bool {
+    has_key && !setup_running && (auto_update || restart)
 }
 
 /// True while a Glyphyard Setup or uninstall runs; also true when that cannot be told (refuse, don't guess).
@@ -294,18 +327,50 @@ fn io(e: std::io::Error) -> UpdateError {
     UpdateError::Io(e.to_string())
 }
 
-/// At quit, from `shutdown`: installs the waiting release when updates are still on and no Glyphyard Setup or
-/// uninstall is the one closing the app. Windows: silent Setup updates the registered install folder in place.
-/// macOS: the new bundle is swapped into this one's place; a swap macOS blocks leaves `<dir>/blocked` for `run`.
+/// "Restart to update": `on_quit` installs the waiting release whatever the switch says, then brings the app back.
+pub fn request_restart(app: &AppHandle) {
+    app.state::<Pending>().relaunch.store(true, Ordering::SeqCst);
+    // A start-in-tray user gets the window back: `setup` shows it when this marker exists.
+    let d = dir(&app.state::<Ctx>().data_dir);
+    if let Err(e) = std::fs::create_dir_all(&d).and_then(|()| std::fs::write(d.join("show"), b"")) {
+        tracing::warn!("restart: could not leave the show marker: {e}");
+    }
+    app.exit(0);
+}
+
+/// At quit, from `shutdown`: installs the waiting release when updates are still on (or this is a restart) and no
+/// Glyphyard Setup or uninstall is the one closing the app. Windows: silent Setup updates the registered install
+/// folder in place (`--launch` makes it start the app again on a restart). macOS: the new bundle is swapped into
+/// this one's place; a swap macOS blocks leaves `<dir>/blocked` for `run`. On a restart that did not install
+/// anything, the current app is started again so the user is never left without one.
 // ponytail: only a real quit installs; closing the window only hides it to the tray, so the update installs at the
-// user's next explicit Quit (the file is kept and reused across starts until then).
+// user's next explicit Quit or Restart (the file is kept and reused across starts until then).
 pub fn on_quit(app: &AppHandle) {
-    let Some(ready) = app.state::<Pending>().ready.lock().unwrap().take() else { return };
+    let pending = app.state::<Pending>();
+    let restart = pending.relaunch.load(Ordering::SeqCst);
+    let ready = pending.ready.lock().unwrap().take();
+    let relaunched = ready.is_some_and(|ready| install_ready(app, &ready, restart));
+    if restart && !relaunched {
+        match current_app() {
+            Some(target) => relaunch_after_exit(&target),
+            None => tracing::warn!("restart: cannot tell which app to start again"),
+        }
+    }
+}
+
+/// The installed app this process runs from: its bundle on macOS, the exe on Windows.
+fn current_app() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    if cfg!(target_os = "macos") { mac_install::bundle_of(&exe) } else { Some(exe) }
+}
+
+/// Starts the install of `ready`. True when a relaunch is already arranged (Setup `--launch`, or the swapped bundle).
+fn install_ready(app: &AppHandle, ready: &Ready, restart: bool) -> bool {
     let auto_update = app.state::<Ctx>().engine.get_settings().is_ok_and(|s| s.auto_update);
-    if !should_launch(key().is_some(), auto_update, setup_running()) {
+    if !should_install(key().is_some(), auto_update, setup_running(), restart) {
         tracing::info!(version = %ready.manifest.version, "not installing the waiting update (updates off, or Setup is running)");
         let _ = std::fs::remove_file(&ready.path);
-        return;
+        return false;
     }
     // `cfg!`, not `#[cfg]`: the macOS branch still type-checks on Windows CI.
     if cfg!(target_os = "macos") {
@@ -313,21 +378,63 @@ pub fn on_quit(app: &AppHandle) {
         let Some(bundle) = bundle else {
             tracing::info!(version = %ready.manifest.version, "not installing the update: this app is not in a writable Applications folder");
             let _ = std::fs::remove_file(&ready.path);
-            return;
+            return false;
         };
-        match mac_install::install(&ready, &bundle) {
-            Ok(()) => tracing::info!(version = %ready.manifest.version, "installed the update; it runs from the next start"),
+        return match mac_install::install(ready, &bundle) {
+            Ok(()) => {
+                tracing::info!(version = %ready.manifest.version, "installed the update; it runs from the next start");
+                if restart {
+                    relaunch_after_exit(&bundle);
+                }
+                restart
+            }
             Err(InstallError::Blocked(e)) => {
                 tracing::warn!("macOS blocked the update, kept for the next quit: {e}");
                 let _ = std::fs::write(dir(&app.state::<Ctx>().data_dir).join("blocked"), b"");
+                false
             }
-            Err(e) => tracing::warn!("not installing the update: {e}"),
-        }
-        return;
+            Err(e) => {
+                tracing::warn!("not installing the update: {e}");
+                false
+            }
+        };
     }
-    match launch(&ready, &["--silent".into()]) {
-        Ok(()) => tracing::info!(version = %ready.manifest.version, "started the update"),
-        Err(e) => tracing::warn!("not installing the update: {e}"),
+    let args: Vec<OsString> = if restart { vec!["--silent".into(), "--launch".into()] } else { vec!["--silent".into()] };
+    match launch(ready, &args) {
+        Ok(()) => {
+            tracing::info!(version = %ready.manifest.version, "started the update");
+            restart
+        }
+        Err(e) => {
+            tracing::warn!("not installing the update: {e}");
+            false
+        }
+    }
+}
+
+/// Starts `target` once this process is gone (the single-instance plugin refuses a second copy before that).
+/// A detached waiter polls for the PID; a spawn error is only logged, nowhere else to report it.
+fn relaunch_after_exit(target: &Path) {
+    let pid = std::process::id().to_string();
+    let mut cmd;
+    if cfg!(target_os = "macos") {
+        cmd = std::process::Command::new("sh");
+        cmd.args(["-c", r#"while kill -0 "$0" 2>/dev/null; do sleep 0.2; done; open "$1""#]).arg(&pid).arg(target);
+    } else {
+        cmd = std::process::Command::new("powershell");
+        cmd.env("GLYPHYARD_RELAUNCH", target)
+            .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command"])
+            .arg(format!("Wait-Process -Id {pid} -ErrorAction SilentlyContinue; Start-Process -FilePath $env:GLYPHYARD_RELAUNCH"));
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        const DETACHED_PROCESS: u32 = 0x8;
+        cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+    }
+    if let Err(e) = cmd.spawn() {
+        tracing::warn!("restart: could not start the app again: {e}");
     }
 }
 
@@ -511,10 +618,24 @@ mod tests {
 
     #[test]
     fn the_pending_update_starts_only_when_no_setup_is_closing_the_app() {
-        assert!(should_launch(true, true, false));
-        assert!(!should_launch(true, true, true), "a Setup or uninstall is running");
-        assert!(!should_launch(true, false, false), "updates turned off");
-        assert!(!should_launch(false, true, false), "no key");
+        assert!(should_install(true, true, false, false));
+        assert!(!should_install(true, true, true, false), "a Setup or uninstall is running");
+        assert!(!should_install(true, false, false, false), "updates turned off");
+        assert!(!should_install(false, true, false, false), "no key");
+    }
+
+    #[test]
+    fn restart_installs_even_with_auto_update_off() {
+        assert!(should_install(true, false, false, true));
+        assert!(!should_install(true, false, false, false));
+        assert!(!should_install(true, true, true, true), "Setup running");
+        assert!(!should_install(false, true, false, true), "no key");
+    }
+
+    #[test]
+    fn checks_soon_then_hourly() {
+        assert_eq!(FIRST_CHECK, Duration::from_secs(15));
+        assert_eq!(CHECK_EVERY, Duration::from_secs(60 * 60));
     }
 
     /// The mutex Setup creates is seen; without it, nothing is running.

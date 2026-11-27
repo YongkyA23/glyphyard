@@ -233,6 +233,8 @@ export const api = {
   backupCreate: (path: string) => call<{ path: string; at: string }>('backup_create', { path }),
   backupRestore: (path: string) => call<{ path: string; at: string }>('backup_restore', { path }),
 
+  checkUpdate: () => call<UpdateCheck>('check_update'),
+  restartToUpdate: () => call<void>('restart_to_update'),
   getSettings: () => call<Settings>('get_settings'),
   updateSettings: (patch: Partial<Settings>) => call<Settings>('update_settings', { patch }),
 
@@ -293,6 +295,8 @@ export async function tagsOf(keys: string[]): Promise<Map<string, string[]>> {
   return out
 }
 
+export type UpdateCheck = { status: 'upToDate' | 'ready'; version: string }
+
 // ---- Events ----
 export type Events = {
   'library-changed': { reason: 'scan' | 'watch' | 'activation' | 'admin' | 'organize' | 'sync' }
@@ -307,6 +311,7 @@ export type Events = {
   'adobe-pair-request': { requestId: string; app: AdobeApp; appVersion: string }
   'adobe-activated': { app: AdobeApp; document: string; activated: string[]; missing: string[] }
   'events-dropped': { count: number }
+  'update-ready': { version: string }
 }
 
 /** Subscribe; returns an unsubscribe function usable directly as a useEffect cleanup. */

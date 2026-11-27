@@ -746,6 +746,8 @@ const handlers: Record<string, (a: Args) => unknown> = {
     history = [{ id: Math.max(0, ...history.map((h) => h.id)) + 1, kind: 'restore', summary: `Restored backup ${path.split(/[\\/]/).pop()}`, at: iso(), undone: false }, ...history]
     return { path, at: iso() }
   },
+  check_update: () => ({ status: 'ready', version: '1.1.0' }),
+  restart_to_update: () => undefined,
   get_settings: () => settings,
   update_settings: ({ patch }) => {
     settings = { ...settings, ...patch }
