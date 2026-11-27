@@ -5727,7 +5727,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "typeshelf-activation"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "core-foundation",
  "core-foundation-sys",
@@ -5738,7 +5738,7 @@ dependencies = [
 
 [[package]]
 name = "typeshelf-adobe-bridge"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "axum",
@@ -5754,7 +5754,7 @@ dependencies = [
 
 [[package]]
 name = "typeshelf-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "blake3",
  "chrono",
@@ -5765,7 +5765,7 @@ dependencies = [
 
 [[package]]
 name = "typeshelf-desktop"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "auto-launch",
@@ -5793,7 +5793,7 @@ dependencies = [
 
 [[package]]
 name = "typeshelf-engine"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "argon2",
  "chrono",
@@ -5816,7 +5816,7 @@ dependencies = [
 
 [[package]]
 name = "typeshelf-protocol"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chrono",
  "serde",
@@ -5825,7 +5825,7 @@ dependencies = [
 
 [[package]]
 name = "typeshelf-server"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5852,7 +5852,7 @@ dependencies = [
 
 [[package]]
 name = "typeshelf-setup"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chrono",
  "serde",
@@ -5869,7 +5869,7 @@ dependencies = [
 
 [[package]]
 name = "typeshelf-sync"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "axum",
  "chrono",
