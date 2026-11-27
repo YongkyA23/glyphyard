@@ -14,6 +14,7 @@ use axum::{Json, Router};
 use chrono::{TimeZone, Utc};
 use serde_json::{json, Value};
 use typeshelf_core::organizer::{merge, OrganizerDoc, SyncSet};
+use typeshelf_core::update::Platform;
 use typeshelf_protocol::*;
 use typeshelf_sync::{CancellationToken, Config, Organizer, Status, SyncClient, SyncError};
 
@@ -440,19 +441,50 @@ async fn update_release_and_download() {
 
     let dir = tempfile::tempdir().unwrap();
     let client = SyncClient::new(config(&url, Some(TOKEN), &dir.path().join("outbox.jsonl")));
-    assert_eq!(client.update_release().await.unwrap(), None);
+    assert_eq!(client.update_release(Platform::Windows).await.unwrap(), None);
     has_release.store(true, Ordering::SeqCst);
-    assert_eq!(client.update_release().await.unwrap(), Some(("the manifest\n".to_string(), "abcd\n".to_string())));
+    assert_eq!(client.update_release(Platform::Windows).await.unwrap(), Some(("the manifest\n".to_string(), "abcd\n".to_string())));
 
     let to = dir.path().join("setup.part");
-    client.download_update(&to, FILE.len() as u64).await.unwrap();
+    client.download_update(&to, FILE.len() as u64, Platform::Windows).await.unwrap();
     assert_eq!(std::fs::read(&to).unwrap(), FILE);
     // More bytes than the manifest allows: stopped, and nothing is left behind.
-    assert!(client.download_update(&to, FILE.len() as u64 - 1).await.is_err());
+    assert!(client.download_update(&to, FILE.len() as u64 - 1, Platform::Windows).await.is_err());
     assert!(!to.exists());
 
     let anonymous = SyncClient::new(config(&url, None, dir.path()));
-    assert!(matches!(anonymous.update_release().await, Err(SyncError::Server { status: 401, .. })));
+    assert!(matches!(anonymous.update_release(Platform::Windows).await, Err(SyncError::Server { status: 401, .. })));
+}
+
+/// Windows asks with no query (what an older server expects); a Mac adds `?platform=macos` to both routes.
+#[tokio::test]
+async fn update_requests_carry_the_platform_only_on_a_mac() {
+    use axum::extract::RawQuery;
+    let seen = Arc::new(Mutex::new(Vec::<(&'static str, Option<String>)>::new()));
+    let (s1, s2) = (seen.clone(), seen.clone());
+    let release = move |RawQuery(q): RawQuery| async move {
+        s1.lock().unwrap().push(("release", q));
+        Json(json!({ "manifest": "m
+", "signature": "s
+" }))
+    };
+    let file = move |RawQuery(q): RawQuery| async move {
+        s2.lock().unwrap().push(("file", q));
+        b"bytes".to_vec()
+    };
+    let app = Router::new().route("/api/v1/update", get(release)).route("/api/v1/update/file", get(file));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let dir = tempfile::tempdir().unwrap();
+    let client = SyncClient::new(config(&url, Some(TOKEN), &dir.path().join("outbox.jsonl")));
+    let to = dir.path().join("x.part");
+    for p in [Platform::Windows, Platform::Macos] {
+        client.update_release(p).await.unwrap();
+        client.download_update(&to, 100, p).await.unwrap();
+    }
+    let mac = Some("platform=macos".to_string());
+    assert_eq!(*seen.lock().unwrap(), [("release", None), ("file", None), ("release", mac.clone()), ("file", mac)]);
 }
 
 /// A manifest response past 64 KiB is not read to the end: no release.
@@ -465,7 +497,7 @@ async fn an_oversized_update_release_is_none() {
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let dir = tempfile::tempdir().unwrap();
     let client = SyncClient::new(config(&url, Some(TOKEN), &dir.path().join("outbox.jsonl")));
-    assert_eq!(client.update_release().await.unwrap(), None);
+    assert_eq!(client.update_release(Platform::Windows).await.unwrap(), None);
 }
 
 /// An old server without the update routes answers with the admin UI's HTML (200): that is "no release", not an error.
@@ -478,7 +510,7 @@ async fn update_release_from_an_old_server_is_none() {
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let dir = tempfile::tempdir().unwrap();
     let client = SyncClient::new(config(&url, Some(TOKEN), &dir.path().join("outbox.jsonl")));
-    assert_eq!(client.update_release().await.unwrap(), None);
+    assert_eq!(client.update_release(Platform::Windows).await.unwrap(), None);
 }
 
 fn set(uid: &str, name: &str) -> SyncSet {

@@ -20,6 +20,7 @@ use tokio_tungstenite::tungstenite::http::{header::AUTHORIZATION, HeaderValue};
 use tokio_tungstenite::tungstenite::{self, Message};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use typeshelf_core::organizer::{self, OrganizerDoc};
+use typeshelf_core::update::Platform;
 use typeshelf_protocol::{
     ClientMessage, Command, EventBatch, FontSnapshot, NameChange, NameStatus, Policy, RegisterRequest,
     RegisterResponse, ServerMessage, TimedEvent, INSTALL_KEY_HEADER,
@@ -313,15 +314,15 @@ impl SyncClient {
         Ok(res.bytes().await.map_err(http_err)?.to_vec())
     }
 
-    /// `GET /update`: the current release's `(manifest, signature)` exactly as the server sent them, or `None`
-    /// when it has none. The caller verifies them; nothing here is trusted.
-    pub async fn update_release(&self) -> Result<Option<(String, String)>, SyncError> {
+    /// `GET /update` (Windows) or `GET /update?platform=macos`: the current release's `(manifest, signature)`
+    /// exactly as the server sent them, or `None` when it has none. The caller verifies them; nothing here is trusted.
+    pub async fn update_release(&self, platform: Platform) -> Result<Option<(String, String)>, SyncError> {
         #[derive(Deserialize)]
         struct Release {
             manifest: String,
             signature: String,
         }
-        let res = self.request(Method::GET, "/update").send().await.map_err(http_err)?;
+        let res = self.request(Method::GET, &update_path("/update", platform)).send().await.map_err(http_err)?;
         if res.status() == StatusCode::NOT_FOUND {
             return Ok(None);
         }
@@ -337,18 +338,18 @@ impl SyncClient {
         Ok(serde_json::from_slice::<Release>(&body).ok().map(|r| (r.manifest, r.signature)))
     }
 
-    /// Streams `GET /update/file` into `to`, giving up once more than `max` bytes arrive. On any error the
-    /// partial file is removed.
-    pub async fn download_update(&self, to: &Path, max: u64) -> Result<(), SyncError> {
-        let res = self.download_to(to, max).await;
+    /// Streams `GET /update/file` (with `?platform=macos` on a Mac) into `to`, giving up once more than `max`
+    /// bytes arrive. On any error the partial file is removed.
+    pub async fn download_update(&self, to: &Path, max: u64, platform: Platform) -> Result<(), SyncError> {
+        let res = self.download_to(to, max, platform).await;
         if res.is_err() {
             let _ = tokio::fs::remove_file(to).await;
         }
         res
     }
 
-    async fn download_to(&self, to: &Path, max: u64) -> Result<(), SyncError> {
-        let mut res = self.send(self.request(Method::GET, "/update/file")).await?;
+    async fn download_to(&self, to: &Path, max: u64, platform: Platform) -> Result<(), SyncError> {
+        let mut res = self.send(self.request(Method::GET, &update_path("/update/file", platform))).await?;
         let mut f = tokio::fs::File::create(to).await?;
         let mut size = 0u64;
         while let Some(chunk) = res.chunk().await.map_err(http_err)? {
@@ -609,6 +610,14 @@ async fn write_lines(path: &Path, lines: &[String]) -> io::Result<()> {
     f.sync_all().await?;
     drop(f);
     tokio::fs::rename(&tmp, path).await
+}
+
+/// Windows keeps the bare path, so an older server sees today's request; only a Mac asks for its slot.
+fn update_path(path: &str, platform: Platform) -> String {
+    match platform {
+        Platform::Windows => path.into(),
+        Platform::Macos => format!("{path}?platform=macos"),
+    }
 }
 
 #[cfg(test)]
