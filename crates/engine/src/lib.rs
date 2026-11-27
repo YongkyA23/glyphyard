@@ -52,6 +52,8 @@ pub struct Engine {
     system_names: OnceLock<HashSet<String>>,
     last_plan: Mutex<Option<(bool, Vec<OrganizeChange>)>>,
     connection_state: Mutex<(ConnectionStatus, Option<String>)>,
+    /// Held across one unlock attempt (read throttle, verify, write throttle).
+    unlock_lock: Mutex<()>,
     watcher: Mutex<Option<watch::Watcher>>,
     google_catalog: Mutex<Option<std::sync::Arc<Vec<google::Meta>>>>,
     /// Set by `activate_in_background`: turning fonts on returns at once, the OS work runs on a thread.
@@ -76,6 +78,7 @@ impl Engine {
             system_names: OnceLock::new(),
             last_plan: Mutex::new(None),
             connection_state: Mutex::new((ConnectionStatus::Offline, None)),
+            unlock_lock: Mutex::new(()),
             watcher: Mutex::new(None),
             google_catalog: Mutex::new(None),
             me: OnceLock::new(),

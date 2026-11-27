@@ -26,22 +26,27 @@ impl Engine {
     /// Checks the admin's unlock password against the policy hash. Five wrong passwords in a row
     /// lock further attempts for five minutes (kept in the store, so a restart does not reset it).
     pub fn verify_connection_password(&self, password: &str) -> Result<()> {
+        // Attempts are serialized (not the db mutex: argon2 is slow and other db work must go on), so
+        // parallel guesses cannot all start from the same failure count.
+        let _attempt = self.unlock_lock.lock().unwrap_or_else(|p| p.into_inner());
         let (hash, mut throttle) = {
             let db = self.db();
             let hash = store::get::<Policy>(&db, "policy")?.unwrap_or_else(default_policy).connection_password_hash;
             (hash, store::get::<Throttle>(&db, THROTTLE_KEY)?.unwrap_or_default())
         };
+        let unavailable = || EngineError::new("unlock_unavailable", "No unlock password is set for this computer.");
         if hash.is_empty() {
-            return Err(EngineError::new("unlock_unavailable", "No unlock password is set for this computer."));
+            return Err(unavailable());
         }
         if let Some(until) = throttle.locked_until.filter(|u| *u > Utc::now()) {
-            let secs = (until - Utc::now()).num_seconds().max(1);
+            // A clock moved back must not leave a lock far longer than the lock time.
+            let secs = (until - Utc::now()).num_seconds().clamp(1, LOCK_MINUTES * 60);
             let mins = (secs + 59) / 60;
             return Err(EngineError::new("unlock_throttled", format!("Too many wrong passwords. Try again in {mins} minutes."))
                 .with("retryAfterSecs", secs));
         }
-        // ponytail: verification runs outside the db lock; parallel guesses can slip a few extra tries past the counter.
-        let ok = PasswordHash::new(&hash).is_ok_and(|h| Argon2::default().verify_password(password.as_bytes(), &h).is_ok());
+        let parsed = PasswordHash::new(&hash).map_err(|_| unavailable())?;
+        let ok = Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok();
         let db = self.db();
         if ok {
             store::remove(&db, THROTTLE_KEY)?;
@@ -158,7 +163,7 @@ impl Engine {
             server_url: store::get(&db, "server_url")?.unwrap_or_default(),
             install_key: store::get(&db, "install_key")?.unwrap_or_default(),
             editable: policy.allow_connection_edit,
-            unlockable: !policy.allow_connection_edit && !policy.connection_password_hash.is_empty(),
+            unlockable: !policy.allow_connection_edit && PasswordHash::new(&policy.connection_password_hash).is_ok(),
             last_sync: store::get(&db, "last_sync")?,
             install_id: store::get(&db, "install_id")?.unwrap_or_default(),
             error,

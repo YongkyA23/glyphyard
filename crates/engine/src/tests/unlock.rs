@@ -54,6 +54,43 @@ fn unlock_throttle_persists() {
 }
 
 #[test]
+fn parallel_wrong_passwords_still_lock_out() {
+    let fx = fixture!();
+    fx.engine.set_policy(&locked_policy(&fx.engine, "correct horse")).unwrap();
+    std::thread::scope(|s| {
+        for _ in 0..10 {
+            s.spawn(|| {
+                let _ = fx.engine.verify_connection_password("nope");
+            });
+        }
+    });
+    assert_eq!(code(fx.engine.verify_connection_password("correct horse")), "unlock_throttled");
+}
+
+#[test]
+fn retry_time_is_capped_when_the_clock_went_back() {
+    let fx = fixture!();
+    fx.engine.set_policy(&locked_policy(&fx.engine, "correct horse")).unwrap();
+    let far = serde_json::json!({ "failures": 0, "locked_until": Utc::now() + Duration::days(30) });
+    store::set(&fx.engine.db(), "unlock_throttle", &far).unwrap();
+    let err = fx.engine.verify_connection_password("correct horse").unwrap_err();
+    assert_eq!(err.code, "unlock_throttled");
+    assert!(err.extra["retryAfterSecs"].as_i64().unwrap() <= 300);
+}
+
+#[test]
+fn an_unparsable_hash_is_unavailable_and_not_counted() {
+    let fx = fixture!();
+    let mut p = locked_policy(&fx.engine, "x");
+    p.connection_password_hash = "not-a-phc-string".into();
+    fx.engine.set_policy(&p).unwrap();
+    for _ in 0..6 {
+        assert_eq!(code(fx.engine.verify_connection_password("x")), "unlock_unavailable");
+    }
+    assert!(!fx.engine.get_connection().unwrap().unlockable);
+}
+
+#[test]
 fn language_defaults_to_system() {
     let fx = fixture!();
     assert_eq!(fx.engine.get_settings().unwrap().language, Language::System);
