@@ -36,6 +36,8 @@ export type Settings = {
   name_change_days: number; allow_connection_edit: boolean; deliver_library_to_new: boolean
   activate_delivered: boolean; notify_admin_changes: boolean; timeline_retention_days: number | null
   server_url: string; install_key: string
+  /** Whether an unlock password exists; the password and its hash are never sent. */
+  connection_password_set: boolean
   /** Shown in every desktop app; '' = Glyphyard's own. brand_color is '#rrggbb'. */
   brand_name: string; brand_color: string
   /** Image data URL (PNG, JPEG, WebP or SVG, at most 200 KB) or ''. */
@@ -171,7 +173,9 @@ export const api = {
   setRequestDone: (requestId: number, done: boolean) => request<void>('POST', `/requests/${requestId}/${done ? 'done' : 'reopen'}`),
   organizeReports: (page = 1) => request<Page<OrganizeReport>>('GET', '/organize/reports' + qs(paging(page))),
   settings: () => request<Settings>('GET', '/settings'),
-  saveSettings: (s: Partial<Omit<Settings, 'install_key'>>) => request<Settings>('PUT', '/settings', s),
+  saveSettings: (s: Partial<Omit<Settings, 'install_key' | 'connection_password_set'>>) => request<Settings>('PUT', '/settings', s),
+  /** Owner only. null removes the password; otherwise 8 to 128 characters. */
+  setConnectionPassword: (password: string | null) => request<{ connection_password_set: boolean }>('PUT', '/settings/connection-password', { password }),
   regenerateKey: () => request<{ install_key: string }>('POST', '/settings/install-key'),
   updateRelease: () => request<UpdateRelease | null>('GET', '/update'),
   /** Fields `file` (setup program), `manifest` and `signature` (from `typeshelf-server update-sign`). */

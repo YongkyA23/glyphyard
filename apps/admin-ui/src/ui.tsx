@@ -8,6 +8,9 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { applyBrand, getThemePref, setThemePref } from './theme'
 import { Palette } from './palette'
 import { isMac, NAV, OPEN_PALETTE } from './nav'
+import { locale, numLocale, t } from './i18n'
+import { LanguageSelect } from './i18n/LanguageSelect'
+import { Hint } from './Hint'
 
 /* ---------- data ---------- */
 
@@ -210,6 +213,7 @@ function Sidebar() {
           <span className="account-email">{me.data?.email ?? '…'}</span>
           <Chips small label="Theme" value={pref} onChange={(p) => { setThemePref(p); setPref(p) }}
             options={[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']]} />
+          <LanguageSelect />
           <button type="button" className="link-btn account-out" onClick={signOut}>Sign out</button>
         </div>
       </div>
@@ -225,8 +229,8 @@ export function PageHeader({ title, sub, actions, back, align = 'center', childr
       {back && <Link to="/users" className="back">← Users</Link>}
       <div className="page-head" style={{ alignItems: align === 'start' ? 'flex-start' : align }}>
         <div className={children ? 'stack-8' : 'stack-4'}>
-          <h1>{title}</h1>
-          {sub && <span className="sub">{sub}</span>}
+          {typeof sub === 'string' ? <div className="title-row"><h1>{title}</h1><Hint text={sub} /></div> : <h1>{title}</h1>}
+          {sub && typeof sub !== 'string' && <span className="sub">{sub}</span>}
           {children}
         </div>
         {actions}
@@ -354,7 +358,7 @@ export function Chips<K extends string>({ options, value, onChange, small, label
   )
 }
 
-const num = (n: number) => n.toLocaleString('en-US')
+const num = (n: number) => n.toLocaleString(numLocale())
 
 /** Numbered pager: "1–50 of 1,234", Prev/Next, and first, last and current ±1 with gaps. `page` is 1-based. */
 export function Pager({ page, total, size = PAGE_SIZE, onPage, label = 'Pages' }: {
@@ -420,27 +424,28 @@ export function Table({ caption, minWidth, head, children, inset }: {
 /* ---------- formatting ---------- */
 
 const d = (iso: string) => new Date(iso)
-export const fmtDate = (iso: string) => d(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+export const fmtDate = (iso: string) => d(iso).toLocaleDateString(locale(), { day: 'numeric', month: 'short', year: 'numeric' })
 export const fmtShort = (iso: string) =>
-  d(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  d(iso).toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 export const fmtTime = (date: Date) =>
-  date.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  date.toLocaleString(locale(), { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 export function ago(iso: string) {
-  const t = d(iso)
-  const mins = Math.round((Date.now() - t.getTime()) / 60000)
-  if (mins < 1) return 'Just now'
-  if (mins < 60) return `${mins} min ago`
-  if (mins < 24 * 60) return `${Math.round(mins / 60)} h ago`
+  const at = d(iso)
+  const mins = Math.round((Date.now() - at.getTime()) / 60000)
+  if (mins < 1) return t('Just now')
+  if (mins < 60) return t('{n} min ago', { n: mins })
+  if (mins < 24 * 60) return t('{n} h ago', { n: Math.round(mins / 60) })
   const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1)
-  const hm = t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-  if (t.toDateString() === yesterday.toDateString()) return `Yesterday, ${hm}`
+  const hm = at.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })
+  if (at.toDateString() === yesterday.toDateString()) return t('Yesterday, {time}', { time: hm })
   const days = Math.round(mins / 1440)
-  if (days < 30) return `${days} days ago`
+  if (days < 30) return t('{n} days ago', { n: days })
   return fmtDate(iso)
 }
 
-export const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`
+// Callers pass English words; Indonesian has no plural form, so the dictionary maps both to one word.
+export const plural = (n: number, one: string, many = one + 's') => `${num(n)} ${t(n === 1 ? one : many)}`
 export const firstName = (name: string) => name.trim().split(/\s+/)[0] || name
 
 export function downloadCsv(filename: string, rows: (string | number)[][]) {

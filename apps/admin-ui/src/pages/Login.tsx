@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { api, ApiError, errorText } from '../api'
 import { fadeRise, press, shakeOpts, shakeX, spring, stagger } from '../motion'
 import { Spin } from '../ui'
+import { LanguageSelect } from '../i18n/LanguageSelect'
 
 const word = { hidden: { opacity: 0, y: '0.45em' }, show: { opacity: 1, y: 0, transition: spring } }
 const Words = ({ text }: { text: string }) =>
@@ -78,6 +79,7 @@ export function Login() {
             )}
           </AnimatePresence>
         </motion.form>
+        <div className="signin-lang"><LanguageSelect /></div>
       </div>
     </div>
   )

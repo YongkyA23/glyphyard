@@ -142,7 +142,7 @@ export function Library() {
   return (
     <div className="page gap-18">
       <PageHeader title="Shared library"
-        sub={state.data && !query ? `Approved fonts you deliver to users’ apps. ${plural(state.data.total, 'file')}.` : 'Approved fonts you deliver to users’ apps.'}
+        sub="Approved fonts you deliver to users’ apps."
         actions={
           <span className="row-8">
             <Link className="btn" to="/organize">Auto-organize</Link>
@@ -151,7 +151,9 @@ export function Library() {
             </button>
             <input ref={fileInput} type="file" multiple accept={ACCEPT} hidden onChange={upload} aria-label="Font files to upload" />
           </span>
-        } />
+        }>
+        {state.data && !query && <span className="sub">{plural(state.data.total, 'file')}</span>}
+      </PageHeader>
       <div className="toolbar">
         <label htmlFor="lsearch" className="sr-only">Search the shared library</label>
         <input id="lsearch" type="search" className="input grow" placeholder="Search family, style or file name" value={q} onChange={(e) => setQ(e.target.value)} />
