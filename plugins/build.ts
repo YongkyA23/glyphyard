@@ -55,8 +55,10 @@ function zip(dir: string): Uint8Array {
     const entry = new Uint8Array(46 + nameBytes.length);
     const ev = new DataView(entry.buffer);
     ev.setUint32(0, 0x02014b50, true);
-    ev.setUint16(4, 20, true); // version made by
+    // Made by Unix, mode 0644: with no mode, macOS's plug-in installer extracts unreadable files (status -3).
+    ev.setUint16(4, (3 << 8) | 20, true);
     fields(ev, 6);
+    ev.setUint32(38, (0o100644 << 16) >>> 0, true);
     ev.setUint32(42, offset, true);
     entry.set(nameBytes, 46);
     central.push(entry);
