@@ -1749,3 +1749,76 @@ async fn bulk_on_merged_group_reaches_every_computer() {
         assert_eq!(s.ack_all(t).await, ["deactivate"]);
     }
 }
+
+/* ---------- connection unlock password ---------- */
+
+async fn last_pushed_hash(s: &Server, token: &str) -> String {
+    let cmds = s.commands(token).await;
+    s.ack_all(token).await;
+    let last = cmds.iter().rev().find(|c| c["kind"] == "policy_changed").expect("a policy_changed command");
+    last["policy"]["connection_password_hash"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn connection_password_set_and_pushed() {
+    let s = Server::new().await;
+    let token = s.register("a", "Ana").await;
+    s.ack_all(&token).await;
+    let r = s.admin(Method::PUT, "/settings/connection-password", Some(json!({ "password": "correct horse" }))).await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(r.json(), json!({ "connection_password_set": true }));
+    let g = s.admin(Method::GET, "/settings", None).await.json();
+    assert_eq!(g["connection_password_set"], true);
+    assert!(g.get("connection_password_hash").is_none());
+    assert!(last_pushed_hash(&s, &token).await.starts_with("$argon2"));
+
+    let r = s.admin(Method::PUT, "/settings/connection-password", Some(json!({ "password": null }))).await;
+    assert_eq!(r.json(), json!({ "connection_password_set": false }));
+    assert_eq!(s.admin(Method::GET, "/settings", None).await.json()["connection_password_set"], false);
+    assert_eq!(last_pushed_hash(&s, &token).await, "");
+    let log = s.audit("?action=connection_password_cleared").await;
+    assert_eq!(log["items"].as_array().unwrap().len(), 1);
+    assert_eq!(log["items"][0]["detail"], "");
+}
+
+#[tokio::test]
+async fn connection_password_validation() {
+    let s = Server::new().await;
+    let r = s.admin(Method::PUT, "/settings/connection-password", Some(json!({ "password": "short" }))).await;
+    assert_eq!(r.status, StatusCode::BAD_REQUEST);
+    assert_eq!(r.json()["error"], "invalid_password");
+    let too_long = "x".repeat(129);
+    assert_eq!(s.admin(Method::PUT, "/settings/connection-password", Some(json!({ "password": too_long }))).await.status, StatusCode::BAD_REQUEST);
+    let (_, cookie) = s.plain_admin("two@example.com").await;
+    let r = s.as_admin(&cookie, Method::PUT, "/settings/connection-password", Some(json!({ "password": "correct horse" }))).await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN);
+    // A missing key or a wrong type is an error, never a silent clear.
+    s.admin(Method::PUT, "/settings/connection-password", Some(json!({ "password": "correct horse" }))).await;
+    for bad in [json!({}), json!({ "pasword": "typo" }), json!({ "password": 5 })] {
+        let r = s.admin(Method::PUT, "/settings/connection-password", Some(bad.clone())).await;
+        assert_eq!((r.status, r.json()["error"].clone()), (StatusCode::BAD_REQUEST, json!("invalid_password")), "{bad}");
+        assert_eq!(s.admin(Method::GET, "/settings", None).await.json()["connection_password_set"], true, "{bad}");
+    }
+}
+
+#[tokio::test]
+async fn connection_password_never_returned() {
+    let s = Server::new().await;
+    let token = s.register("a", "Ana").await;
+    s.admin(Method::PUT, "/settings/connection-password", Some(json!({ "password": "correct horse" }))).await;
+    s.ack_all(&token).await;
+    let r = s.admin(Method::PUT, "/settings", Some(json!({ "name_change_days": 31 }))).await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert!(r.json().get("connection_password_hash").is_none());
+    assert_eq!(r.json()["connection_password_set"], true);
+    let r = s.admin(Method::PUT, "/settings", Some(json!({ "connection_password_hash": "x", "connection_password_set": false }))).await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(r.json()["connection_password_set"], true);
+    s.admin(Method::PUT, "/settings", Some(json!({ "name_change_days": 32 }))).await;
+    assert!(last_pushed_hash(&s, &token).await.starts_with("$argon2"));
+    let log = s.audit("").await;
+    let rows: Vec<&Value> = log["items"].as_array().unwrap().iter().filter(|e| e["action"] == "connection_password_set").collect();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["detail"], "");
+    assert!(!log.to_string().contains("$argon2"));
+}
