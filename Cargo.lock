@@ -5883,6 +5883,8 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.30.0",
  "tokio-util",
+ "tracing",
+ "typeshelf-core",
  "typeshelf-protocol",
 ]
 

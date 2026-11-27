@@ -19,6 +19,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::{header::AUTHORIZATION, HeaderValue};
 use tokio_tungstenite::tungstenite::{self, Message};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use typeshelf_core::organizer::{self, OrganizerDoc};
 use typeshelf_protocol::{
     ClientMessage, Command, EventBatch, FontSnapshot, NameChange, NameStatus, Policy, RegisterRequest,
     RegisterResponse, ServerMessage, TimedEvent, INSTALL_KEY_HEADER,
@@ -58,6 +59,13 @@ pub struct Me {
     pub policy: Policy,
 }
 
+/// `GET` / `PUT /me/organizer`: the person's synced collections and project sets.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Organizer {
+    pub rev: i64,
+    pub doc: OrganizerDoc,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Status {
     Connected,
@@ -74,6 +82,9 @@ pub enum SyncError {
     NameLocked { next_name_change: DateTime<Utc> },
     #[error("server error {status} {code}: {message}")]
     Server { status: u16, code: String, message: String },
+    /// `PUT /me/organizer` with a stale `base_rev`: another computer pushed first. Holds the server's current one.
+    #[error("the organizer changed on another computer (rev {})", .0.rev)]
+    OrganizerConflict(Organizer),
     #[error(transparent)]
     Http(reqwest::Error),
     #[error("outbox: {0}")]
@@ -217,6 +228,52 @@ impl SyncClient {
             return Err(SyncError::NameLocked { next_name_change: locked.next_name_change });
         }
         check(res).await?.json().await.map_err(http_err)
+    }
+
+    /// `None` from a server without organizer sync: 404, or an older server's admin UI (200, not JSON).
+    pub async fn get_organizer(&self) -> Result<Option<Organizer>, SyncError> {
+        let res = self.request(Method::GET, "/me/organizer").send().await.map_err(http_err)?;
+        if res.status() == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        let body = check(res).await?.bytes().await.map_err(http_err)?;
+        if let Ok(o) = serde_json::from_slice(&body) {
+            return Ok(Some(o));
+        }
+        // An HTML admin UI is an older server; JSON of another shape is a server bug worth seeing in the log.
+        if serde_json::from_slice::<serde_json::Value>(&body).is_ok() {
+            tracing::warn!("GET /me/organizer answered JSON that is not an organizer; organizer sync stays off until the next connect");
+        }
+        Ok(None)
+    }
+
+    /// `Err(OrganizerConflict(current))` when `base_rev` is not the server's rev any more.
+    pub async fn put_organizer(&self, base_rev: i64, doc: &OrganizerDoc) -> Result<Organizer, SyncError> {
+        let body = serde_json::json!({ "base_rev": base_rev, "doc": doc });
+        let res = self.request(Method::PUT, "/me/organizer").json(&body).send().await.map_err(http_err)?;
+        if res.status() == StatusCode::CONFLICT {
+            return Err(SyncError::OrganizerConflict(res.json().await.map_err(http_err)?));
+        }
+        check(res).await?.json().await.map_err(http_err)
+    }
+
+    /// One sync round: pull, merge with `local`, and push only when the merge has something the server lacks or
+    /// `dirty` is set. A conflict is merged with the server's current document and pushed once more; a second
+    /// one is returned as the error. `Ok(Some)` is the server's document to adopt (also when nothing was
+    /// pushed); `Ok(None)` means the server has no organizer sync.
+    pub async fn sync_organizer(&self, local: &OrganizerDoc, dirty: bool) -> Result<Option<Organizer>, SyncError> {
+        let Some(remote) = self.get_organizer().await? else { return Ok(None) };
+        let merged = organizer::merge(&remote.doc, local);
+        if merged == remote.doc && !dirty {
+            return Ok(Some(remote));
+        }
+        match self.put_organizer(remote.rev, &merged).await {
+            Err(SyncError::OrganizerConflict(current)) => {
+                let merged = organizer::merge(&current.doc, &merged);
+                self.put_organizer(current.rev, &merged).await.map(Some)
+            }
+            res => res.map(Some),
+        }
     }
 
     pub async fn put_snapshot(&self, snapshot: &FontSnapshot) -> Result<(), SyncError> {

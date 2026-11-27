@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::Notify;
 use typeshelf_engine::{ConnectionStatus, Engine, EngineError};
 use typeshelf_protocol::{Command, CommandKind, RegisterRequest, ServerMessage, TimedEvent};
 use typeshelf_sync::{CancellationToken, Config, Status, SyncClient, SyncError};
@@ -110,8 +111,10 @@ async fn run(app: AppHandle, client: Arc<SyncClient>, cancel: CancellationToken)
     }
     tauri::async_runtime::spawn(watch_status(app.clone(), client.clone(), cancel.clone()));
     tauri::async_runtime::spawn(watch_dropped_events(app.clone(), client.clone(), cancel.clone()));
+    let organizer_changed = Arc::new(Notify::new());
+    tauri::async_runtime::spawn(watch_organizer(app.clone(), client.clone(), organizer_changed.clone(), cancel.clone()));
     if let Some(notices) = client.notices() {
-        tauri::async_runtime::spawn(watch_notices(app.clone(), notices, cancel.clone()));
+        tauri::async_runtime::spawn(watch_notices(app.clone(), notices, organizer_changed, cancel.clone()));
     }
     let handler = {
         let (app, client) = (app.clone(), client.clone());
@@ -269,8 +272,8 @@ async fn refused(client: &SyncClient, error: String) -> String {
 }
 
 /// Live messages from the server other than commands. `identity`: the person's name or limit changed on another of
-/// their computers or by an admin, stored like `GET /me` on connect. `organizer_changed` is not handled yet.
-async fn watch_notices(app: AppHandle, mut rx: UnboundedReceiver<ServerMessage>, cancel: CancellationToken) {
+/// their computers or by an admin, stored like `GET /me` on connect. `organizer_changed`: wakes `watch_organizer`.
+async fn watch_notices(app: AppHandle, mut rx: UnboundedReceiver<ServerMessage>, organizer_changed: Arc<Notify>, cancel: CancellationToken) {
     let engine = app.state::<Ctx>().engine.clone();
     loop {
         let msg = tokio::select! {
@@ -278,8 +281,99 @@ async fn watch_notices(app: AppHandle, mut rx: UnboundedReceiver<ServerMessage>,
             _ = cancel.cancelled() => return,
             m = rx.recv() => match m { Some(m) => m, None => return },
         };
-        if let ServerMessage::Identity { name, next_name_change } = msg {
-            store_identity(&app, &engine, name, next_name_change).await;
+        match msg {
+            ServerMessage::Identity { name, next_name_change } => store_identity(&app, &engine, name, next_name_change).await,
+            ServerMessage::OrganizerChanged { .. } => organizer_changed.notify_one(),
+            _ => {}
+        }
+    }
+}
+
+/// Collections and project sets follow the person (`GET`/`PUT /me/organizer`): one round on every connect, on
+/// `organizer_changed`, and within about 2 s of a local change. Rounds run one at a time. A server without
+/// organizer sync (404) turns it off until the next connect; after a failed round, local changes wait a minute
+/// (or the next connect or notice) before the next try, so a refusing server is not asked every 2 s.
+async fn watch_organizer(app: AppHandle, client: Arc<SyncClient>, changed: Arc<Notify>, cancel: CancellationToken) {
+    let engine = app.state::<Ctx>().engine.clone();
+    let mut status = client.status();
+    let mut tick = tokio::time::interval(Duration::from_secs(2));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let (mut off, mut wait_until) = (false, tokio::time::Instant::now());
+    loop {
+        let asked = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return,
+            r = status.changed() => {
+                if r.is_err() {
+                    return;
+                }
+                off = false;
+                true
+            }
+            _ = changed.notified() => true,
+            _ = tick.tick() => false,
+        };
+        if off || *status.borrow_and_update() != Status::Connected {
+            continue;
+        }
+        if !asked && (tokio::time::Instant::now() < wait_until || !blocking(&engine, |e| e.organizer_sync_state()).await.is_ok_and(|s| s.1)) {
+            continue;
+        }
+        match organizer_round(&engine, &client, &cancel).await {
+            Round::Done => {}
+            Round::Failed => wait_until = tokio::time::Instant::now() + Duration::from_secs(60),
+            Round::Unsupported => off = true,
+        }
+    }
+}
+
+enum Round {
+    Done,
+    Failed,
+    Unsupported,
+}
+
+/// Pull, merge, push if the server lacks something, then adopt the server's answer locally (which emits
+/// `library-changed` when anything changed, so the lists reload). Once `cancel` fires (the connection was changed
+/// or replaced) nothing more is written: the old server's document must not reach this computer.
+async fn organizer_round(engine: &Arc<Engine>, client: &SyncClient, cancel: &CancellationToken) -> Round {
+    let (local, dirty) = match blocking(engine, |e| Ok((e.organizer_doc()?, e.organizer_sync_state()?.1))).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::warn!("reading collections and project sets for sync: {e}");
+            return Round::Failed;
+        }
+    };
+    let answer = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => return Round::Done,
+        r = client.sync_organizer(&local, dirty) => r,
+    };
+    let cancel = cancel.clone();
+    match answer {
+        Ok(Some(o)) => match blocking(engine, move |e| {
+            // Checked again under the engine call, right before the writes.
+            if cancel.is_cancelled() {
+                return Ok(());
+            }
+            e.apply_organizer(&o.doc)?;
+            e.set_organizer_synced(o.rev)
+        })
+        .await
+        {
+            Ok(()) => Round::Done,
+            Err(e) => {
+                tracing::warn!("applying synced collections and project sets: {e}");
+                Round::Failed
+            }
+        },
+        Ok(None) | Err(SyncError::Server { status: 404, .. }) => {
+            tracing::info!("the server doesn't sync collections and project sets; off until the next connect");
+            Round::Unsupported
+        }
+        Err(e) => {
+            tracing::warn!("syncing collections and project sets: {e}");
+            Round::Failed
         }
     }
 }

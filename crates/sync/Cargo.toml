@@ -15,6 +15,8 @@ thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["rt", "macros", "sync", "time", "fs", "io-util", "net"] }
 tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }
 tokio-util = "0.7.20"
+tracing = "0.1.44"
+typeshelf-core = { workspace = true }
 typeshelf-protocol = { workspace = true }
 
 [dev-dependencies]

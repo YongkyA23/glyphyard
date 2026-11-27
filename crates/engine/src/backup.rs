@@ -142,6 +142,15 @@ impl Engine {
             let ids = stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
             ids
         };
+        // For sync: a restored row keeps the identity of the row it replaces (same id), everything is stamped.
+        let before = crate::organizer::Local::read(&tx)?;
+        let identity = |sql: &str| -> rusqlite::Result<Vec<(i64, String, String)>> {
+            let mut stmt = tx.prepare(sql)?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect();
+            rows
+        };
+        let old_collections = identity("SELECT id, uid, updated_at FROM collections WHERE uid IS NOT NULL AND builtin IS NULL")?;
+        let old_sets = identity("SELECT id, uid, updated_at FROM project_sets WHERE uid IS NOT NULL")?;
         tx.execute_batch(
             "PRAGMA defer_foreign_keys = ON;
              DELETE FROM collection_items; DELETE FROM collections; DELETE FROM family_tags; DELETE FROM pins;
@@ -155,13 +164,16 @@ impl Engine {
             for k in &c.items {
                 tx.execute(
                     "INSERT OR IGNORE INTO collection_items (collection_id, family_key, added_at) VALUES (?1, ?2, ?3)",
-                    params![c.id, k, store::now()],
+                    params![c.id, k, crate::organizer::now()],
                 )?;
             }
         }
         tx.execute_batch(
             "INSERT OR IGNORE INTO collections (name, builtin) VALUES ('Favorites', 'favorites'), ('Recent', 'recent');",
         )?;
+        for (id, uid, at) in &old_collections {
+            tx.execute("UPDATE collections SET uid = ?2, updated_at = ?3 WHERE id = ?1 AND builtin IS NULL", params![id, uid, at])?;
+        }
         for (k, t) in &e.tags {
             tx.execute("INSERT OR IGNORE INTO family_tags (family_key, tag) VALUES (?1, ?2)", params![k, t])?;
         }
@@ -183,6 +195,10 @@ impl Engine {
                 tx.execute("INSERT OR IGNORE INTO project_set_items (set_id, family_key) VALUES (?1, ?2)", params![s.id, k])?;
             }
         }
+        for (id, uid, at) in &old_sets {
+            tx.execute("UPDATE project_sets SET uid = ?2, updated_at = ?3 WHERE id = ?1", params![id, uid, at])?;
+        }
+        crate::organizer::record_restore(&tx, &before)?;
         if let Some(serde_json::Value::Object(s)) = &e.settings {
             let mut merged = serde_json::to_value(store::get::<AppSettings>(&tx, "app")?.unwrap_or_default())?;
             if let serde_json::Value::Object(m) = &mut merged {
@@ -247,6 +263,7 @@ impl Engine {
             serde_json::from_slice(&json).map_err(|e| EngineError::new("invalid", format!("not a collections file: {e}")))?;
         let mut db = self.db();
         let tx = db.transaction()?;
+        let before = crate::organizer::Local::read(&tx)?;
         let mut keys = HashSet::new();
         let mut by_name = HashMap::new();
         {
@@ -285,7 +302,7 @@ impl Engine {
                     Some(key) => {
                         tx.execute(
                             "INSERT OR IGNORE INTO collection_items (collection_id, family_key, added_at) VALUES (?1, ?2, ?3)",
-                            params![id, key, store::now()],
+                            params![id, key, crate::organizer::now()],
                         )?;
                         res.families += 1;
                     }
@@ -303,6 +320,7 @@ impl Engine {
             }
             merge(&tx, node, None, &find, &mut res)?;
         }
+        crate::organizer::record(&tx, &before)?;
         tx.commit()?;
         Ok(res)
     }

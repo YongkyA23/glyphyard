@@ -13,8 +13,9 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chrono::{TimeZone, Utc};
 use serde_json::{json, Value};
+use typeshelf_core::organizer::{merge, OrganizerDoc, SyncSet};
 use typeshelf_protocol::*;
-use typeshelf_sync::{CancellationToken, Config, Status, SyncClient, SyncError};
+use typeshelf_sync::{CancellationToken, Config, Organizer, Status, SyncClient, SyncError};
 
 const KEY: &str = "install-key";
 const TOKEN: &str = "install-token";
@@ -27,9 +28,46 @@ struct Mock {
     ws_connects: AtomicUsize,
     /// Once set, events with changes 500 are accepted.
     server_healed: AtomicBool,
+    /// `(rev, doc)` stored for `/me/organizer`; `None` answers 404 like an older server.
+    organizer: Mutex<Option<(i64, OrganizerDoc)>>,
+    /// Pushed by "another computer" just before the next PUT is handled, so that PUT conflicts.
+    organizer_sneak: Mutex<Option<OrganizerDoc>>,
+    /// Every PUT's `(base_rev, doc)`.
+    organizer_puts: Mutex<Vec<(i64, OrganizerDoc)>>,
 }
 
 type S = State<Arc<Mock>>;
+
+async fn get_organizer(State(m): S, h: HeaderMap) -> Response {
+    if let Err(s) = auth(&h, true) {
+        return s.into_response();
+    }
+    match m.organizer.lock().unwrap().clone() {
+        Some((rev, doc)) => Json(json!({ "rev": rev, "doc": doc })).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// Like the server: merges what is stored with what is sent, 409 with the current one on a stale base_rev.
+async fn put_organizer(State(m): S, h: HeaderMap, Json(body): Json<Value>) -> Response {
+    if let Err(s) = auth(&h, true) {
+        return s.into_response();
+    }
+    let (base, doc): (i64, OrganizerDoc) = (body["base_rev"].as_i64().unwrap(), serde_json::from_value(body["doc"].clone()).unwrap());
+    m.organizer_puts.lock().unwrap().push((base, doc.clone()));
+    let mut stored = m.organizer.lock().unwrap();
+    let (rev, cur) = stored.clone().expect("PUT only after GET");
+    if let Some(other) = m.organizer_sneak.lock().unwrap().take() {
+        *stored = Some((rev + 1, merge(&cur, &other)));
+    }
+    let (rev, cur) = stored.clone().unwrap();
+    if base != rev {
+        return (StatusCode::CONFLICT, Json(json!({ "error": "organizer_conflict", "message": "", "rev": rev, "doc": cur }))).into_response();
+    }
+    let next = (rev + 1, merge(&cur, &doc));
+    *stored = Some(next.clone());
+    Json(json!({ "rev": next.0, "doc": next.1 })).into_response()
+}
 
 fn auth(h: &HeaderMap, bearer: bool) -> Result<(), StatusCode> {
     if h.get(INSTALL_KEY_HEADER).and_then(|v| v.to_str().ok()) != Some(KEY) {
@@ -140,6 +178,7 @@ async fn serve(mock: Arc<Mock>) -> String {
         .route("/api/v1/me/commands", get(commands))
         .route("/api/v1/me/commands/{id}/ack", post(ack))
         .route("/api/v1/me/ws", get(ws))
+        .route("/api/v1/me/organizer", get(get_organizer).put(put_organizer))
         .with_state(mock);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
@@ -435,4 +474,49 @@ async fn update_release_from_an_old_server_is_none() {
     let dir = tempfile::tempdir().unwrap();
     let client = SyncClient::new(config(&url, Some(TOKEN), &dir.path().join("outbox.jsonl")));
     assert_eq!(client.update_release().await.unwrap(), None);
+}
+
+fn set(uid: &str, name: &str) -> SyncSet {
+    SyncSet { uid: uid.into(), name: name.into(), note: String::new(), updated_at: "2026-01-01T00:00:00.000000Z".into(), deleted_at: None, items: vec![] }
+}
+
+fn sets(names: &[(&str, &str)]) -> OrganizerDoc {
+    OrganizerDoc { collections: vec![], sets: names.iter().map(|(u, n)| set(u, n)).collect() }
+}
+
+#[tokio::test]
+async fn push_retries_after_conflict() {
+    let mock = Arc::new(Mock::default());
+    *mock.organizer.lock().unwrap() = Some((3, sets(&[("a", "Remote")])));
+    // Another computer pushes "Other" between this computer's GET and PUT.
+    *mock.organizer_sneak.lock().unwrap() = Some(sets(&[("b", "Other")]));
+    let url = serve(mock.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let client = SyncClient::new(config(&url, Some(TOKEN), &dir.path().join("outbox.jsonl")));
+
+    let local = sets(&[("c", "Local")]);
+    let got = client.sync_organizer(&local, false).await.unwrap().expect("the server syncs organizers");
+    let all = sets(&[("a", "Remote"), ("b", "Other"), ("c", "Local")]);
+    assert_eq!(got, Organizer { rev: 5, doc: all.clone() }, "nothing is lost");
+    let puts = mock.organizer_puts.lock().unwrap().clone();
+    assert_eq!(puts.iter().map(|p| p.0).collect::<Vec<_>>(), [3, 4], "one retry, on the rev the conflict returned");
+    assert_eq!(puts[1].1, all, "the retry carries the merge with the server's current document");
+}
+
+#[tokio::test]
+async fn organizer_pushes_only_what_the_server_lacks() {
+    let mock = Arc::new(Mock::default());
+    let url = serve(mock.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let client = SyncClient::new(config(&url, Some(TOKEN), &dir.path().join("outbox.jsonl")));
+    assert_eq!(client.sync_organizer(&sets(&[("c", "Local")]), true).await.unwrap(), None, "404: an older server");
+
+    let remote = sets(&[("a", "Remote"), ("c", "Local")]);
+    *mock.organizer.lock().unwrap() = Some((7, remote.clone()));
+    let got = client.sync_organizer(&sets(&[("c", "Local")]), false).await.unwrap().unwrap();
+    assert_eq!(got, Organizer { rev: 7, doc: remote.clone() }, "the pull is adopted");
+    assert!(mock.organizer_puts.lock().unwrap().is_empty(), "the server already has everything: no push");
+
+    client.sync_organizer(&sets(&[("c", "Local")]), true).await.unwrap().unwrap();
+    assert_eq!(mock.organizer_puts.lock().unwrap().len(), 1, "dirty pushes anyway");
 }

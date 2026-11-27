@@ -681,20 +681,7 @@ impl Engine {
                 drop(stmt);
                 self.activate_hashes(&db, &hashes, Source::ProjectSet)?
             } else {
-                let mut stmt = db.prepare(
-                    "SELECT DISTINCT i.family_key FROM project_set_items i JOIN project_sets s ON s.id = i.set_id
-                     WHERE s.is_on = 1 AND s.id != ?1",
-                )?;
-                let needed: HashSet<String> = stmt.query_map([id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-                let mut stmt = db.prepare(
-                    "SELECT DISTINCT a.hash FROM activations a JOIN faces f ON f.hash = a.hash
-                     WHERE f.family_key = ?1 AND a.source NOT IN ('admin', 'library')",
-                )?;
-                let mut hashes = Vec::new();
-                for k in keys.iter().filter(|k| !needed.contains(*k)) {
-                    hashes.extend(stmt.query_map([k], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?);
-                }
-                drop(stmt);
+                let hashes = set_off_hashes(&db, id, &keys)?;
                 self.deactivate_hashes(&db, &hashes, Source::ProjectSet)?
             };
             db.execute(
@@ -793,6 +780,25 @@ impl Engine {
 
 fn is_otf(f: &FontFile) -> bool {
     f.path.as_ref().and_then(|p| p.extension()).is_some_and(|e| e.eq_ignore_ascii_case("otf"))
+}
+
+/// The fonts to turn off when these families leave set `id` (the set turned off, deleted, or the families
+/// removed from it): those of families no other active set needs, minus fonts an admin or a library push turned on.
+pub(crate) fn set_off_hashes(conn: &Connection, id: i64, keys: &[String]) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT i.family_key FROM project_set_items i JOIN project_sets s ON s.id = i.set_id
+         WHERE s.is_on = 1 AND s.id != ?1",
+    )?;
+    let needed: HashSet<String> = stmt.query_map([id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT a.hash FROM activations a JOIN faces f ON f.hash = a.hash
+         WHERE f.family_key = ?1 AND a.source NOT IN ('admin', 'library')",
+    )?;
+    let mut hashes = Vec::new();
+    for k in keys.iter().filter(|k| !needed.contains(*k)) {
+        hashes.extend(stmt.query_map([k], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?);
+    }
+    Ok(hashes)
 }
 
 pub(crate) fn set_keys(conn: &Connection, id: i64) -> rusqlite::Result<Vec<String>> {

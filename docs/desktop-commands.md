@@ -121,10 +121,12 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `pick_folder` / `pick_file {filters}` / `pick_save_file {defaultName, filters}` | → `string \| null` (native dialogs) |
 | `pick_files` | `{ filters }` → `string[] \| null` (native multi-select open dialog) |
 
+**Collections and project sets follow the person** (no command; the sync loop does it). With a server that has `GET`/`PUT /me/organizer` (docs/api.md), the shell pulls, merges (`typeshelf_core::organizer::merge`), pushes when the server lacks something, and adopts the server's answer: on every connect, on a live `organizer_changed` message, and within about 2 s of a local change. What syncs: every collection except Recent (Favorites by its families only), with name, parent and families; project sets with name, note and families. Not synced: Recent, whether a set is on and when it was last used, tags, licenses, pins. Every change through the commands above (create, rename, delete, add, remove, `save_project_set`, `delete_project_set`, a family rename that changes a family's key, `backup_restore` and its undo, `import_collections`) is stamped for the merge; a delete leaves a tombstone so it stays deleted on the other computers. `backup_restore` (and its undo) is the exception: it stamps what it adds or changes, and families it removes from collections and sets that are in the backup, but a collection or set the backup lacks is not deleted elsewhere: the next sync brings it back from the server. A change that arrives emits `library-changed` with reason `sync`; local ids stay the same for existing items. A set that is on here and is deleted on another computer is turned off first (like `delete_project_set`); families removed from it there are turned off here the same way. A server without organizer sync (404) turns it off silently until the next connect; a 409 is merged and pushed once more.
+
 ## Events (backend → UI, `listen(name, cb)`)
 | Event | Payload |
 |---|---|
-| `library-changed` | `{ reason: "scan" \| "watch" \| "activation" \| "admin" \| "organize" }` |
+| `library-changed` | `{ reason: "scan" \| "watch" \| "activation" \| "admin" \| "organize" \| "sync" }` (`sync`: collections or project sets changed on another computer of the person; reload both lists) |
 | `admin-change` | `{ action: "activated" \| "deactivated" \| "blocked" \| "delivered", fonts: { family: string, style: string }[] }` (UI shows the blue banner) |
 | `organize-requested` | `{}` (admin asked; UI opens the auto-organize preview) |
 | `connection-changed` | `Connection` |
