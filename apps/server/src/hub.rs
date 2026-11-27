@@ -66,6 +66,20 @@ pub fn notify_person(c: &Connection, hub: &Hub, install_id: &str, except: Option
     Ok(())
 }
 
+/// Sends the person's current name and next allowed change to their connected computers, except `except`.
+/// Call after the change committed, so a computer that refetches `GET /me` sees the same. Best effort: the change
+/// already stands and every connect reads `GET /me`, so a failure here is only logged.
+pub fn notify_identity(c: &Connection, hub: &Hub, install_id: &str, except: Option<&str>) {
+    let res = (|| {
+        let name = db::install_name(c, install_id)?.unwrap_or_default();
+        let next_name_change = db::next_name_change(c, install_id, db::settings(c)?.name_change_days)?;
+        notify_person(c, hub, install_id, except, &ServerMessage::Identity { name, next_name_change })
+    })();
+    if let Err(e) = res {
+        tracing::warn!("telling {install_id}'s computers their name: {e}");
+    }
+}
+
 /// Stores the command (so it survives offline periods) for the install and for every install merged into it
 /// (each is still a computer of its own), and pushes it to those connected. Returns the command id of `install_id`.
 /// The copies of a fan-out share `fanout` = that id, so `ack` can judge the group as a whole.

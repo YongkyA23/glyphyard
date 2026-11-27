@@ -1,5 +1,5 @@
 // Dev-only fixtures (?mock=1). Patches fetch for /api/admin so pages render without a server.
-import type { AuditEntry, FamilyRow, FontRequest, FontState, InstallDetail, InstallSummary, LibraryFile, Overview, Page, Settings } from './api'
+import type { AuditEntry, Computer, FamilyRow, FontRequest, FontState, InstallDetail, InstallSummary, LibraryFile, Overview, Page, Settings } from './api'
 
 const now = Date.now()
 const at = (mins: number) => new Date(now - mins * 60000).toISOString()
@@ -35,8 +35,23 @@ const fonts: FontState[] = [
     return mk(`hf${i}`, FAMILIES[fam], style, i % 3 !== 0, source, 5 + ((i * 53) % 4000), source === 'admin' && i % 7 === 0, source === 'library', source === 'library' && i % 6 === 0)
   }),
 ]
+/** When every mock person registered: before any computer merged into them (a merge keeps the older install). */
+const FIRST_SEEN = at(90 * day)
+/** Computers merged into a person, by person id. Budi has an old laptop (merged 60 days ago, past the split window)
+ *  and a Mac merged recently (can split). */
+const merged: Record<string, Computer[]> = {
+  '7F3A-2C9E-91C2': [
+    { id: '0F9E-1A2B-8C3D', os: 'Windows 10', app_version: '0.9.2', first_seen: at(80 * day), last_seen: at(40 * day), online: false, merged_at: at(60 * day) },
+    { id: 'A3C1-77E0-2B4D', os: 'macOS · Apple silicon', app_version: '1.0.0', first_seen: at(20 * day), last_seen: at(30), online: false, merged_at: at(10 * day) },
+  ],
+}
+/** Like the server: the person's own install first, then the merged ones by first_seen. */
+const mergedInto = (id: string) => [...(merged[id] ?? [])].sort((a, b) => a.first_seen.localeCompare(b.first_seen))
+const own = (s: InstallSummary): Computer =>
+  ({ id: s.id, os: s.os, app_version: s.app_version, first_seen: FIRST_SEEN, last_seen: s.last_seen, online: s.online, merged_at: null })
 const detail = (s: InstallSummary): InstallDetail => ({
-  ...s, first_seen: at(26 * day), merged_from: [],
+  ...s, first_seen: FIRST_SEEN, merged_from: mergedInto(s.id).map((c) => c.id),
+  computers: [own(s), ...mergedInto(s.id)],
   name_history: [{ name: s.name, from: at(15 * day), to: null }, ...s.previous_names.map((n) => ({ name: n, from: at(26 * day), to: at(15 * day) }))],
   overrides: s.flags.includes('override') ? [{ font: fonts[0], admin_at: at(day), user_at: at(5) }] : [],
 })
@@ -131,6 +146,26 @@ function queueFont(f: FontState, active: boolean) {
 function route(method: string, p: string, sp: URLSearchParams, body: unknown): unknown {
   const m = (re: RegExp) => p.match(re)
   if (p === '/me') return { email: 'admin@example.test', role: 'owner' }
+  const rm = method === 'DELETE' && m(/^\/installs\/([^/]+)\/computers\/([^/]+)$/)
+  if (rm) {
+    // Like the server: a merged computer goes alone; the person's own install hands the person to the next one.
+    const [person, computer] = [decodeURIComponent(rm[1]), decodeURIComponent(rm[2])]
+    const rest = mergedInto(person)
+    delete merged[person]
+    if (computer !== person) {
+      merged[person] = rest.filter((c) => c.id !== computer)
+      return { person }
+    }
+    const i = installs.findIndex((x) => x.id === person)
+    const [next, ...others] = rest
+    if (!next) {
+      installs.splice(i, 1)
+      return { person }
+    }
+    installs[i] = { ...installs[i], id: next.id, os: next.os, app_version: next.app_version, last_seen: next.last_seen, online: next.online }
+    merged[next.id] = others
+    return { person: next.id }
+  }
   if (method === 'DELETE') {
     const list: { id?: string; hash?: string }[] = p.startsWith('/installs/') ? installs : library
     const i = list.findIndex((x) => (x.id ?? x.hash) === decodeURIComponent(p.split('/')[2]))

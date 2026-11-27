@@ -5,7 +5,7 @@ use crate::{audit, db, db::GROUP, library, hub, hub::Hub, ApiError, ApiResult, A
 use axum::extract::{Path, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Datelike, Duration, NaiveDate, TimeZone, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -28,6 +28,7 @@ pub fn routes() -> Router<AppState> {
         .route("/installs/{id}/reset-name-limit", post(reset_name_limit))
         .route("/installs/{id}/organize-request", post(organize_request))
         .route("/installs/{id}/split", post(split))
+        .route("/installs/{id}/computers/{computer}", delete(remove_computer))
         .route("/name-changes", get(name_changes))
         .route("/name-changes.csv", get(name_changes_csv))
         .route("/organize/reports", get(organize_reports))
@@ -64,6 +65,10 @@ pub(crate) fn exists(c: &Connection, id: &str) -> ApiResult<()> {
     found.then_some(()).ok_or_else(|| ApiError::not_found(format!("no install {id}")))
 }
 
+fn is_online(hub: &Hub, id: &str, last_seen: &str) -> bool {
+    hub.is_connected(id) || last_seen >= ago(Duration::minutes(ONLINE_WINDOW_MIN)).as_str()
+}
+
 /// Everything except the `possible_duplicate` flag, which needs all installs.
 fn summary(c: &Connection, hub: &Hub, days: u32, id: &str) -> rusqlite::Result<InstallSummary> {
     let (name, os, app_version, first_seen, last_seen): (String, String, String, String, String) = c.query_row(
@@ -87,7 +92,7 @@ fn summary(c: &Connection, hub: &Hub, days: u32, id: &str) -> rusqlite::Result<I
         params![id, ago(Duration::days(7))],
         |r| r.get(0),
     )?;
-    let online = hub.is_connected(id) || last_seen >= ago(Duration::minutes(ONLINE_WINDOW_MIN));
+    let online = is_online(hub, id, &last_seen);
     let mut flags = Vec::new();
     if first_seen >= ago(Duration::days(NEW_DAYS)) {
         flags.push("new");
@@ -452,6 +457,19 @@ fn install_detail(c: &Connection, hub: &Hub, id: &str) -> ApiResult<Value> {
     let mut stmt = c.prepare("SELECT id FROM installs WHERE merged_into = ?1 AND revoked_at IS NULL ORDER BY first_seen")?;
     let merged_from: Vec<String> = stmt.query_map([id], |r| r.get(0))?.collect::<Result<_, _>>()?;
 
+    // The person's own install first (`db::person_devices` order).
+    let mut computers = Vec::new();
+    for device in db::person_devices(c, id)? {
+        let (os, app_version, first_seen, last_seen, merged_at): (String, String, String, String, Option<String>) = c.query_row(
+            "SELECT os, app_version, first_seen, last_seen, merged_at FROM installs WHERE id = ?1",
+            [&device],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )?;
+        let online = is_online(hub, &device, &last_seen);
+        computers.push(json!({ "id": device, "os": os, "app_version": app_version, "first_seen": first_seen,
+                               "last_seen": last_seen, "online": online, "merged_at": merged_at }));
+    }
+
     let mut stmt = c.prepare(&format!("SELECT new_name, at FROM name_changes WHERE install_id IN {GROUP} ORDER BY at, id"))?;
     let names: Vec<(String, String)> = stmt.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
     let name_history: Vec<Value> = names
@@ -474,6 +492,7 @@ fn install_detail(c: &Connection, hub: &Hub, id: &str) -> ApiResult<Value> {
     let obj = out.as_object_mut().expect("object");
     obj.insert("first_seen".into(), json!(summary.first_seen));
     obj.insert("merged_from".into(), json!(merged_from));
+    obj.insert("computers".into(), json!(computers));
     obj.insert("name_history".into(), json!(name_history));
     obj.insert("overrides".into(), json!(overrides));
     Ok(out)
@@ -564,6 +583,7 @@ async fn reset_name_limit(State(s): State<AppState>, admin: Admin, Path(id): Pat
     db.execute("INSERT INTO name_limit_resets (install_id, at, admin_id) VALUES (?1, ?2, ?3)", params![id, now, admin.id])?;
     db::insert_event(&db, &id, "name", "admin", "Admin reset the name-change limit", "{}", &now)?;
     audit::record(&db, &admin.email, "name_limit_reset", &id, "")?;
+    hub::notify_identity(&db, &s.hub, &id, None);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -630,6 +650,7 @@ async fn merge(State(s): State<AppState>, admin: Admin, Json(body): Json<MergeBo
     db::insert_event(&tx, &primary, "system", "admin", &format!("Merged with install {secondary}"), "{}", &now)?;
     audit::record(&tx, &admin.email, "installs_merged", &primary, &format!("merged {secondary} into it, name {kept_name}"))?;
     tx.commit()?;
+    hub::notify_identity(&db, &s.hub, &primary, None);
     Ok(Json(install_detail(&db, &s.hub, &primary)?))
 }
 
@@ -646,10 +667,11 @@ async fn split(State(s): State<AppState>, admin: Admin, Path(id): Path<String>) 
     if merged_at < ago(Duration::days(SPLIT_DAYS)) {
         return Err(ApiError::new(StatusCode::CONFLICT, "split_expired", "merges can only be undone within 30 days"));
     }
-    // Undo the rename the merge made, if any.
+    // Undo the rename the merge made, if any. It is on the person's group, not always on the primary itself: after a
+    // removed primary handed the person over (`remove_computer`), it stays on that removed install.
     let renamed: Option<(i64, String)> = tx
         .query_row(
-            "SELECT id, old_name FROM name_changes WHERE install_id = ?1 AND by = 'merge' AND at = ?2",
+            &format!("SELECT id, old_name FROM name_changes WHERE install_id IN {GROUP} AND by = 'merge' AND at = ?2"),
             params![primary, merged_at],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
@@ -664,6 +686,8 @@ async fn split(State(s): State<AppState>, admin: Admin, Path(id): Path<String>) 
     db::insert_event(&tx, &id, "system", "admin", &format!("Split back out of install {primary}"), "{}", &now)?;
     audit::record(&tx, &admin.email, "install_split", &id, &format!("out of {primary}"))?;
     tx.commit()?;
+    hub::notify_identity(&db, &s.hub, &primary, None);
+    hub::notify_identity(&db, &s.hub, &id, None);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -680,12 +704,7 @@ async fn revoke(State(s): State<AppState>, admin: Admin, Path(id): Path<String>)
         drop(stmt);
         let now = db::now();
         for i in &ids {
-            tx.execute("UPDATE installs SET revoked_at = ?1 WHERE id = ?2", params![now, i])?;
-            tx.execute("DELETE FROM font_states WHERE install_id = ?1", [i])?;
-            // Cancelled, not deleted: a deleted command id could be reused (no AUTOINCREMENT).
-            tx.execute("UPDATE commands SET acked_at = ?1, ok = 0, error = 'cancelled' WHERE install_id = ?2 AND acked_at IS NULL", params![now, i])?;
-            tx.execute("DELETE FROM deliveries WHERE target = ?1", [i])?;
-            db::insert_event(&tx, i, "system", "admin", "Removed by an admin", "{}", &now)?;
+            revoke_one(&tx, i, &now)?;
         }
         audit::record(&tx, &admin.email, "install_revoked", &id, "")?;
         tx.commit()?;
@@ -695,6 +714,72 @@ async fn revoke(State(s): State<AppState>, admin: Admin, Path(id): Path<String>)
         s.hub.kick(i);
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// One computer's part of a removal: its token is refused, its fonts, unsent commands and deliveries go, and its
+/// timeline says so. Runs in the caller's transaction; the caller kicks its socket after the commit.
+fn revoke_one(c: &Connection, id: &str, now: &str) -> rusqlite::Result<()> {
+    c.execute("UPDATE installs SET revoked_at = ?1 WHERE id = ?2", params![now, id])?;
+    c.execute("DELETE FROM font_states WHERE install_id = ?1", [id])?;
+    // Cancelled, not deleted: a deleted command id could be reused (no AUTOINCREMENT).
+    c.execute("UPDATE commands SET acked_at = ?1, ok = 0, error = 'cancelled' WHERE install_id = ?2 AND acked_at IS NULL", params![now, id])?;
+    c.execute("DELETE FROM deliveries WHERE target = ?1", [id])?;
+    db::insert_event(c, id, "system", "admin", "Removed by an admin", "{}", now)
+}
+
+/// Removes one of a person's computers and returns the id the person is listed under now. A merged computer is
+/// revoked on its own. The person's own install hands the person to its earliest-registered remaining computer,
+/// which takes the person's name and deliveries; the removed install stays merged into it, so its history still
+/// belongs to the person. The only computer goes like the whole person.
+async fn remove_computer(State(s): State<AppState>, admin: Admin, Path((id, computer)): Path<(String, String)>) -> ApiResult<Json<Value>> {
+    let person = {
+        let mut db = s.db();
+        let tx = db.transaction()?;
+        exists(&tx, &id)?;
+        exists(&tx, &computer)?;
+        let devices = db::person_devices(&tx, &id)?;
+        if db::person(&tx, &id)? != id || !devices.contains(&computer) {
+            return Err(ApiError::not_found(format!("{computer} is not a computer of {id}")));
+        }
+        let now = db::now();
+        let mut person = id.clone();
+        match devices.get(1) {
+            Some(next) if computer == id => {
+                let name = db::install_name(&tx, &id)?.unwrap_or_default();
+                // Its own row's name; `install_name` would read the person's while it is still merged.
+                let own: String = tx.query_row("SELECT name FROM installs WHERE id = ?1", [next], |r| r.get(0))?;
+                // Everything merged into the person follows, removed computers too, so their history moves along.
+                tx.execute("UPDATE installs SET merged_into = ?1 WHERE merged_into = ?2", params![next, id])?;
+                tx.execute("UPDATE installs SET merged_into = NULL, merged_at = NULL WHERE id = ?1", [next])?;
+                if own != name {
+                    tx.execute("UPDATE installs SET name = ?1 WHERE id = ?2", params![name, next])?;
+                    tx.execute(
+                        "INSERT INTO name_changes (install_id, old_name, new_name, by, at) VALUES (?1, ?2, ?3, 'merge', ?4)",
+                        params![next, own, name, now],
+                    )?;
+                }
+                // Deliveries to the person keep reaching its computers; duplicates are dropped by `revoke_one`.
+                tx.execute("UPDATE OR IGNORE deliveries SET target = ?1 WHERE target = ?2", params![next, id])?;
+                revoke_one(&tx, &id, &now)?;
+                tx.execute("UPDATE installs SET merged_into = ?1 WHERE id = ?2", params![next, id])?;
+                db::insert_event(&tx, next, "system", "admin", &format!("Removed computer {id}"), "{}", &now)?;
+                db::insert_event(&tx, next, "system", "admin", &format!("Now listed under this computer (was {id})"), "{}", &now)?;
+                person = next.clone();
+            }
+            Some(_) => {
+                revoke_one(&tx, &computer, &now)?;
+                db::insert_event(&tx, &id, "system", "admin", &format!("Removed computer {computer}"), "{}", &now)?;
+            }
+            None => revoke_one(&tx, &computer, &now)?,
+        }
+        // Targets the id the person is listed under now, so the audit page's link still opens them.
+        let detail = if person == id { computer.clone() } else { format!("{computer}, promoted {person}") };
+        audit::record(&tx, &admin.email, "computer_removed", &person, &detail)?;
+        tx.commit()?;
+        person
+    };
+    s.hub.kick(&computer);
+    Ok(Json(json!({ "person": person })))
 }
 
 /// Moves a revoked install's rows to a new id (`<id>~revoked-<hex>`) so the computer can register again under its

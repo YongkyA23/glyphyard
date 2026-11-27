@@ -116,6 +116,10 @@ async fn ws_session(m: Arc<Mock>, mut socket: WebSocket) {
     if socket.send(Message::Text(text.into())).await.is_err() {
         return;
     }
+    let identity = ServerMessage::Identity { name: format!("Budi {n}"), next_name_change: None };
+    if socket.send(Message::Text(serde_json::to_string(&identity).unwrap().into())).await.is_err() {
+        return;
+    }
     while let Some(Ok(msg)) = socket.recv().await {
         let Message::Text(text) = msg else { continue };
         let Ok(ClientMessage::Ack { id, ok, .. }) = serde_json::from_str(&text) else { continue };
@@ -348,6 +352,26 @@ async fn commands_are_handled_acked_and_survive_reconnect() {
     cancel.cancel();
     tokio::time::timeout(Duration::from_secs(5), task).await.expect("run stops on cancel").unwrap();
     assert_eq!(*status.borrow(), Status::Offline);
+}
+
+#[tokio::test]
+async fn non_command_messages_arrive_on_notices() {
+    let url = serve(Arc::default()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let client = Arc::new(SyncClient::new(config(&url, Some(TOKEN), &dir.path().join("outbox.jsonl"))));
+    let mut notices = client.notices().expect("the first call subscribes");
+    assert!(client.notices().is_none(), "only one subscriber");
+
+    let cancel = CancellationToken::new();
+    let task = tokio::spawn({
+        let (client, cancel) = (client.clone(), cancel.clone());
+        async move { client.run(cancel, |_| async { Ok(()) }).await }
+    });
+    let msg = tokio::time::timeout(Duration::from_secs(5), notices.recv()).await.expect("no notice").unwrap();
+    assert!(matches!(msg, ServerMessage::Identity { ref name, next_name_change: None } if name == "Budi 1"), "{msg:?}");
+
+    cancel.cancel();
+    tokio::time::timeout(Duration::from_secs(5), task).await.expect("run stops on cancel").unwrap();
 }
 
 #[tokio::test]

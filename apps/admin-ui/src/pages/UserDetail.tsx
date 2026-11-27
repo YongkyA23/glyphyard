@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { api, errorText, type InstallDetail, type TimelineEvent, type TimelineFilter } from '../api'
+import { api, errorText, type Computer, type InstallDetail, type TimelineEvent, type TimelineFilter } from '../api'
 import { Hint } from '../Hint'
 import { t, tk } from '../i18n'
 import { dropIn, fadeRise, row } from '../motion'
@@ -94,7 +94,7 @@ function Detail({ u, reload }: { u: InstallDetail; reload: () => void }) {
             </button>
             <Link className="btn" to={`/users?select=${encodeURIComponent(u.id)}`}>{t('Merge with another install')}</Link>
             <ExportCsv u={u} />
-            <RemoveComputer u={u} />
+            <RemovePerson u={u} />
           </div>
         }>
           <span className="pills">
@@ -120,7 +120,7 @@ function Detail({ u, reload }: { u: InstallDetail; reload: () => void }) {
               </div>
             ))}
           </motion.section>
-          {u.merged_from.length > 0 && <Merged ids={u.merged_from} reload={reload} />}
+          <Computers u={u} reload={reload} />
         </div>
       </div>
     </>
@@ -189,40 +189,81 @@ function Overrides({ u, who }: { u: InstallDetail; who: string }) {
   )
 }
 
-function Merged({ ids, reload }: { ids: string[]; reload: () => void }) {
+/** A merge can be split within 30 days (the server refuses later ones). */
+const canSplit = (c: Computer) => c.merged_at !== null && Date.now() - Date.parse(c.merged_at) < 30 * 86_400_000
+
+/** The person's computers: split a recent merge, or remove one computer while the person stays. */
+function Computers({ u, reload }: { u: InstallDetail; reload: () => void }) {
+  const navigate = useNavigate()
+  const [confirmDialog, confirm] = useConfirm()
+  const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
-  const split = async (id: string) => {
-    if (!confirm(t('Split install {id} back out into its own person?', { id }))) return
+  const several = u.computers.length > 1
+
+  const run = async (c: Computer, work: () => Promise<void>) => {
+    setBusy(c.id)
     setError('')
-    try { await api.split(id); reload() } catch (e) { setError(errorText(e)) }
+    try { await work() } catch (e) { setError(errorText(e)) } finally { setBusy('') }
   }
+  const split = async (c: Computer) => {
+    if (!(await confirm(t('Split computer {id} back out into its own user? It gets its own name back.', { id: c.id }), t('Split')))) return
+    await run(c, async () => { await api.split(c.id); toast(t('Split computer {id} back out.', { id: c.id })); reload() })
+  }
+  const remove = async (c: Computer) => {
+    const text = c.id === u.id
+      ? t('Remove computer {id}? It is disconnected at once. {name} keeps their other computers and their name, and from now on is listed under the next one. Its name history stays in the export.', { id: c.id, name: u.name })
+      : t('Remove computer {id} from {name}? It is disconnected at once and disappears from your lists. {name} keeps their other computers. Its name history stays in the export.', { id: c.id, name: u.name })
+    if (!(await confirm(text, t('Remove'), true))) return
+    await run(c, async () => {
+      const { person } = await api.removeComputer(u.id, c.id)
+      toast(t('Removed a computer from {name}.', { name: u.name }))
+      if (person === u.id) reload()
+      else navigate(`/users/${encodeURIComponent(person)}`, { replace: true })
+    })
+  }
+
   return (
-    <motion.section aria-labelledby="mg" className="card pad-18 stack-8" variants={fadeRise}>
-      <div className="title-row mb-4"><h2 id="mg" className="h2 h2-sm">{t('Merged installs')}</h2><Hint text={t('You can split a merge within 30 days.')} /></div>
-      {ids.map((id) => (
-        <div key={id} className="kv">
-          <span className="mono">{id}</span>
-          <button type="button" className="btn btn-sm" onClick={() => split(id)}>{t('Split')}</button>
+    <motion.section aria-labelledby="pc" className="card pad-18 stack-8" variants={fadeRise}>
+      <div className="title-row mb-4"><h2 id="pc" className="h2 h2-sm">{t('Computers')}</h2><Hint text={t('Every computer of this user shares one name. You can split a merge within 30 days.')} /></div>
+      {u.computers.map((c) => (
+        <div key={c.id} className="kv computer">
+          <span className="stack-2">
+            <span className="row-6"><span aria-hidden="true" className={c.online ? 'dot dot-on' : 'dot'} />{c.os} · Glyphyard {c.app_version}</span>
+            <span className="meta"><span className="mono">{c.id}</span> · {c.online ? t('Online') : t('Last seen {when}', { when: ago(c.last_seen).toLowerCase() })}</span>
+          </span>
+          <span className="row-6">
+            {canSplit(c) && (
+              <button type="button" className="btn btn-sm" disabled={busy !== ''} onClick={() => split(c)}>{t('Split')}</button>
+            )}
+            {several && (
+              <button type="button" className="btn btn-sm btn-danger" disabled={busy !== ''} onClick={() => remove(c)}>
+                {busy === c.id && <Spin />}{t('Remove this computer')}
+              </button>
+            )}
+          </span>
         </div>
       ))}
       {error && <span role="alert" className="form-error">{error}</span>}
+      {confirmDialog}
     </motion.section>
   )
 }
 
-function RemoveComputer({ u }: { u: InstallDetail }) {
+/** Removes the whole person: every one of their computers. */
+function RemovePerson({ u }: { u: InstallDetail }) {
   const navigate = useNavigate()
   const [confirmDialog, confirm] = useConfirm()
   const [busy, setBusy] = useState(false)
+  const several = u.computers.length > 1
   const run = async () => {
-    const text = u.merged_from.length
-      ? t('Remove {name}’s computer and the {computers} merged into it? It is disconnected at once and disappears from your lists. Its name history stays in the export. If Glyphyard is set up on it again, it shows up as a new user.', { name: u.name, computers: plural(u.merged_from.length, 'computer') })
+    const text = several
+      ? t('Remove {name} and all {computers}? They are disconnected at once and disappear from your lists. The name history stays in the export. If Glyphyard is set up on one of them again, it shows up as a new user.', { name: u.name, computers: plural(u.computers.length, 'computer') })
       : t('Remove {name}’s computer? It is disconnected at once and disappears from your lists. Its name history stays in the export. If Glyphyard is set up on it again, it shows up as a new user.', { name: u.name })
     if (!(await confirm(text, t('Remove'), true))) return
     setBusy(true)
     try {
       await api.removeInstall(u.id)
-      toast(t('Removed {name}’s computer.', { name: u.name }))
+      toast(t('Removed {name}.', { name: u.name }))
       navigate('/users')
     } catch (e) {
       toast(errorText(e), { tone: 'bad' })
@@ -230,7 +271,9 @@ function RemoveComputer({ u }: { u: InstallDetail }) {
     }
   }
   return <>
-    <button type="button" className="btn btn-danger" disabled={busy} onClick={run}>{busy && <Spin />}{busy ? t('Removing…') : t('Remove this computer')}</button>
+    <button type="button" className="btn btn-danger" disabled={busy} onClick={run}>
+      {busy && <Spin />}{busy ? t('Removing…') : several ? t('Remove user and all computers') : t('Remove user')}
+    </button>
     {confirmDialog}
   </>
 }

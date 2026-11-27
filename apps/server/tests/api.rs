@@ -402,6 +402,216 @@ async fn merge_carries_names_and_limit_then_split() {
     assert_eq!(s.admin(Method::GET, "/installs", None).await.json()["total"], 2);
 }
 
+type Ws = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+impl Server {
+    /// Opens `id`'s desktop WebSocket on a fresh listener and waits until the hub has it.
+    async fn open_ws(&self, id: &str, token: &str) -> Ws {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let router = self.app.clone();
+        tokio::spawn(async move { axum::serve(listener, router).await });
+        let (ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/api/v1/me/ws?key={}&token={token}", self.key)).await.unwrap();
+        for _ in 0..50 {
+            if self.state.hub.is_connected(id) {
+                return ws;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("{id}'s socket did not connect");
+    }
+
+    /// Merges `b` into `a`, keeping `a`'s name.
+    async fn merge(&self, a: &str, b: &str) {
+        let r = self.admin(Method::POST, "/installs/merge", Some(json!({ "primary": a, "secondary": b, "keep_name": "primary" }))).await;
+        assert_eq!(r.status, StatusCode::OK, "{}", String::from_utf8_lossy(&r.body));
+    }
+}
+
+/// Fails if an `identity` message arrives within half a second; other messages are skipped.
+async fn no_identity(ws: &mut Ws) {
+    let quiet = async {
+        while let Some(Ok(msg)) = ws.next().await {
+            if let Ok(ServerMessage::Identity { name, .. }) = serde_json::from_str(msg.to_text().unwrap_or_default()) {
+                panic!("unexpected identity message: {name}");
+            }
+        }
+    };
+    let _ = tokio::time::timeout(std::time::Duration::from_millis(500), quiet).await;
+}
+
+/// The next `identity` message on the socket, skipping commands.
+async fn next_identity(ws: &mut Ws) -> (String, Option<DateTime<Utc>>) {
+    loop {
+        let msg = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next()).await.expect("no identity message").unwrap().unwrap();
+        if let Ok(ServerMessage::Identity { name, next_name_change }) = serde_json::from_str(msg.to_text().unwrap_or_default()) {
+            return (name, next_name_change);
+        }
+    }
+}
+
+#[tokio::test]
+async fn merged_computer_renames_the_person() {
+    let s = Server::new().await;
+    let a = s.register("a", "Budi").await;
+    let b = s.register("b", "Budi Mac").await;
+    s.merge("a", "b").await;
+    let mut ws_a = s.open_ws("a", &a).await;
+    let mut ws_b = s.open_ws("b", &b).await;
+
+    let r = s.desktop(Method::PUT, "/me/name", &b, Some(json!({ "name": "Budi Santoso" }))).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", String::from_utf8_lossy(&r.body));
+    assert_eq!(r.json()["name"], "Budi Santoso");
+    assert!(r.json()["next_name_change"].is_string());
+
+    assert_eq!(s.admin(Method::GET, "/installs/a", None).await.json()["name"], "Budi Santoso", "the admin sees it on the person");
+    let me = s.desktop(Method::GET, "/me", &a, None).await.json();
+    assert_eq!(me["name"], "Budi Santoso");
+    assert!(me["next_name_change"].is_string(), "the limit is shared by the person's computers");
+    assert_eq!(s.desktop(Method::GET, "/me", &b, None).await.json()["name"], "Budi Santoso");
+    let locked = s.desktop(Method::PUT, "/me/name", &a, Some(json!({ "name": "Budi S." }))).await;
+    assert_eq!(locked.status, StatusCode::CONFLICT);
+    assert_eq!(locked.json()["error"], "name_locked");
+    let by: String = s.state.db().query_row("SELECT install_id FROM name_changes WHERE by = 'user'", [], |r| r.get(0)).unwrap();
+    assert_eq!(by, "b", "the history keeps the computer that made the change");
+
+    let (name, next) = next_identity(&mut ws_a).await;
+    assert_eq!(name, "Budi Santoso");
+    assert!(next.is_some());
+    no_identity(&mut ws_b).await; // the computer that made the change already knows
+}
+
+#[tokio::test]
+async fn merge_tells_the_merged_computer_its_name() {
+    let s = Server::new().await;
+    let a = s.register("a", "Budi").await;
+    let b = s.register("b", "Budi Mac").await;
+    let mut ws_b = s.open_ws("b", &b).await;
+    s.merge("a", "b").await;
+    assert_eq!(next_identity(&mut ws_b).await, ("Budi".to_string(), None));
+    assert_eq!(s.desktop(Method::GET, "/me", &b, None).await.json()["name"], "Budi");
+
+    // A split hands the computer its own name back, and tells the primary too.
+    let mut ws_a = s.open_ws("a", &a).await;
+    assert_eq!(s.admin(Method::POST, "/installs/b/split", None).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(next_identity(&mut ws_b).await.0, "Budi Mac");
+    assert_eq!(next_identity(&mut ws_a).await, ("Budi".to_string(), None));
+}
+
+#[tokio::test]
+async fn split_after_promotion_undoes_the_merge_rename() {
+    let s = Server::new().await;
+    s.register("a", "Budi").await;
+    let b = s.register("b", "Budi Mac").await;
+    let c = s.register("c", "Citra").await;
+    s.merge("a", "b").await;
+    // Keeps c's name: the merge renames a from "Budi" to "Citra".
+    let r = s.admin(Method::POST, "/installs/merge", Some(json!({ "primary": "a", "secondary": "c", "keep_name": "secondary" }))).await;
+    assert_eq!(r.json()["name"], "Citra");
+    assert_eq!(s.admin(Method::DELETE, "/installs/a/computers/a", None).await.json(), json!({ "person": "b" }));
+    assert_eq!(s.desktop(Method::GET, "/me", &b, None).await.json()["name"], "Citra");
+
+    // The rename lives on the removed install a; splitting c still undoes it on the person, now b.
+    assert_eq!(s.admin(Method::POST, "/installs/c/split", None).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(s.admin(Method::GET, "/installs/b", None).await.json()["name"], "Budi");
+    assert_eq!(s.desktop(Method::GET, "/me", &c, None).await.json()["name"], "Citra");
+}
+
+#[tokio::test]
+async fn removing_a_merged_computer_keeps_the_person() {
+    let s = Server::new().await;
+    let a = s.register("a", "Budi").await;
+    let b = s.register("b", "Budi Mac").await;
+    s.merge("a", "b").await;
+    let mut ws_b = s.open_ws("b", &b).await;
+
+    let r = s.admin(Method::DELETE, "/installs/a/computers/b", None).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", String::from_utf8_lossy(&r.body));
+    assert_eq!(r.json(), json!({ "person": "a" }));
+    let me = s.desktop(Method::GET, "/me", &b, None).await;
+    assert_eq!((me.status, me.json()["error"].as_str()), (StatusCode::UNAUTHORIZED, Some("revoked")));
+    assert_eq!(s.desktop(Method::GET, "/me", &a, None).await.status, StatusCode::OK);
+    loop {
+        match tokio::time::timeout(std::time::Duration::from_secs(5), ws_b.next()).await.expect("the socket was not closed") {
+            None | Some(Err(_)) | Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))) => break,
+            Some(Ok(_)) => {}
+        }
+    }
+    let list = s.admin(Method::GET, "/installs", None).await.json();
+    assert_eq!((list["total"].as_i64(), list["items"][0]["id"].as_str()), (Some(1), Some("a")));
+    let d = s.admin(Method::GET, "/installs/a", None).await.json();
+    let computers: Vec<&str> = d["computers"].as_array().unwrap().iter().map(|c| c["id"].as_str().unwrap()).collect();
+    assert_eq!(computers, ["a"]);
+    let audit = s.audit("?action=computer_removed").await;
+    assert_eq!((audit["items"][0]["target"].as_str(), audit["items"][0]["detail"].as_str()), (Some("a"), Some("b")));
+    let timeline = s.admin(Method::GET, "/installs/a/timeline", None).await.json();
+    assert_eq!(timeline["items"][0]["text"], "Removed computer b", "the person's timeline says a computer went, not the person");
+}
+
+#[tokio::test]
+async fn removing_the_primary_promotes_the_next() {
+    let s = Server::new().await;
+    let a = s.register("a", "Budi").await;
+    let b = s.register("b", "Budi Mac").await;
+    let c = s.register("c", "Budi Win").await;
+    s.merge("a", "b").await;
+    s.merge("a", "c").await;
+    let hash = s.library_font().await;
+    s.admin(Method::POST, &format!("/library/{hash}/deliver"), Some(json!({ "target": ["a"] }))).await;
+    let d = s.admin(Method::GET, "/installs/a", None).await.json();
+    let computers = d["computers"].as_array().unwrap();
+    assert_eq!(computers.iter().map(|c| c["id"].as_str().unwrap()).collect::<Vec<_>>(), ["a", "b", "c"], "the person first");
+    assert!(computers[0]["merged_at"].is_null() && computers[1]["merged_at"].is_string());
+    assert_eq!((computers[0]["os"].as_str(), computers[0]["app_version"].as_str()), (Some("windows"), Some("0.1.0")));
+    assert!(computers[0]["online"].is_boolean() && computers[0]["first_seen"].is_string() && computers[0]["last_seen"].is_string());
+
+    let r = s.admin(Method::DELETE, "/installs/a/computers/a", None).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", String::from_utf8_lossy(&r.body));
+    assert_eq!(r.json(), json!({ "person": "b" }));
+    assert_eq!(s.desktop(Method::GET, "/me", &a, None).await.json()["error"], "revoked");
+    let list = s.admin(Method::GET, "/installs", None).await.json();
+    assert_eq!(list["total"], 1);
+    assert_eq!((list["items"][0]["id"].as_str(), list["items"][0]["name"].as_str()), (Some("b"), Some("Budi")));
+    let d = s.admin(Method::GET, "/installs/b", None).await.json();
+    let computers: Vec<&str> = d["computers"].as_array().unwrap().iter().map(|c| c["id"].as_str().unwrap()).collect();
+    assert_eq!(computers, ["b", "c"]);
+    assert_eq!(d["merged_from"], json!(["c"]));
+    for token in [&b, &c] {
+        assert_eq!(s.desktop(Method::GET, "/me", token, None).await.json()["name"], "Budi");
+    }
+    // What was delivered to the person still reaches its computers.
+    assert_eq!(s.desktop(Method::GET, "/me/library", &b, None).await.json().as_array().unwrap().len(), 1);
+    // The removed install's history stays with the person.
+    let csv = String::from_utf8(s.admin(Method::GET, "/name-changes.csv", None).await.body).unwrap();
+    assert!(csv.lines().any(|l| l.contains(",b;a;c,,Budi,first,")), "{csv}");
+    assert!(csv.lines().any(|l| l.contains(",b;a;c,Budi Mac,Budi,merge,")), "{csv}");
+    // The audit row opens the person under its new id; the timeline says what happened to the person.
+    let audit = s.audit("?action=computer_removed").await;
+    assert_eq!((audit["items"][0]["target"].as_str(), audit["items"][0]["detail"].as_str()), (Some("b"), Some("a, promoted b")));
+    let timeline = s.admin(Method::GET, "/installs/b/timeline", None).await.json();
+    let texts: Vec<&str> = timeline["items"].as_array().unwrap().iter().map(|e| e["text"].as_str().unwrap()).collect();
+    assert!(texts.contains(&"Removed computer a") && texts.contains(&"Now listed under this computer (was a)"), "{texts:?}");
+}
+
+#[tokio::test]
+async fn remove_computer_validates() {
+    let s = Server::new().await;
+    s.register("a", "Budi").await;
+    s.register("b", "Budi Mac").await;
+    let other = s.register("other", "Citra").await;
+    s.merge("a", "b").await;
+    for path in ["/installs/a/computers/other", "/installs/other/computers/b", "/installs/b/computers/b", "/installs/a/computers/nobody"] {
+        assert_eq!(s.admin(Method::DELETE, path, None).await.status, StatusCode::NOT_FOUND, "{path}");
+    }
+    assert_eq!(s.admin(Method::DELETE, "/installs/a/computers/b", None).await.status, StatusCode::OK);
+    assert_eq!(s.admin(Method::DELETE, "/installs/a/computers/b", None).await.status, StatusCode::NOT_FOUND, "already removed");
+    // The only computer: the same as removing the person.
+    let r = s.admin(Method::DELETE, "/installs/other/computers/other", None).await;
+    assert_eq!(r.json(), json!({ "person": "other" }));
+    assert_eq!(s.desktop(Method::GET, "/me", &other, None).await.json()["error"], "revoked");
+    assert_eq!(s.admin(Method::DELETE, "/installs/other/computers/other", None).await.status, StatusCode::NOT_FOUND);
+}
+
 #[tokio::test]
 async fn merged_installs_still_get_commands_and_share_a_font_list() {
     let s = Server::new().await;

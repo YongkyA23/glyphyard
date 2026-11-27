@@ -137,8 +137,10 @@ pub fn save_settings(c: &Connection, s: &Settings) -> rusqlite::Result<()> {
 /// SQL for "this install and every install merged into it"; bind the install id as `?1`.
 pub const GROUP: &str = "(SELECT id FROM installs WHERE id = ?1 OR merged_into = ?1)";
 
-/// When this install (with everything merged into it) may change its name next; `None` = now.
+/// When the person this install belongs to may change their name next: user changes and admin resets from every
+/// one of their computers count. `None` = now.
 pub fn next_name_change(c: &Connection, id: &str, days: u32) -> rusqlite::Result<Option<DateTime<Utc>>> {
+    let id = &person(c, id)?;
     let last_change: Option<String> = c.query_row(
         &format!("SELECT MAX(at) FROM name_changes WHERE by = 'user' AND install_id IN {GROUP}"),
         [id],
@@ -176,8 +178,9 @@ pub fn person_devices(c: &Connection, person: &str) -> rusqlite::Result<Vec<Stri
     ids
 }
 
+/// The name of the person this install belongs to: the name lives on the person's own row.
 pub fn install_name(c: &Connection, id: &str) -> rusqlite::Result<Option<String>> {
-    c.query_row("SELECT name FROM installs WHERE id = ?1", [id], |r| r.get(0)).optional()
+    c.query_row("SELECT name FROM installs WHERE id = ?1", [person(c, id)?], |r| r.get(0)).optional()
 }
 
 /// Every install not merged away or revoked: the admin's list, and the targets of broadcasts (block, policy,

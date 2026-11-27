@@ -4,12 +4,12 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc::UnboundedReceiver;
 use typeshelf_engine::{ConnectionStatus, Engine, EngineError};
-use typeshelf_protocol::{Command, CommandKind, RegisterRequest, TimedEvent};
+use typeshelf_protocol::{Command, CommandKind, RegisterRequest, ServerMessage, TimedEvent};
 use typeshelf_sync::{CancellationToken, Config, Status, SyncClient, SyncError};
 
 use crate::{blocking, Ctx};
@@ -110,6 +110,9 @@ async fn run(app: AppHandle, client: Arc<SyncClient>, cancel: CancellationToken)
     }
     tauri::async_runtime::spawn(watch_status(app.clone(), client.clone(), cancel.clone()));
     tauri::async_runtime::spawn(watch_dropped_events(app.clone(), client.clone(), cancel.clone()));
+    if let Some(notices) = client.notices() {
+        tauri::async_runtime::spawn(watch_notices(app.clone(), notices, cancel.clone()));
+    }
     let handler = {
         let (app, client) = (app.clone(), client.clone());
         move |cmd: Command| {
@@ -265,29 +268,53 @@ async fn refused(client: &SyncClient, error: String) -> String {
     }
 }
 
+/// Live messages from the server other than commands. `identity`: the person's name or limit changed on another of
+/// their computers or by an admin, stored like `GET /me` on connect. `organizer_changed` is not handled yet.
+async fn watch_notices(app: AppHandle, mut rx: UnboundedReceiver<ServerMessage>, cancel: CancellationToken) {
+    let engine = app.state::<Ctx>().engine.clone();
+    loop {
+        let msg = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return,
+            m = rx.recv() => match m { Some(m) => m, None => return },
+        };
+        if let ServerMessage::Identity { name, next_name_change } = msg {
+            store_identity(&app, &engine, name, next_name_change).await;
+        }
+    }
+}
+
+/// Stores the server's name and next allowed change; emits `name-changed` when either differs from what is stored.
+async fn store_identity(app: &AppHandle, engine: &Arc<Engine>, name: String, next_name_change: Option<DateTime<Utc>>) {
+    let changed = blocking(engine, move |e| {
+        let state = e.get_app_state()?;
+        let next = next_name_change.map(|d| d.to_rfc3339());
+        if state.name == name && state.next_name_change == next {
+            return Ok(None);
+        }
+        e.set_identity(&name, next_name_change)?;
+        Ok(Some(json!({ "name": name, "nextNameChange": next })))
+    })
+    .await;
+    match changed {
+        Ok(Some(payload)) => {
+            let _ = app.emit("name-changed", payload);
+        }
+        Ok(None) => {}
+        Err(e) => tracing::warn!("storing the name from the server: {e}"),
+    }
+}
+
 /// Uploads the active-font snapshot and picks up name/policy changes made on the server.
 async fn on_connect(app: &AppHandle, engine: &Arc<Engine>, client: &SyncClient) {
     push_snapshot(engine, client).await;
     match client.me().await {
         Ok(me) => {
-            let changed = blocking(engine, move |e| {
-                e.set_policy(&me.policy)?;
-                let state = e.get_app_state()?;
-                let next = me.next_name_change.map(|d| d.to_rfc3339());
-                if state.name == me.name && state.next_name_change == next {
-                    return Ok(None);
-                }
-                e.set_identity(&me.name, me.next_name_change)?;
-                Ok(Some(json!({ "name": me.name, "nextNameChange": next })))
-            })
-            .await;
-            match changed {
-                Ok(Some(payload)) => {
-                    let _ = app.emit("name-changed", payload);
-                }
-                Ok(None) => {}
-                Err(e) => tracing::warn!("storing /me: {e}"),
+            let policy = me.policy;
+            if let Err(e) = blocking(engine, move |e| e.set_policy(&policy)).await {
+                tracing::warn!("storing the policy: {e}");
             }
+            store_identity(app, engine, me.name, me.next_name_change).await;
         }
         Err(e) => tracing::warn!("GET /me: {e}"),
     }

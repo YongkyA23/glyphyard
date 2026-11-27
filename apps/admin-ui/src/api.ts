@@ -14,8 +14,12 @@ export type FontFilter = { q?: string; active?: boolean; source?: FontSource; ov
 export type FontSelection = { families: string[] } | { hashes: string[] } | { all: true }
 export type FamilySort = 'name' | 'recent'
 export type FontState = { hash: string; ps_name: string; family: string; style: string; active: boolean; source: FontSource; overridden: boolean; updated_at: string; in_library: boolean; blocked: boolean }
+/** One of a person's computers; `merged_at` is null for the person's own install. */
+export type Computer = { id: string; os: string; app_version: string; first_seen: string; last_seen: string; online: boolean; merged_at: string | null }
 export type InstallDetail = InstallSummary & {
   first_seen: string; merged_from: string[]
+  /** The person's own install first. */
+  computers: Computer[]
   name_history: { name: string; from: string; to: string | null }[]
   overrides: { font: FontState; admin_at: string; user_at: string }[]
 }
@@ -150,6 +154,9 @@ export const api = {
     request<InstallDetail>('POST', '/installs/merge', { primary, secondary, keep_name }),
   split: (retiredId: string) => request<void>('POST', `/installs/${id(retiredId)}/split`),
   removeInstall: (installId: string) => request<void>('DELETE', `/installs/${id(installId)}`),
+  /** Removes one of the person's computers; `person` is the id the person is listed under afterwards. */
+  removeComputer: (personId: string, computerId: string) =>
+    request<{ person: string }>('DELETE', `/installs/${id(personId)}/computers/${id(computerId)}`),
   nameChanges: (q = '', since = '', page = 1) => request<Page<NameChangeRow>>('GET', '/name-changes' + qs({ q, since, ...paging(page) })),
   nameChangesCsvUrl: (q = '', since = '') => BASE + '/name-changes.csv' + qs({ q, since }),
   library: (q = '', page = 1, size = PAGE_SIZE, sort?: Sort<LibrarySort>) =>

@@ -15,7 +15,7 @@ const LABELS: Record<string, string> = {
   font_delivered: tk('Delivered a font'), organize_applied: tk('Applied auto-organize'), font_on: tk('Turned a font on remotely'),
   font_off: tk('Turned a font off remotely'), name_limit_reset: tk('Reset the name-change limit'), organize_requested: tk('Asked an install to organize'),
   installs_merged: tk('Merged installs'), install_split: tk('Split an install back out'),
-  install_revoked: tk('Removed a computer'), font_undelivered: tk('Stopped delivering a font'), font_deleted: tk('Deleted a font'),
+  install_revoked: tk('Removed a user and all their computers'), computer_removed: tk('Removed a computer'), font_undelivered: tk('Stopped delivering a font'), font_deleted: tk('Deleted a font'),
   bulk_deliver: tk('Delivered fonts in bulk'), bulk_block: tk('Blocked fonts in bulk'), bulk_unblock: tk('Unblocked fonts in bulk'), bulk_delete: tk('Deleted fonts in bulk'),
   fonts_bulk_on: tk('Turned fonts on in bulk'), fonts_bulk_off: tk('Turned fonts off in bulk'), fonts_bulk_block: tk('Blocked fonts in bulk'),
   font_request_done: tk('Marked a font request done'), font_request_reopened: tk('Reopened a font request'),

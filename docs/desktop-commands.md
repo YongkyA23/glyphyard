@@ -133,6 +133,6 @@ type ActivationResult = { hash: string; ok: boolean; error: "file_missing" | "in
 | `activation-progress` | `{ done, total, active }`: a `set_active` batch bigger than one chunk (64 files) reports after each chunk; the database is free between chunks |
 | `activation-done` | `{ total, failed: string[] }`: turning fonts on returns at once and the OS registration runs in the background; when it ends, fonts that failed are already switched back off and `failed` says why ("Family Style: reason", at most 20) |
 | `badge-earned` | `{ id, name, description, earnedAt }` (UI shows a toast) |
-| `name-changed` | `{ name, nextNameChange }` (also after the sync loop registers, with the name the server stored; an empty name means the server refused it) |
+| `name-changed` | `{ name, nextNameChange }` (also after the sync loop registers, with the name the server stored; an empty name means the server refused it; and when the server's name or next allowed change differs from the stored one, read from `GET /me` on connect or from a live `identity` message: a rename on another computer of the same person, a merge, a split or an admin limit reset) |
 | `adobe-pair-request` | `{ requestId, app, appVersion }` (UI asks "Allow Photoshop to turn on fonts automatically?") |
 | `adobe-activated` | `{ app, document, activated: string[], missing: string[] }` (UI shows a short notice) |
