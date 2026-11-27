@@ -2,10 +2,12 @@
 //! (`TYPESHELF_UPDATE_KEY`, baked in by scripts/build-windows.ps1 and scripts/build-macos.sh) and Settings › "Update automatically" is on.
 //!
 //! Checks a minute after start, then daily: fetch the manifest and signature, verify the signature with the
-//! baked-in key, ignore anything not newer than this app, download the setup program into `<data>/update/`,
-//! check it against the manifest's size and hash, and only then mark it ready. At quit the file is checked
-//! again (it sat on disk) while a handle denies writes to it, and started detached with `--silent`.
-//! Any failure deletes the file and is logged; nothing unverified is ever started.
+//! baked-in key, ignore anything not newer than this app or meant for the other platform, download the release
+//! file into `<data>/update/`, check it against the manifest's size and hash, and only then mark it ready.
+//! At quit the file is checked again (it sat on disk). Windows: while a handle denies writes to it, the setup
+//! program is started detached with `--silent`. macOS: the `.app.tar.gz` is read into memory, checked, unpacked
+//! next to the app and swapped into its place (`mac_install`); no relaunch.
+//! Any failure deletes the file and is logged; nothing unverified is ever started or installed.
 
 use std::ffi::OsString;
 use std::fs::File;
@@ -19,6 +21,7 @@ use typeshelf_core::update::{self, Manifest, Platform, UpdateError, Version};
 use typeshelf_engine::AppSettings;
 use typeshelf_sync::SyncClient;
 
+use crate::mac_install::{self, InstallError};
 use crate::Ctx;
 
 const UPDATE_KEY: Option<&str> = option_env!("TYPESHELF_UPDATE_KEY");
@@ -42,7 +45,7 @@ pub fn key() -> Option<[u8; 32]> {
     update::public_key(UPDATE_KEY)
 }
 
-/// A downloaded setup program that passed every check.
+/// A downloaded release file that passed every check: the Windows setup program or the macOS `.app.tar.gz`.
 #[derive(Debug, Clone)]
 pub struct Ready {
     pub path: PathBuf,
@@ -134,7 +137,8 @@ pub async fn run(app: AppHandle) {
     let _ = std::fs::remove_file(dir.join(part_name(PLATFORM)));
     // The quit-time swap leaves this marker when macOS refused it; say so once, then forget it.
     let blocked = dir.join("blocked");
-    if blocked.exists() {
+    let was_blocked = blocked.exists();
+    if was_blocked {
         *app.state::<Pending>().problem.lock().unwrap() = Some(BLOCKED.into());
         let _ = std::fs::remove_file(&blocked);
     }
@@ -155,13 +159,14 @@ pub async fn run(app: AppHandle) {
         let have = pending.ready.lock().unwrap().as_ref().map(|r| r.manifest.version);
         match check(&ctx.client(), Some(&key), &dir, CURRENT, have, PLATFORM).await {
             Ok(found) => {
-                *pending.problem.lock().unwrap() = None;
                 if let Some(ready) = found {
                     tracing::info!(version = %ready.manifest.version, "update downloaded and verified; it installs when Glyphyard quits");
                     if let Some(old) = pending.ready.lock().unwrap().replace(ready) {
                         let _ = std::fs::remove_file(old.path);
                     }
                 }
+                let waiting = pending.ready.lock().unwrap().is_some();
+                *pending.problem.lock().unwrap() = problem_after_check(was_blocked, waiting);
             }
             Err(e) => {
                 tracing::warn!("update check: {e}");
@@ -172,6 +177,12 @@ pub async fn run(app: AppHandle) {
             }
         }
     }
+}
+
+/// The Settings notice after a good check: none, except that a swap macOS blocked at the last quit stays
+/// explained while its release still waits to install.
+pub fn problem_after_check(was_blocked: bool, waiting: bool) -> Option<String> {
+    (was_blocked && waiting).then(|| BLOCKED.into())
 }
 
 /// One check. Does nothing without a key. `have` is the version already downloaded, if any.
@@ -283,8 +294,9 @@ fn io(e: std::io::Error) -> UpdateError {
     UpdateError::Io(e.to_string())
 }
 
-/// At quit, from `shutdown`: starts the waiting release when updates are still on and no Glyphyard Setup or
-/// uninstall is the one closing the app. Silent Setup updates the registered install folder in place.
+/// At quit, from `shutdown`: installs the waiting release when updates are still on and no Glyphyard Setup or
+/// uninstall is the one closing the app. Windows: silent Setup updates the registered install folder in place.
+/// macOS: the new bundle is swapped into this one's place; a swap macOS blocks leaves `<dir>/blocked` for `run`.
 // ponytail: only a real quit installs; with "Start in the tray" on, closing the window only hides it, so a tray-mode
 // user installs the update at their next explicit Quit (the file is kept and reused across starts until then).
 pub fn on_quit(app: &AppHandle) {
@@ -293,6 +305,24 @@ pub fn on_quit(app: &AppHandle) {
     if !should_launch(key().is_some(), auto_update, setup_running()) {
         tracing::info!(version = %ready.manifest.version, "not installing the waiting update (updates off, or Setup is running)");
         let _ = std::fs::remove_file(&ready.path);
+        return;
+    }
+    // `cfg!`, not `#[cfg]`: the macOS branch still type-checks on Windows CI.
+    if cfg!(target_os = "macos") {
+        let bundle = std::env::current_exe().ok().as_deref().and_then(mac_install::bundle_of).filter(|b| mac_install::can_replace(b));
+        let Some(bundle) = bundle else {
+            tracing::info!(version = %ready.manifest.version, "not installing the update: this app is not in a writable Applications folder");
+            let _ = std::fs::remove_file(&ready.path);
+            return;
+        };
+        match mac_install::install(&ready, &bundle) {
+            Ok(()) => tracing::info!(version = %ready.manifest.version, "installed the update; it runs from the next start"),
+            Err(InstallError::Blocked(e)) => {
+                tracing::warn!("macOS blocked the update, kept for the next quit: {e}");
+                let _ = std::fs::write(dir(&app.state::<Ctx>().data_dir).join("blocked"), b"");
+            }
+            Err(e) => tracing::warn!("not installing the update: {e}"),
+        }
         return;
     }
     match launch(&ready, &["--silent".into()]) {
@@ -470,6 +500,13 @@ mod tests {
         assert!(wanted(&verified("0.10.0"), "0.9.9", None), "numeric");
         let v = Version::parse("0.1.3").unwrap();
         assert!(!wanted(&verified("0.1.3"), "0.1.2", Some(v)), "already downloaded");
+    }
+
+    #[test]
+    fn a_blocked_swap_stays_explained_while_its_release_waits() {
+        assert_eq!(problem_after_check(true, true).as_deref(), Some(BLOCKED));
+        assert_eq!(problem_after_check(true, false), None, "nothing left to install");
+        assert_eq!(problem_after_check(false, true), None);
     }
 
     #[test]
