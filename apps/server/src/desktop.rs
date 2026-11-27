@@ -105,14 +105,18 @@ async fn change_name(State(s): State<AppState>, install: Install, Json(req): Jso
             .with("name", &current)
             .with("next_name_change", next));
     }
+    // The name lives on the person; the history row keeps the computer that changed it.
     let now = db::now();
-    db.execute("UPDATE installs SET name = ?1 WHERE id = ?2", params![name, install.id])?;
-    db.execute(
+    let tx = db.unchecked_transaction()?;
+    tx.execute("UPDATE installs SET name = ?1 WHERE id = ?2", params![name, db::person(&tx, &install.id)?])?;
+    tx.execute(
         "INSERT INTO name_changes (install_id, old_name, new_name, by, at) VALUES (?1, ?2, ?3, 'user', ?4)",
         params![install.id, current, name, now],
     )?;
-    db::insert_event(&db, &install.id, "name", "user", &format!("Changed name from {current} to {name}"), "{}", &now)?;
+    db::insert_event(&tx, &install.id, "name", "user", &format!("Changed name from {current} to {name}"), "{}", &now)?;
+    tx.commit()?;
     let next_name_change = db::next_name_change(&db, &install.id, days)?;
+    hub::notify_identity(&db, &s.hub, &install.id, Some(&install.id));
     Ok(Json(NameStatus { name, next_name_change }))
 }
 

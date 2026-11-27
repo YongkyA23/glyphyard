@@ -14,7 +14,7 @@ use reqwest::{Method, RequestBuilder, Response, StatusCode};
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
-use tokio::sync::{watch, Mutex, Notify};
+use tokio::sync::{mpsc, watch, Mutex, Notify};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::{header::AUTHORIZATION, HeaderValue};
 use tokio_tungstenite::tungstenite::{self, Message};
@@ -120,6 +120,8 @@ pub struct SyncClient {
     status: watch::Sender<Status>,
     flush_wanted: Notify,
     dropped: watch::Sender<u64>,
+    /// Set by `notices()`; until then non-command messages are dropped.
+    notices: std::sync::Mutex<Option<mpsc::UnboundedSender<ServerMessage>>>,
 }
 
 impl SyncClient {
@@ -141,11 +143,25 @@ impl SyncClient {
             status: watch::Sender::new(Status::Offline),
             flush_wanted: Notify::new(),
             dropped: watch::Sender::new(0),
+            notices: std::sync::Mutex::new(None),
         }
     }
 
     pub fn status(&self) -> watch::Receiver<Status> {
         self.status.subscribe()
+    }
+
+    /// Every server message that is not a command (`identity`, `organizer_changed`, ...), as it arrives over the
+    /// WebSocket. One subscriber: the first call gets the receiver, later calls get `None`. Messages that arrive
+    /// before the first call, or after the receiver is dropped, are dropped.
+    pub fn notices(&self) -> Option<mpsc::UnboundedReceiver<ServerMessage>> {
+        let mut slot = self.notices.lock().unwrap();
+        if slot.is_some() {
+            return None;
+        }
+        let (tx, rx) = mpsc::unbounded_channel();
+        *slot = Some(tx);
+        Some(rx)
     }
 
     fn base(&self) -> &str {
@@ -422,11 +438,16 @@ impl SyncClient {
                     let Some(Ok(msg)) = msg else { return Status::Offline };
                     last_frame = Instant::now();
                     match msg {
-                        Message::Text(text) => {
-                            if let Ok(ServerMessage::Command(cmd)) = serde_json::from_str(&text) {
-                                self.handle(&mut ws, handler, cmd, &mut seen).await;
+                        Message::Text(text) => match serde_json::from_str(&text) {
+                            Ok(ServerMessage::Command(cmd)) => self.handle(&mut ws, handler, cmd, &mut seen).await,
+                            Ok(notice) => {
+                                if let Some(tx) = &*self.notices.lock().unwrap() {
+                                    let _ = tx.send(notice);
+                                }
                             }
-                        }
+                            // A message type newer than this client.
+                            Err(_) => {}
+                        },
                         Message::Close(_) => return Status::Offline,
                         _ => {}
                     }
