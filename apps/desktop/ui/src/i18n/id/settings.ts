@@ -74,6 +74,11 @@ export default {
   'Open quietly without showing the window': 'Buka diam-diam tanpa menampilkan jendela',
   'Update automatically': 'Perbarui otomatis',
   'Install new versions when you restart the app': 'Pasang versi baru saat kamu membuka ulang aplikasi',
+  'The update from your server could not be verified and was not installed. Tell your admin: the update may be signed with a different key than this app was built with.':
+    'Pembaruan dari server kamu tidak bisa diverifikasi dan tidak dipasang. Beri tahu admin kamu: pembaruan mungkin ditandatangani dengan kunci yang berbeda dari kunci yang dipakai saat aplikasi ini dibuat.',
+  'Move Glyphyard to your Applications folder to get updates.': 'Pindahkan Glyphyard ke folder Applications untuk mendapatkan pembaruan.',
+  'macOS blocked the update. Allow Glyphyard under System Settings › Privacy & Security › App Management, then quit Glyphyard again.':
+    'macOS memblokir pembaruan. Izinkan Glyphyard di Pengaturan Sistem › Privasi & Keamanan › Manajemen Aplikasi, lalu keluar dari Glyphyard lagi.',
   'Turn off all fonts when quitting': 'Nonaktifkan semua font saat keluar',
   'Leaves no fonts active after Glyphyard closes': 'Tidak ada font yang tetap aktif setelah Glyphyard ditutup',
   'Playful extras': 'Ekstra seru',

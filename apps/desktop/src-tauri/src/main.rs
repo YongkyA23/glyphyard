@@ -3,6 +3,7 @@
 
 mod adobe;
 mod commands;
+mod mac_install;
 mod sync;
 mod update;
 

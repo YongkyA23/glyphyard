@@ -1,5 +1,5 @@
 //! Updates from the team server. Off unless the build carries an update public key
-//! (`TYPESHELF_UPDATE_KEY`, baked in by scripts/build-windows.ps1) and Settings › "Update automatically" is on.
+//! (`TYPESHELF_UPDATE_KEY`, baked in by scripts/build-windows.ps1 and scripts/build-macos.sh) and Settings › "Update automatically" is on.
 //!
 //! Checks a minute after start, then daily: fetch the manifest and signature, verify the signature with the
 //! baked-in key, ignore anything not newer than this app, download the setup program into `<data>/update/`,
@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
-use typeshelf_core::update::{self, Manifest, UpdateError};
+use typeshelf_core::update::{self, Manifest, Platform, UpdateError, Version};
 use typeshelf_engine::AppSettings;
 use typeshelf_sync::SyncClient;
 
@@ -24,10 +24,19 @@ use crate::Ctx;
 const UPDATE_KEY: Option<&str> = option_env!("TYPESHELF_UPDATE_KEY");
 const CURRENT: &str = env!("CARGO_PKG_VERSION");
 
+/// The release this app asks the server for.
+pub const PLATFORM: Platform = if cfg!(target_os = "macos") { Platform::Macos } else { Platform::Windows };
+
+/// Shown in Settings when a Mac app cannot replace itself because it does not live in /Applications.
+#[allow(dead_code)] // used by the macOS install check
+pub const MOVE: &str = "Move Glyphyard to your Applications folder to get updates.";
+/// Shown after macOS refused the swap at quit (App Management); `run` reads the marker the swap leaves.
+pub const BLOCKED: &str = "macOS blocked the update. Allow Glyphyard under System Settings › Privacy & Security › App Management, then quit Glyphyard again.";
+
 /// The baked-in public key; `None` (updates off, setting hidden) when the build has none or it is malformed, and
-/// on every system but Windows (the update is a Windows Setup program).
+/// on every system but Windows and macOS.
 pub fn key() -> Option<[u8; 32]> {
-    if !cfg!(windows) {
+    if !cfg!(any(windows, target_os = "macos")) {
         return None;
     }
     update::public_key(UPDATE_KEY)
@@ -88,6 +97,27 @@ pub fn view(app: &AppHandle, settings: AppSettings) -> SettingsView {
     SettingsView { settings, can_update: key().is_some(), update_ready, update_problem }
 }
 
+/// What a finished download is called: the Setup program, or the app tarball.
+pub fn file_name(platform: Platform, version: Version) -> String {
+    match platform {
+        Platform::Windows => format!("Typeshelf-Setup-{version}.exe"),
+        Platform::Macos => format!("Glyphyard-{version}.app.tar.gz"),
+    }
+}
+
+fn part_name(platform: Platform) -> &'static str {
+    match platform {
+        Platform::Windows => "Typeshelf-Setup.part",
+        Platform::Macos => "Glyphyard-update.part",
+    }
+}
+
+/// Whether a verified manifest is for this app. An older server ignores `?platform=` and may answer a Mac with
+/// the Windows release, which is no release at all.
+pub fn for_this_app(m: &Manifest, platform: Platform) -> bool {
+    m.platform == platform
+}
+
 fn dir(data_dir: &Path) -> PathBuf {
     data_dir.join("update")
 }
@@ -101,7 +131,13 @@ pub async fn run(app: AppHandle) {
     let dir = dir(&ctx.data_dir);
     // An interrupted download is never resumed. A finished installer is kept: `check` reuses it when it is still
     // the server's release and matches its manifest, and deletes it otherwise.
-    let _ = std::fs::remove_file(dir.join("Typeshelf-Setup.part"));
+    let _ = std::fs::remove_file(dir.join(part_name(PLATFORM)));
+    // The quit-time swap leaves this marker when macOS refused it; say so once, then forget it.
+    let blocked = dir.join("blocked");
+    if blocked.exists() {
+        *app.state::<Pending>().problem.lock().unwrap() = Some(BLOCKED.into());
+        let _ = std::fs::remove_file(&blocked);
+    }
     let mut wait = Duration::from_secs(60);
     loop {
         tokio::time::sleep(wait).await;
@@ -111,8 +147,13 @@ pub async fn run(app: AppHandle) {
             continue;
         }
         let pending = app.state::<Pending>();
+        #[cfg(target_os = "macos")]
+        if let Some(msg) = crate::mac_install::blocker() {
+            *pending.problem.lock().unwrap() = Some(msg.into());
+            continue;
+        }
         let have = pending.ready.lock().unwrap().as_ref().map(|r| r.manifest.version);
-        match check(&ctx.client(), Some(&key), &dir, CURRENT, have).await {
+        match check(&ctx.client(), Some(&key), &dir, CURRENT, have, PLATFORM).await {
             Ok(found) => {
                 *pending.problem.lock().unwrap() = None;
                 if let Some(ready) = found {
@@ -134,11 +175,14 @@ pub async fn run(app: AppHandle) {
 }
 
 /// One check. Does nothing without a key. `have` is the version already downloaded, if any.
-pub async fn check(client: &SyncClient, key: Option<&[u8; 32]>, dir: &Path, current: &str, have: Option<update::Version>) -> Result<Option<Ready>, CheckError> {
+pub async fn check(client: &SyncClient, key: Option<&[u8; 32]>, dir: &Path, current: &str, have: Option<Version>, platform: Platform) -> Result<Option<Ready>, CheckError> {
     let failed = |e: String| CheckError::Failed(e);
     let Some(key) = key else { return Ok(None) };
-    let Some((text, signature)) = client.update_release().await.map_err(|e| failed(e.to_string()))? else { return Ok(None) };
+    let Some((text, signature)) = client.update_release(platform).await.map_err(|e| failed(e.to_string()))? else { return Ok(None) };
     let manifest = update::verify_manifest(key, text.as_bytes(), &signature).map_err(|e| CheckError::Refused(format!("refused the release: {e}")))?;
+    if !for_this_app(&manifest, platform) {
+        return Ok(None);
+    }
     if !wanted(&manifest, current, have) {
         if have.is_none() {
             // Nothing waiting and nothing newer: what is left (the release already installed) is stale.
@@ -151,8 +195,8 @@ pub async fn check(client: &SyncClient, key: Option<&[u8; 32]>, dir: &Path, curr
         return Ok(Some(ready));
     }
     std::fs::create_dir_all(dir).map_err(|e| failed(e.to_string()))?;
-    let part = dir.join("Typeshelf-Setup.part");
-    client.download_update(&part, manifest.size).await.map_err(|e| failed(format!("downloading the update: {e}")))?;
+    let part = dir.join(part_name(platform));
+    client.download_update(&part, manifest.size, platform).await.map_err(|e| failed(format!("downloading the update: {e}")))?;
     let dir = dir.to_path_buf();
     match tauri::async_runtime::spawn_blocking(move || finish(&part, manifest, &dir)).await.map_err(|e| failed(e.to_string()))? {
         Ok(ready) => Ok(Some(ready)),
@@ -168,7 +212,7 @@ pub fn finish(part: &Path, manifest: Manifest, dir: &Path) -> Result<Ready, Upda
         let _ = std::fs::remove_file(part);
         return Err(e);
     }
-    let path = dir.join(format!("Typeshelf-Setup-{}.exe", manifest.version));
+    let path = dir.join(file_name(manifest.platform, manifest.version));
     std::fs::rename(part, &path).map_err(io)?;
     Ok(Ready { path, manifest })
 }
@@ -176,7 +220,7 @@ pub fn finish(part: &Path, manifest: Manifest, dir: &Path) -> Result<Ready, Upda
 /// The installer of this release left by an earlier run, when it still matches the (freshly verified) manifest;
 /// `launch` checks it again at quit. Every other file in the folder (an older or tampered installer) is deleted.
 pub fn reuse(dir: &Path, manifest: &Manifest) -> Option<Ready> {
-    let path = dir.join(format!("Typeshelf-Setup-{}.exe", manifest.version));
+    let path = dir.join(file_name(manifest.platform, manifest.version));
     let ok = File::open(&path).map_err(io).and_then(|f| update::check_file(manifest, f)).is_ok();
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         if !ok || entry.path() != path {
@@ -193,7 +237,7 @@ pub fn should_check(auto_update: bool, server_configured: bool, registered: bool
 }
 
 /// A verified release is downloaded only when it is newer than this app and not the one already waiting.
-pub fn wanted(manifest: &Manifest, current: &str, have: Option<update::Version>) -> bool {
+pub fn wanted(manifest: &Manifest, current: &str, have: Option<Version>) -> bool {
     manifest.is_newer_than(current) && have != Some(manifest.version)
 }
 
@@ -291,11 +335,10 @@ pub fn launch(ready: &Ready, args: &[OsString]) -> Result<(), UpdateError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use typeshelf_core::update::{Platform, Version};
     use typeshelf_sync::Config;
 
-    fn manifest_for(bytes: &[u8]) -> Manifest {
-        Manifest::for_bytes(Version::parse("9.0.0").unwrap(), Platform::Windows, bytes)
+    fn manifest_for(platform: Platform, bytes: &[u8]) -> Manifest {
+        Manifest::for_bytes(Version::parse("9.0.0").unwrap(), platform, bytes)
     }
 
     #[test]
@@ -312,7 +355,7 @@ mod tests {
         let dir = tempfile_dir("nokey");
         // A server that would refuse everything; with no key it must not even be asked.
         let client = SyncClient::new(Config { server_url: "http://127.0.0.1:9".into(), install_key: String::new(), token: None, outbox_path: dir.join("outbox") });
-        let got = tauri::async_runtime::block_on(check(&client, None, &dir.join("update"), "0.1.0", None));
+        let got = tauri::async_runtime::block_on(check(&client, None, &dir.join("update"), "0.1.0", None, Platform::Windows));
         assert!(matches!(got, Ok(None)));
         assert!(!dir.join("update").exists());
         if UPDATE_KEY.is_none() {
@@ -325,13 +368,48 @@ mod tests {
         let dir = tempfile_dir("finish");
         let part = dir.join("Typeshelf-Setup.part");
         std::fs::write(&part, b"tampered").unwrap();
-        assert_eq!(finish(&part, manifest_for(b"original"), &dir).unwrap_err(), UpdateError::HashMismatch);
+        assert_eq!(finish(&part, manifest_for(Platform::Windows, b"original"), &dir).unwrap_err(), UpdateError::HashMismatch);
         assert!(!part.exists());
 
         std::fs::write(&part, b"original").unwrap();
-        let ready = finish(&part, manifest_for(b"original"), &dir).unwrap();
+        let ready = finish(&part, manifest_for(Platform::Windows, b"original"), &dir).unwrap();
         assert_eq!(ready.path, dir.join("Typeshelf-Setup-9.0.0.exe"));
         assert!(ready.path.exists() && !part.exists());
+    }
+
+    #[test]
+    fn a_mac_download_becomes_the_named_tarball() {
+        let dir = tempfile_dir("finishmac");
+        let part = dir.join("Glyphyard-update.part");
+        std::fs::write(&part, b"original").unwrap();
+        let ready = finish(&part, manifest_for(Platform::Macos, b"original"), &dir).unwrap();
+        assert_eq!(ready.path, dir.join("Glyphyard-9.0.0.app.tar.gz"));
+        assert!(ready.path.exists() && !part.exists());
+        // A kept tarball is reused; a leftover installer of another release is deleted.
+        let older = dir.join("Glyphyard-8.0.0.app.tar.gz");
+        std::fs::write(&older, b"older").unwrap();
+        assert_eq!(reuse(&dir, &manifest_for(Platform::Macos, b"original")).unwrap().path, ready.path);
+        assert!(!older.exists());
+    }
+
+    #[test]
+    fn a_release_for_another_platform_is_no_release() {
+        // An older server ignores ?platform= and returns the Windows release to a Mac app.
+        let dir = tempfile_dir("otherplatform");
+        let (private, public) = update::generate_key().unwrap();
+        let key = update::public_key(Some(&public)).unwrap();
+        let text = Manifest::for_bytes(Version::parse("9.0.0").unwrap(), Platform::Windows, b"file").to_text();
+        let (sig, _) = update::sign(&private, text.as_bytes()).unwrap();
+        let m = update::verify_manifest(&key, text.as_bytes(), &sig).unwrap();
+        assert!(!for_this_app(&m, Platform::Macos));
+        assert!(for_this_app(&m, Platform::Windows));
+        assert!(!dir.join("update").exists());
+    }
+
+    #[test]
+    fn mac_update_files_are_named_for_the_tarball() {
+        assert_eq!(file_name(Platform::Macos, Version::parse("1.0.0").unwrap()), "Glyphyard-1.0.0.app.tar.gz");
+        assert_eq!(file_name(Platform::Windows, Version::parse("1.0.0").unwrap()), "Typeshelf-Setup-1.0.0.exe");
     }
 
     #[test]
@@ -341,18 +419,18 @@ mod tests {
         let older = dir.join("Typeshelf-Setup-8.0.0.exe");
         std::fs::write(&path, b"original").unwrap();
         std::fs::write(&older, b"older").unwrap();
-        let ready = reuse(&dir, &manifest_for(b"original")).expect("the matching file is reused");
+        let ready = reuse(&dir, &manifest_for(Platform::Windows, b"original")).expect("the matching file is reused");
         assert_eq!(ready.path, path);
         assert!(path.exists(), "kept for the launch at quit");
         assert!(!older.exists(), "any other leftover installer is deleted");
 
         // Present but not the release the manifest describes: deleted, so it is downloaded again.
         std::fs::write(&path, b"tampered").unwrap();
-        assert!(reuse(&dir, &manifest_for(b"original")).is_none());
+        assert!(reuse(&dir, &manifest_for(Platform::Windows, b"original")).is_none());
         assert!(!path.exists());
 
         // Nothing there: downloaded.
-        assert!(reuse(&dir, &manifest_for(b"original")).is_none());
+        assert!(reuse(&dir, &manifest_for(Platform::Windows, b"original")).is_none());
     }
 
     #[test]
@@ -360,7 +438,7 @@ mod tests {
         let dir = tempfile_dir("launch");
         let path = dir.join("Typeshelf-Setup-9.0.0.exe");
         std::fs::write(&path, b"original").unwrap();
-        let ready = Ready { path: path.clone(), manifest: manifest_for(b"original") };
+        let ready = Ready { path: path.clone(), manifest: manifest_for(Platform::Windows, b"original") };
         std::fs::write(&path, b"swapped!").unwrap();
         assert_eq!(launch(&ready, &[]).unwrap_err(), UpdateError::HashMismatch);
         assert!(!path.exists());
@@ -374,7 +452,7 @@ mod tests {
         let bytes = std::fs::read(r"C:\Windows\System32\whoami.exe").unwrap();
         let path = dir.join("Typeshelf-Setup-9.0.0.exe");
         std::fs::write(&path, &bytes).unwrap();
-        launch(&Ready { path, manifest: manifest_for(&bytes) }, &["/?".into()]).unwrap();
+        launch(&Ready { path, manifest: manifest_for(Platform::Windows, &bytes) }, &["/?".into()]).unwrap();
     }
 
     #[test]

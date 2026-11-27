@@ -298,7 +298,7 @@ function AppSection() {
           <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span style={titleRow}>{t(label) /* i18n-dynamic: APP_TOGGLES */}<Hint text={t(hint) /* i18n-dynamic */} /></span>
             {k === 'autoUpdate' && s?.autoUpdate && s.updateReady && <span style={{ fontSize: 12, color: 'var(--accent-ink)' }}>{t('Version {v} will be installed when you quit Glyphyard.', { v: s.updateReady })}</span>}
-            {k === 'autoUpdate' && s?.autoUpdate && s.updateProblem && <span role="status" style={{ fontSize: 12, color: 'var(--bad)' }}>{s.updateProblem}</span>}
+            {k === 'autoUpdate' && s?.autoUpdate && s.updateProblem && <span role="status" style={{ fontSize: 12, color: 'var(--bad)' }}>{t(s.updateProblem /* i18n-dynamic */)}</span>}
           </span>
           <Switch on={!!s?.[k]} label={t(label) /* i18n-dynamic */} onClick={() => flip(k)} disabled={!s} />
         </div>
