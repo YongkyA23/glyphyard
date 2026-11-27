@@ -58,13 +58,18 @@ pub fn timestamp(dt: DateTime<Utc>) -> String {
     dt.to_rfc3339_opts(SecondsFormat::Micros, true)
 }
 
-/// Rewrites every timestamp to the canonical form. `Err` names the first one that isn't RFC 3339.
-pub fn normalize(doc: &OrganizerDoc) -> Result<OrganizerDoc, String> {
+/// Rewrites every timestamp to the canonical form. `Err` names the first one that isn't RFC 3339, or that is
+/// more than a day after `now` (a computer with a wrong clock would otherwise win every edit for that long).
+pub fn normalize(doc: &OrganizerDoc, now: DateTime<Utc>) -> Result<OrganizerDoc, String> {
+    let latest = now + Duration::days(1);
     let mut doc = doc.clone();
     let stamps = doc.collections.iter_mut().flat_map(Entry::stamps).chain(doc.sets.iter_mut().flat_map(Entry::stamps));
     for s in stamps {
-        let dt = DateTime::parse_from_rfc3339(s).map_err(|_| format!("`{s}` is not an RFC 3339 timestamp"))?;
-        *s = timestamp(dt.with_timezone(&Utc));
+        let dt = DateTime::parse_from_rfc3339(s).map_err(|_| format!("`{s}` is not an RFC 3339 timestamp"))?.with_timezone(&Utc);
+        if dt > latest {
+            return Err(format!("`{s}` is more than a day in the future"));
+        }
+        *s = timestamp(dt);
     }
     Ok(doc)
 }
@@ -76,20 +81,26 @@ pub fn normalize(doc: &OrganizerDoc) -> Result<OrganizerDoc, String> {
 ///   max of both, and the item is deleted while `deleted_at >= updated_at`. A `deleted_at` older than
 ///   `updated_at` can never matter again (`updated_at` only grows), so it is dropped to `None`.
 /// - Families merge per key: the newer `at` wins, a tie goes to `removed`.
-/// - Live items of one kind with the same name and parent collapse into the smallest uid: their families are
-///   unioned into it, the others are tombstoned at their own `updated_at` (so a later edit revives them), and
-///   children pointing at any of them, tombstones included, are re-pointed to it. Parent loops stay as they
-///   are; see [`loop_cuts`].
+/// - Live items of one kind with the same name and parent collapse into the smallest uid: the others are
+///   tombstoned at their own `updated_at` (so a later edit revives them), and their families, and those of
+///   tombstones that still match it, are unioned into it, so a family a stale copy adds to an already collapsed
+///   duplicate still shows. Children pointing at any of them are re-pointed to it. Parent loops stay as they
+///   are; see [`loop_cuts`]. Favorites never collapses and is never deleted.
 ///
 /// Pure, deterministic, commutative and idempotent, and associative except when a rename or delete races a
 /// same-name collapse: the survivor may then keep the families the other one brought, depending on merge order.
-/// Families are only ever added there, never lost.
+/// Known gap: a family added to a duplicate before it collapsed, which only arrives after the survivor was
+/// renamed away, stays on the tombstone (the collapse left no trace of where it went).
 pub fn merge(a: &OrganizerDoc, b: &OrganizerDoc) -> OrganizerDoc {
     OrganizerDoc { collections: merge_kind(&a.collections, &b.collections), sets: merge_kind(&a.sets, &b.sets) }
 }
 
 /// Drops tombstoned collections and sets, and removed families, older than `keep_days` before `now`.
 /// A `now` that isn't RFC 3339 drops nothing.
+///
+/// Ceiling: a computer offline for longer than `keep_days` still holds what was pruned, so its next push brings
+/// back a deleted collection or a removed family. A child whose parent was pruned keeps pointing at a missing
+/// uid; apply treats it as top level.
 pub fn prune(doc: &OrganizerDoc, now: &str, keep_days: u32) -> OrganizerDoc {
     let now = DateTime::parse_from_rfc3339(now).map(|t| t.with_timezone(&Utc));
     let Some(cutoff) = now.ok().and_then(|t| t.checked_sub_signed(Duration::days(keep_days.into()))) else { return doc.clone() };
@@ -110,9 +121,10 @@ trait Entry: Clone {
     fn parent(&mut self) -> Option<&mut Option<String>>;
     fn parent_of(&self) -> Option<&str>;
 
+    /// Favorites can't be deleted; a `deleted_at` on it is dropped.
     fn deleted(&mut self) -> bool {
         let at = self.updated_at().to_string();
-        self.deleted_at().as_ref().is_some_and(|d| *d >= at)
+        self.uid() != FAVORITES && self.deleted_at().as_ref().is_some_and(|d| *d >= at)
     }
 
     fn stamps(&mut self) -> Vec<&mut String>;
@@ -262,14 +274,18 @@ fn collapse<E: Entry>(by_uid: &mut BTreeMap<String, E>) {
         let mut changed = false;
         for (from, to) in &alias {
             let e = by_uid.get_mut(from).expect("alias of an entry");
-            if e.deleted() {
-                continue;
+            if !e.deleted() {
+                *e.deleted_at() = Some(e.updated_at().to_string());
+                changed = true;
             }
-            *e.deleted_at() = Some(e.updated_at().to_string());
+            // From tombstones too: a family a stale copy added to an already collapsed duplicate.
             let moved = e.items().clone();
             let t = by_uid.get_mut(to).expect("alias target");
-            *t.items() = merge_items(t.items().iter().chain(&moved));
-            changed = true;
+            let items = merge_items(t.items().iter().chain(&moved));
+            if *t.items() != items {
+                *t.items() = items;
+                changed = true;
+            }
         }
         for e in by_uid.values_mut() {
             if let Some(parent) = e.parent() {
@@ -348,7 +364,7 @@ mod tests {
         let tie_b = doc(vec![col("c1", "Client X", None, 1, vec![item("Inter", 2, true)])], vec![]);
         assert_eq!(merge(&tie_a, &tie_b).collections[0].items, [item("Inter", 2, true)]);
         assert_eq!(merge(&tie_b, &tie_a).collections[0].items, [item("Inter", 2, true)]);
-        // A tie on `updated_at` goes to the greater fields, in either order.
+        // A tie on `updated_at` goes to the greater name, in either order.
         let r1 = doc(vec![col("c1", "Alpha", None, 7, vec![])], vec![]);
         let r2 = doc(vec![col("c1", "Beta", None, 7, vec![])], vec![]);
         assert_eq!(merge(&r1, &r2).collections[0].name, "Beta");
@@ -462,6 +478,28 @@ mod tests {
             (self.below(6) as u32, (self.below(3) == 0).then(|| ts(self.below(6) as u32)))
         }
 
+        /// Names repeat across uids (a/b are "X", c/d are "Y"), but each uid keeps its name and parent and nothing
+        /// is deleted, so collapses happen without a rename or delete racing them.
+        fn same_name_doc(&mut self) -> OrganizerDoc {
+            let collections = (0..self.below(5))
+                .map(|_| {
+                    let (uid, name) = [("a", "X"), ("b", "X"), ("c", "Y"), ("d", "Y")][self.below(4) as usize];
+                    let at = self.below(6) as u32;
+                    let items = self.items();
+                    col(uid, name, None, at, items)
+                })
+                .collect();
+            let sets = (0..self.below(3))
+                .map(|_| {
+                    let uid = ["a", "b"][self.below(2) as usize];
+                    let at = self.below(6) as u32;
+                    let items = self.items();
+                    set(uid, "P", at, items)
+                })
+                .collect();
+            doc(collections, sets)
+        }
+
         /// `dup_names`: names repeat across uids, so same-name collapse happens.
         fn doc(&mut self, dup_names: bool) -> OrganizerDoc {
             let uids = ["a", "b", "c", "d", FAVORITES];
@@ -502,6 +540,125 @@ mod tests {
             // Associative whenever no rename or delete races a same-name collapse (see `merge`).
             let (a, b, c) = (rng.doc(false), rng.doc(false), rng.doc(false));
             assert_eq!(merge(&merge(&a, &b), &c), merge(&a, &merge(&b, &c)), "associative, round {round}");
+            let (a, b, c) = (rng.same_name_doc(), rng.same_name_doc(), rng.same_name_doc());
+            assert_eq!(merge(&merge(&a, &b), &c), merge(&a, &merge(&b, &c)), "associative with collapses, round {round}");
+        }
+    }
+
+    #[test]
+    fn families_added_to_a_collapsed_duplicate_reach_the_survivor() {
+        let laptop = doc(vec![col("bbb", "Client X", None, 1, vec![item("Inter", 2, false)])], vec![]);
+        let mac = doc(vec![col("aaa", "Client X", None, 1, vec![])], vec![]);
+        let server = merge(&laptop, &mac);
+        assert!(deleted(find(&server, "bbb")));
+        // The laptop, offline, adds a family to its own "bbb"; only the items change.
+        let laptop = doc(vec![col("bbb", "Client X", None, 1, vec![item("Inter", 2, false), item("Lora", 5, false)])], vec![]);
+        for m in [merge(&server, &laptop), merge(&laptop, &server)] {
+            assert_eq!(keys(&find(&m, "aaa").items), ["Inter", "Lora"], "{m:?}");
+            assert_eq!(merge(&m, &m), m);
+        }
+    }
+
+    #[test]
+    fn favorites_is_never_deleted() {
+        let mut gone = col(FAVORITES, "Favorites", None, 1, vec![item("Inter", 1, false)]);
+        gone.deleted_at = Some(ts(9));
+        let m = merge(&doc(vec![gone.clone()], vec![]), &doc(vec![col(FAVORITES, "Favorites", None, 2, vec![])], vec![]));
+        assert_eq!(find(&m, FAVORITES).deleted_at, None);
+        assert_eq!(keys(&find(&m, FAVORITES).items), ["Inter"]);
+        let far = "2027-01-01T00:00:00.000000Z";
+        assert_eq!(prune(&doc(vec![gone], vec![]), far, KEEP_DAYS).collections.len(), 1);
+    }
+
+    /// Three computers sync through a simulated server (merge on put, rev check, one retry after a conflict) in
+    /// a seeded random order, while they add families and make same-name collections; in half the runs they also
+    /// rename. Every run goes quiet. Without renames no family is lost; with them, a family added to a duplicate
+    /// before it collapsed can arrive after the survivor was renamed away and stay on the tombstone (see `merge`).
+    #[test]
+    fn sync_through_a_server_goes_quiet_and_keeps_every_family() {
+        struct Replica {
+            doc: OrganizerDoc,
+            rev: i64,
+        }
+        fn put(server: &mut (i64, OrganizerDoc), base_rev: i64, sent: &OrganizerDoc) -> Result<(i64, OrganizerDoc), (i64, OrganizerDoc)> {
+            if base_rev != server.0 {
+                return Err(server.clone());
+            }
+            let doc = merge(&server.1, sent);
+            if doc != server.1 {
+                *server = (server.0 + 1, doc);
+            }
+            Ok(server.clone())
+        }
+        fn push(r: &mut Replica, server: &mut (i64, OrganizerDoc)) {
+            if r.doc == server.1 && r.rev == server.0 {
+                return;
+            }
+            let answer = put(server, r.rev, &r.doc).or_else(|(rev, doc)| {
+                r.doc = merge(&r.doc, &doc);
+                put(server, rev, &r.doc)
+            });
+            if let Ok((rev, doc)) = answer {
+                (r.rev, r.doc) = (rev, doc);
+            }
+        }
+        fn pull(r: &mut Replica, server: &(i64, OrganizerDoc)) {
+            (r.rev, r.doc) = (server.0, merge(&r.doc, &server.1));
+        }
+        fn live(d: &OrganizerDoc) -> Vec<&SyncCollection> {
+            d.collections.iter().filter(|c| !deleted(c)).collect()
+        }
+
+        for seed in 0..120 {
+            let renames = seed % 2 == 1;
+            let mut rng = Rng(seed);
+            let mut server = (0, OrganizerDoc::default());
+            let mut replicas: Vec<Replica> = (0..3).map(|_| Replica { doc: OrganizerDoc::default(), rev: 0 }).collect();
+            let mut added = Vec::new();
+            for clock in 1..150u32 {
+                let r = &mut replicas[rng.below(3) as usize];
+                match rng.below(10) {
+                    0..=1 => pull(r, &server),
+                    2..=3 => push(r, &mut server),
+                    4..=5 => {
+                        let uid = format!("u{:03}", rng.below(1000));
+                        let name = ["X", "Y"][rng.below(2) as usize];
+                        if !r.doc.collections.iter().any(|c| c.uid == uid) {
+                            r.doc.collections.push(col(&uid, name, None, clock, vec![]));
+                        }
+                    }
+                    6 if renames => {
+                        let targets: Vec<String> = live(&r.doc).iter().map(|c| c.uid.clone()).collect();
+                        if !targets.is_empty() {
+                            let uid = &targets[rng.below(targets.len() as u64) as usize];
+                            let name = ["X", "Y", "Z"][rng.below(3) as usize];
+                            let c = r.doc.collections.iter_mut().find(|c| c.uid == *uid).unwrap();
+                            (c.name, c.updated_at) = (name.into(), ts(clock));
+                        }
+                    }
+                    _ => {
+                        let targets: Vec<String> = live(&r.doc).iter().map(|c| c.uid.clone()).collect();
+                        if !targets.is_empty() {
+                            let uid = &targets[rng.below(targets.len() as u64) as usize];
+                            let key = format!("f{clock}");
+                            r.doc.collections.iter_mut().find(|c| c.uid == *uid).unwrap().items.push(item(&key, clock, false));
+                            added.push(key);
+                        }
+                    }
+                }
+            }
+            let quiet = (0..10).any(|_| {
+                let before = server.clone();
+                for r in replicas.iter_mut() {
+                    pull(r, &server);
+                    push(r, &mut server);
+                }
+                server == before && replicas.iter().all(|r| r.doc == server.1 && r.rev == server.0)
+            });
+            assert!(quiet, "seed {seed} never went quiet");
+            for key in added.iter().filter(|_| !renames) {
+                assert!(live(&server.1).iter().any(|c| keys(&c.items).contains(&key.as_str())), "seed {seed}: {key} is lost: {:?}", server.1);
+            }
         }
     }
 
@@ -532,11 +689,16 @@ mod tests {
         let mut c = col("c1", "X", None, 0, vec![SyncItem { key: "k".into(), at: "2026-01-01T07:00:00+07:00".into(), removed: false }]);
         c.updated_at = "2026-01-01T00:00:01Z".into();
         c.deleted_at = Some("2026-01-01T00:00:01.5Z".into());
-        let n = normalize(&doc(vec![c], vec![])).unwrap();
+        let now = DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z").unwrap().with_timezone(&Utc);
+        let n = normalize(&doc(vec![c], vec![]), now).unwrap();
         assert_eq!(n.collections[0].updated_at, "2026-01-01T00:00:01.000000Z");
         assert_eq!(n.collections[0].deleted_at.as_deref(), Some("2026-01-01T00:00:01.500000Z"));
         assert_eq!(n.collections[0].items[0].at, "2026-01-01T00:00:00.000000Z");
         let bad = doc(vec![], vec![SyncSet { updated_at: "yesterday".into(), ..set("s", "S", 0, vec![]) }]);
-        assert!(normalize(&bad).unwrap_err().contains("yesterday"));
+        assert!(normalize(&bad, now).unwrap_err().contains("yesterday"));
+        // Up to a day ahead of `now` is clock skew; further is refused.
+        let ahead = |at: &str| doc(vec![SyncCollection { updated_at: at.into(), ..col("c", "X", None, 0, vec![]) }], vec![]);
+        assert!(normalize(&ahead("2026-01-01T23:59:59Z"), now).is_ok());
+        assert!(normalize(&ahead("2026-01-02T00:00:01Z"), now).unwrap_err().contains("2026-01-02"));
     }
 }

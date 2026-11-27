@@ -1875,13 +1875,13 @@ async fn organizer_round_trip() {
     assert_eq!(empty.json(), json!({ "rev": 0, "doc": { "collections": [], "sets": [] } }));
 
     // Any RFC 3339 offset is stored as UTC with microseconds.
-    let r = s.put_organizer(&a, 0, organizer("client-x", "Inter", "2026-11-27T15:00:00+07:00")).await;
+    let r = s.put_organizer(&a, 0, organizer("client-x", "Inter", "2026-01-15T15:00:00+07:00")).await;
     assert_eq!(r.status, StatusCode::OK, "{}", String::from_utf8_lossy(&r.body));
-    assert_eq!(r.json(), json!({ "rev": 1, "doc": organizer("client-x", "Inter", "2026-11-27T08:00:00.000000Z") }));
+    assert_eq!(r.json(), json!({ "rev": 1, "doc": organizer("client-x", "Inter", "2026-01-15T08:00:00.000000Z") }));
     assert_eq!(s.desktop(Method::GET, "/me/organizer", &a, None).await.json(), r.json());
 
     // The server merges what it has with what arrives, so a client that skipped its own merge loses nothing.
-    let r = s.put_organizer(&a, 1, organizer("drafts", "Lora", "2026-11-27T09:00:00Z")).await;
+    let r = s.put_organizer(&a, 1, organizer("drafts", "Lora", "2026-01-15T09:00:00Z")).await;
     assert_eq!(r.json()["rev"], 2);
     assert_eq!(collection_uids(&r.json()["doc"]), ["client-x", "drafts"]);
 }
@@ -1890,8 +1890,8 @@ async fn organizer_round_trip() {
 async fn stale_put_conflicts() {
     let s = Server::new().await;
     let a = s.register("a", "Ana").await;
-    s.put_organizer(&a, 0, organizer("client-x", "Inter", "2026-11-27T08:00:00Z")).await;
-    let r = s.put_organizer(&a, 0, organizer("drafts", "Lora", "2026-11-27T09:00:00Z")).await;
+    s.put_organizer(&a, 0, organizer("client-x", "Inter", "2026-01-15T08:00:00Z")).await;
+    let r = s.put_organizer(&a, 0, organizer("drafts", "Lora", "2026-01-15T09:00:00Z")).await;
     assert_eq!(r.status, StatusCode::CONFLICT);
     let body = r.json();
     assert_eq!(body["error"], "organizer_conflict");
@@ -1906,8 +1906,8 @@ async fn merged_group_sees_one_organizer() {
     let s = Server::new().await;
     let a = s.register("a", "Ana").await;
     let b = s.register("b", "Ana (Mac)").await;
-    assert_eq!(s.put_organizer(&a, 0, organizer("from-a", "Inter", "2026-11-27T08:00:00Z")).await.status, StatusCode::OK);
-    assert_eq!(s.put_organizer(&b, 0, organizer("from-b", "Lora", "2026-11-27T08:00:00Z")).await.status, StatusCode::OK);
+    assert_eq!(s.put_organizer(&a, 0, organizer("from-a", "Inter", "2026-01-15T08:00:00Z")).await.status, StatusCode::OK);
+    assert_eq!(s.put_organizer(&b, 0, organizer("from-b", "Lora", "2026-01-15T08:00:00Z")).await.status, StatusCode::OK);
     let merged = s.admin(Method::POST, "/installs/merge", Some(json!({ "primary": "a", "secondary": "b", "keep_name": "primary" }))).await;
     assert_eq!(merged.status, StatusCode::OK);
 
@@ -1918,7 +1918,7 @@ async fn merged_group_sees_one_organizer() {
     assert_eq!(collection_uids(&from_a["doc"]), ["from-a", "from-b"]);
 
     // A push stores the whole group under the person and drops the other rows.
-    let r = s.put_organizer(&b, 1, organizer("from-b", "Fraunces", "2026-11-27T10:00:00Z")).await;
+    let r = s.put_organizer(&b, 1, organizer("from-b", "Fraunces", "2026-01-15T10:00:00Z")).await;
     assert_eq!(r.json()["rev"], 2);
     let rows: Vec<String> = {
         let db = s.state.db();
@@ -1939,7 +1939,7 @@ async fn organizer_put_notifies_other_computers() {
     s.admin(Method::POST, "/installs/merge", Some(json!({ "primary": "a", "secondary": "b", "keep_name": "primary" }))).await;
     let mut ws_a = s.socket("a", &a).await;
     let mut ws_b = s.socket("b", &b).await;
-    assert_eq!(s.put_organizer(&a, 0, organizer("client-x", "Inter", "2026-11-27T08:00:00Z")).await.status, StatusCode::OK);
+    assert_eq!(s.put_organizer(&a, 0, organizer("client-x", "Inter", "2026-01-15T08:00:00Z")).await.status, StatusCode::OK);
     assert_eq!(organizer_changed(&mut ws_b, std::time::Duration::from_secs(5)).await, Some(1));
     assert_eq!(organizer_changed(&mut ws_a, std::time::Duration::from_millis(300)).await, None, "the pushing computer is skipped");
 }
@@ -1948,7 +1948,7 @@ async fn organizer_put_notifies_other_computers() {
 async fn organizer_limits() {
     let s = Server::new().await;
     let a = s.register("a", "Ana").await;
-    let huge = organizer(&"x".repeat(typeshelf_server::organizer::MAX_BODY), "Inter", "2026-11-27T08:00:00Z");
+    let huge = organizer(&"x".repeat(typeshelf_server::organizer::MAX_BODY), "Inter", "2026-01-15T08:00:00Z");
     let r = s.put_organizer(&a, 0, huge).await;
     assert_eq!((r.status, r.json()["error"].clone()), (StatusCode::PAYLOAD_TOO_LARGE, json!("organizer_too_large")));
 
@@ -1961,8 +1961,9 @@ async fn organizer_limits() {
         .unwrap();
     let bad = [
         s.raw(req).await,
-        s.desktop(Method::PUT, "/me/organizer", &a, Some(json!({ "doc": organizer("c", "Inter", "2026-11-27T08:00:00Z") }))).await,
+        s.desktop(Method::PUT, "/me/organizer", &a, Some(json!({ "doc": organizer("c", "Inter", "2026-01-15T08:00:00Z") }))).await,
         s.put_organizer(&a, 0, organizer("c", "Inter", "yesterday")).await,
+        s.put_organizer(&a, 0, organizer("c", "Inter", &db::ts(Utc::now() + Duration::hours(25)))).await,
     ];
     for r in bad {
         assert_eq!((r.status, r.json()["error"].clone()), (StatusCode::BAD_REQUEST, json!("invalid_organizer")));
@@ -1974,11 +1975,33 @@ async fn organizer_limits() {
 async fn revoked_id_does_not_leak_organizer() {
     let s = Server::new().await;
     let a = s.register("a", "Ana").await;
-    assert_eq!(s.put_organizer(&a, 0, organizer("secret", "Inter", "2026-11-27T08:00:00Z")).await.status, StatusCode::OK);
+    assert_eq!(s.put_organizer(&a, 0, organizer("secret", "Inter", "2026-01-15T08:00:00Z")).await.status, StatusCode::OK);
     assert_eq!(s.admin(Method::DELETE, "/installs/a", None).await.status, StatusCode::NO_CONTENT);
     let again = s.register("a", "Someone else").await;
     let r = s.desktop(Method::GET, "/me/organizer", &again, None).await;
     assert_eq!(r.json(), json!({ "rev": 0, "doc": { "collections": [], "sets": [] } }));
     let owner: String = s.state.db().query_row("SELECT install_id FROM organizer_docs", [], |r| r.get(0)).unwrap();
     assert!(owner.starts_with("a~revoked-"), "{owner}");
+}
+
+#[tokio::test]
+async fn organizer_put_without_changes_keeps_the_rev() {
+    let s = Server::new().await;
+    let a = s.register("a", "Ana").await;
+    let b = s.register("b", "Ana (Mac)").await;
+    s.admin(Method::POST, "/installs/merge", Some(json!({ "primary": "a", "secondary": "b", "keep_name": "primary" }))).await;
+    let doc = organizer("client-x", "Inter", "2026-01-15T08:00:00Z");
+    assert_eq!(s.put_organizer(&a, 0, doc.clone()).await.json()["rev"], 1);
+    let mut ws_b = s.socket("b", &b).await;
+
+    let again = s.put_organizer(&a, 1, doc.clone()).await;
+    assert_eq!(again.status, StatusCode::OK);
+    assert_eq!(again.json(), json!({ "rev": 1, "doc": organizer("client-x", "Inter", "2026-01-15T08:00:00.000000Z") }));
+    // Only an old tombstone more, which the server prunes: still nothing new.
+    let mut with_old = doc;
+    with_old["collections"].as_array_mut().unwrap().push(json!({ "uid": "old", "name": "Old", "parent": null,
+        "updated_at": "2020-01-01T00:00:00Z", "deleted_at": "2020-01-02T00:00:00Z", "items": [] }));
+    assert_eq!(s.put_organizer(&a, 1, with_old).await.json()["rev"], 1);
+    assert_eq!(organizer_changed(&mut ws_b, std::time::Duration::from_millis(300)).await, None, "nothing changed, nobody is told");
+    assert_eq!(s.desktop(Method::GET, "/me/organizer", &b, None).await.json()["rev"], 1);
 }

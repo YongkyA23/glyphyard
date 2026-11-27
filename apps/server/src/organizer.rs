@@ -43,7 +43,7 @@ pub async fn put(State(s): State<AppState>, install: Install, body: Body) -> Api
         .map_err(|_| ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "organizer_too_large", "the organizer is over 2 MiB"))?;
     let invalid = |e: String| ApiError::bad_request("invalid_organizer", e);
     let push: Push = serde_json::from_slice(&bytes).map_err(|e| invalid(e.to_string()))?;
-    let sent = organizer::normalize(&push.doc).map_err(invalid)?;
+    let sent = organizer::normalize(&push.doc, chrono::Utc::now()).map_err(invalid)?;
 
     let mut db = s.db();
     let person = db::person(&db, &install.id)?;
@@ -57,6 +57,11 @@ pub async fn put(State(s): State<AppState>, install: Install, body: Body) -> Api
     let now = db::now();
     // Merged again here, so a client that skipped its own merge loses nothing.
     let doc = organizer::prune(&organizer::merge(&stored.doc, &sent), &now, KEEP_DAYS);
+    // Nothing new (often only what the server prunes anyway): no write, no new rev, nobody told, so two
+    // computers can't keep pushing the same document at each other.
+    if doc == stored.doc {
+        return Ok(Json(stored));
+    }
     let rev = stored.rev + 1;
     tx.execute(
         "INSERT INTO organizer_docs (install_id, rev, doc_json, updated_at) VALUES (?1, ?2, ?3, ?4)
