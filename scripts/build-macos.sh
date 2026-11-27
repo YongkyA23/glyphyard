@@ -97,13 +97,21 @@ mkdir -p dist
 dmg=dist/Glyphyard-$version.dmg
 cp "$bundle"/dmg/Glyphyard_*_universal.dmg "$dmg"
 
-# Never echo these command lines: they can hold the Apple password.
-if [ "$notarize" = api ]; then
-    xcrun notarytool submit "$dmg" --wait --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" >/dev/null \
-        || { echo "Notarization of $dmg failed." >&2; exit 1; }
-elif [ "$notarize" = apple-id ]; then
-    xcrun notarytool submit "$dmg" --wait --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" >/dev/null \
-        || { echo "Notarization of $dmg failed." >&2; exit 1; }
+# Notarize and check the verdict from notarytool's JSON (exit codes alone have not always been reliable).
+# Command lines are never echoed (no set -x), and notarytool does not print the password.
+if [ -n "$notarize" ]; then
+    if [ "$notarize" = api ]; then
+        creds=(--key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER")
+    else
+        creds=(--apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID")
+    fi
+    result=$(xcrun notarytool submit "$dmg" --wait --output-format json "${creds[@]}") || true
+    echo "$result"
+    if ! grep -Eq '"status" *: *"Accepted"' <<<"$result"; then
+        id=$(sed -n 's/.*"id" *: *"\([^"]*\)".*/\1/p' <<<"$result" | head -n 1)
+        echo "Notarization of $dmg was not accepted. Details: xcrun notarytool log ${id:-<submission id>} <the same credential options>" >&2
+        exit 1
+    fi
 fi
 if [ -n "$notarize" ]; then
     xcrun stapler staple "$dmg"
