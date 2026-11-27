@@ -319,7 +319,7 @@ async fn watch_organizer(app: AppHandle, client: Arc<SyncClient>, changed: Arc<N
         if !asked && (tokio::time::Instant::now() < wait_until || !blocking(&engine, |e| e.organizer_sync_state()).await.is_ok_and(|s| s.1)) {
             continue;
         }
-        match organizer_round(&engine, &client).await {
+        match organizer_round(&engine, &client, &cancel).await {
             Round::Done => {}
             Round::Failed => wait_until = tokio::time::Instant::now() + Duration::from_secs(60),
             Round::Unsupported => off = true,
@@ -334,8 +334,9 @@ enum Round {
 }
 
 /// Pull, merge, push if the server lacks something, then adopt the server's answer locally (which emits
-/// `library-changed` when anything changed, so the lists reload).
-async fn organizer_round(engine: &Arc<Engine>, client: &SyncClient) -> Round {
+/// `library-changed` when anything changed, so the lists reload). Once `cancel` fires (the connection was changed
+/// or replaced) nothing more is written: the old server's document must not reach this computer.
+async fn organizer_round(engine: &Arc<Engine>, client: &SyncClient, cancel: &CancellationToken) -> Round {
     let (local, dirty) = match blocking(engine, |e| Ok((e.organizer_doc()?, e.organizer_sync_state()?.1))).await {
         Ok(l) => l,
         Err(e) => {
@@ -343,8 +344,18 @@ async fn organizer_round(engine: &Arc<Engine>, client: &SyncClient) -> Round {
             return Round::Failed;
         }
     };
-    match client.sync_organizer(&local, dirty).await {
+    let answer = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => return Round::Done,
+        r = client.sync_organizer(&local, dirty) => r,
+    };
+    let cancel = cancel.clone();
+    match answer {
         Ok(Some(o)) => match blocking(engine, move |e| {
+            // Checked again under the engine call, right before the writes.
+            if cancel.is_cancelled() {
+                return Ok(());
+            }
             e.apply_organizer(&o.doc)?;
             e.set_organizer_synced(o.rev)
         })

@@ -237,7 +237,14 @@ impl SyncClient {
             return Ok(None);
         }
         let body = check(res).await?.bytes().await.map_err(http_err)?;
-        Ok(serde_json::from_slice(&body).ok())
+        if let Ok(o) = serde_json::from_slice(&body) {
+            return Ok(Some(o));
+        }
+        // An HTML admin UI is an older server; JSON of another shape is a server bug worth seeing in the log.
+        if serde_json::from_slice::<serde_json::Value>(&body).is_ok() {
+            tracing::warn!("GET /me/organizer answered JSON that is not an organizer; organizer sync stays off until the next connect");
+        }
+        Ok(None)
     }
 
     /// `Err(OrganizerConflict(current))` when `base_rev` is not the server's rev any more.

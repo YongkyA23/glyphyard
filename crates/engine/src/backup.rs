@@ -198,7 +198,7 @@ impl Engine {
         for (id, uid, at) in &old_sets {
             tx.execute("UPDATE project_sets SET uid = ?2, updated_at = ?3 WHERE id = ?1", params![id, uid, at])?;
         }
-        crate::organizer::record(&tx, &before)?;
+        crate::organizer::record_restore(&tx, &before)?;
         if let Some(serde_json::Value::Object(s)) = &e.settings {
             let mut merged = serde_json::to_value(store::get::<AppSettings>(&tx, "app")?.unwrap_or_default())?;
             if let serde_json::Value::Object(m) = &mut merged {

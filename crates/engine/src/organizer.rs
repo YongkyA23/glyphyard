@@ -123,7 +123,7 @@ impl Local {
 fn read_kind(conn: &Connection, kind: Kind) -> rusqlite::Result<Vec<Node>> {
     let rows_sql = match kind {
         Kind::Collection => {
-            "SELECT c.id, c.uid, c.name, p.uid, c.updated_at FROM collections c LEFT JOIN collections p ON p.id = c.parent_id
+            "SELECT c.id, c.uid, c.name, COALESCE(p.uid, c.sync_parent), c.updated_at FROM collections c LEFT JOIN collections p ON p.id = c.parent_id
              WHERE c.uid IS NOT NULL"
         }
         Kind::Set => "SELECT id, uid, name, note, updated_at FROM project_sets WHERE uid IS NOT NULL",
@@ -188,6 +188,16 @@ fn fill(conn: &Connection, now: &str) -> rusqlite::Result<()> {
 /// Stamps what changed since `before` (read in the same transaction) and, if anything did, counts one more
 /// unsynced change. Returns whether anything changed.
 pub(crate) fn record(conn: &Connection, before: &Local) -> rusqlite::Result<bool> {
+    record_as(conn, before, true)
+}
+
+/// [`record`] for restoring a backup: a collection or set the backup lacks gets no tombstone. Deleting it on
+/// every computer would also delete what was made elsewhere since the backup; the next sync brings it back.
+pub(crate) fn record_restore(conn: &Connection, before: &Local) -> rusqlite::Result<bool> {
+    record_as(conn, before, false)
+}
+
+fn record_as(conn: &Connection, before: &Local, tombstones: bool) -> rusqlite::Result<bool> {
     let now = now();
     fill(conn, &now)?;
     let after = Local::read(conn)?;
@@ -198,7 +208,9 @@ pub(crate) fn record(conn: &Connection, before: &Local) -> rusqlite::Result<bool
         };
         let (old, new) = (live(before.of(kind)), live(after.of(kind)));
         for (uid, was) in &old {
-            if !new.contains_key(uid) {
+            if !new.contains_key(uid) && !tombstones {
+                conn.execute("DELETE FROM organizer_removed WHERE kind = ?1 AND owner_uid = ?2", params![kind.name(), uid])?;
+            } else if !new.contains_key(uid) {
                 let mut dead = was.clone();
                 dead.deleted_at = Some(later(&was.updated_at, &now));
                 conn.execute(
@@ -252,13 +264,45 @@ fn stamp(conn: &Connection, kind: Kind, was: &Node, is: &Node, now: &str) -> rus
 }
 
 /// Canonical timestamps, as the server stores them, and tombstones dropped a day before the server would drop
-/// them, so a tombstone the server already pruned is never pushed back to it.
+/// them, so a tombstone the server already pruned is never pushed back to it. The future bound is left to the
+/// server: with this computer's clock behind (or stamps from one ahead), checking it here would fail every round.
 // ponytail: a day of margin; a server clock more than a day ahead re-sends such a tombstone once per round
 // (the server answers it as a no-op) until this computer drops it too.
 fn canonical(doc: &OrganizerDoc) -> Result<OrganizerDoc> {
     let now = Utc::now();
-    let doc = core::normalize(doc, now).map_err(|e| EngineError::new("invalid", e))?;
+    let doc = core::normalize(doc, now + Duration::days(365 * 100)).map_err(|e| EngineError::new("invalid", e))?;
     Ok(core::prune(&doc, &core::timestamp(now), KEEP_DAYS - 1))
+}
+
+/// (set id, name, the families leaving it, whether the set is deleted).
+type Leaving = (i64, String, Vec<String>, bool);
+
+/// Sets that are on here and lose families in `target`.
+fn leaving_on_sets(conn: &Connection, target: &OrganizerDoc) -> rusqlite::Result<Vec<Leaving>> {
+    let live: BTreeMap<&str, BTreeSet<&str>> = target
+        .sets
+        .iter()
+        .filter(|s| s.deleted_at.is_none())
+        .map(|s| (s.uid.as_str(), s.items.iter().filter(|i| !i.removed).map(|i| i.key.as_str()).collect()))
+        .collect();
+    let on: Vec<(i64, String, String)> = conn
+        .prepare("SELECT id, uid, name FROM project_sets WHERE is_on = 1 AND uid IS NOT NULL")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut out = Vec::new();
+    for (id, uid, name) in on {
+        let keys = crate::activation::set_keys(conn, id)?;
+        match live.get(uid.as_str()) {
+            None => out.push((id, name, keys, true)),
+            Some(kept) => {
+                let gone: Vec<String> = keys.into_iter().filter(|k| !kept.contains(k.as_str())).collect();
+                if !gone.is_empty() {
+                    out.push((id, name, gone, false));
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Makes the stored rows match `target`; returns how many rows it wrote.
@@ -312,11 +356,16 @@ fn write_kind(conn: &Connection, kind: Kind, nodes: &[Node], cut: &BTreeSet<Stri
         };
         ids.insert(&x.uid, id);
     }
-    // Parents, once every row exists: a missing or deleted parent, or a cut parent loop, means top level.
+    // Parents, once every row exists: a missing or deleted parent, or a cut parent loop, means top level. The
+    // document's parent is kept in `sync_parent` and exported, so the repair alone never needs a push.
     if kind == Kind::Collection {
         for x in live.iter().filter(|x| x.uid != FAVORITES) {
             let parent = x.extra.as_deref().filter(|_| !cut.contains(&x.uid)).and_then(|p| ids.get(p)).copied();
-            n += conn.execute("UPDATE collections SET parent_id = ?2 WHERE id = ?1 AND parent_id IS NOT ?2", params![ids[x.uid.as_str()], parent])?;
+            let kept = if parent.is_none() { x.extra.clone() } else { None };
+            n += conn.execute(
+                "UPDATE collections SET parent_id = ?2, sync_parent = ?3 WHERE id = ?1 AND (parent_id IS NOT ?2 OR sync_parent IS NOT ?3)",
+                params![ids[x.uid.as_str()], parent, kept],
+            )?;
         }
     }
     // Rows the document deleted (children were moved off them above, so the cascade takes only their families).
@@ -411,15 +460,31 @@ impl Engine {
 
     /// Makes local collections and project sets match `doc`, merged with what is stored here, so a change made
     /// while the document was on its way is kept. Local integer ids stay; Recent and a set's on/off and last use
-    /// are never touched. Emits `library-changed` (reason `sync`) and returns true when anything changed.
+    /// are never touched. A set that is on here and that the document deletes is turned off first, like
+    /// `delete_project_set`; families the document removes from a set that is on are turned off the same way.
+    /// Emits `library-changed` (reason `sync`) and returns true when anything changed.
     pub fn apply_organizer(&self, doc: &OrganizerDoc) -> Result<bool> {
         let changed = {
             let mut db = self.db();
             let tx = db.transaction()?;
             let local = canonical(&Local::read(&tx)?.doc())?;
             let target = canonical(&core::merge(&canonical(doc)?, &local))?;
-            let n = if target == local { 0 } else { write(&tx, &target)? };
+            let (n, leaving) = if target == local {
+                (0, vec![])
+            } else {
+                let leaving = leaving_on_sets(&tx, &target)?;
+                (write(&tx, &target)?, leaving)
+            };
             tx.commit()?;
+            // Sets are gone or smaller now, so "needed by another active set" reads the new state.
+            for (id, name, keys, deleted) in leaving {
+                let hashes = crate::activation::set_off_hashes(&db, id, &keys)?;
+                let results = self.deactivate_hashes(&db, &hashes, typeshelf_protocol::Source::ProjectSet)?;
+                if deleted {
+                    let fonts = results.iter().filter(|r| r.ok).count() as u32;
+                    self.emit(typeshelf_protocol::Event::ProjectSetToggled { name, on: false, fonts });
+                }
+            }
             n > 0
         };
         if changed {

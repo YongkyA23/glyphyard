@@ -226,7 +226,8 @@ fn restore_and_import_stamp_what_they_touch() {
     assert_eq!(k.uid, keep.uid, "a restored collection keeps its identity");
     assert!(item(&k.items, "b|y").removed, "a family the backup lacks is removed");
     assert!(!item(&k.items, "a|x").removed);
-    assert!(coll(&doc, "Later").deleted_at.is_some(), "a collection the backup lacks is deleted");
+    // Not deleted on every computer: no tombstone, so the next sync brings it back from the server.
+    assert!(doc.collections.iter().all(|c| c.name != "Later"), "{doc:#?}");
     assert!(doc.sets.iter().any(|s| s.name == "Set" && s.deleted_at.is_none()));
 
     synced(&e);
@@ -352,6 +353,69 @@ fn apply_repairs_parents_and_keeps_newer_local_changes() {
     assert!(tree(&e).iter().any(|t| t.0 == "New"));
     e.set_organizer_synced(2).unwrap();
     assert_eq!(e.organizer_sync_state().unwrap(), (2, true), "the new collection still needs a push");
+}
+
+#[test]
+fn stamps_from_a_clock_far_ahead_do_not_stop_sync() {
+    // The server checks the future bound; here, stamps 25 h ahead of this computer's clock must still apply and export.
+    let (_t, e) = engine();
+    let ahead = typeshelf_core::organizer::timestamp(chrono::Utc::now() + chrono::Duration::hours(25));
+    let doc = OrganizerDoc { collections: vec![sc("x", "X", None, &ahead)], sets: vec![] };
+    assert!(e.apply_organizer(&doc).unwrap());
+    assert_eq!(coll(&e.organizer_doc().unwrap(), "X").updated_at, ahead);
+    assert!(!e.apply_organizer(&doc).unwrap());
+}
+
+#[test]
+fn applied_doc_exports_back_unchanged() {
+    // After adopting the server's doc, this computer has nothing to push: a cut loop and a missing parent are
+    // repaired locally but exported as the doc has them.
+    let (_t, e) = engine();
+    let (t1, t2) = ("2026-01-01T00:00:01.000000Z", "2026-01-01T00:00:02.000000Z");
+    let mut dead = sc("d", "Dead", None, t1);
+    dead.deleted_at = Some(t2.into());
+    let raw = OrganizerDoc {
+        collections: vec![sc("a", "A", Some("b"), t1), sc("b", "B", Some("a"), t2), sc("c", "C", Some("gone"), t1), sc("e", "E", Some("d"), t1), dead],
+        sets: vec![],
+    };
+    // What the server holds once this computer pushed its own state (Favorites) too.
+    let remote = merge(&raw, &e.organizer_doc().unwrap());
+    e.apply_organizer(&remote).unwrap();
+    assert!(tree(&e).contains(&("E".into(), None, vec![])), "a deleted parent means top level");
+    assert_eq!(merge(&remote, &e.organizer_doc().unwrap()), remote);
+}
+
+#[test]
+fn remote_set_changes_turn_its_fonts_off() {
+    let fx = fixture!();
+    fx.put("arial.ttf", &system_font("arial.ttf").unwrap());
+    fx.engine.add_folder(&fx.root).unwrap();
+    let e = &fx.engine;
+    let key = fx.family("Arial").key;
+    e.save_project_set(None, "Set", "", std::slice::from_ref(&key)).unwrap();
+    let sid = set_id(e, "Set");
+    e.toggle_project_set(sid, true).unwrap();
+    assert_eq!(fx.family("Arial").active_state, ActiveState::All);
+
+    // Another computer removed the family from the set: the set stays on, the family goes off.
+    let mut doc = e.organizer_doc().unwrap();
+    let later = typeshelf_core::organizer::timestamp(chrono::Utc::now() + chrono::Duration::seconds(1));
+    doc.sets[0].items[0] = SyncItem { key: key.clone(), at: later.clone(), removed: true };
+    e.apply_organizer(&doc).unwrap();
+    assert_eq!(fx.family("Arial").active_state, ActiveState::None);
+    assert!(e.list_project_sets().unwrap()[0].on);
+
+    // Another computer deleted the set while it is on here: it is turned off first, like delete_project_set.
+    e.save_project_set(Some(sid), "Set", "", std::slice::from_ref(&key)).unwrap();
+    e.toggle_project_set(sid, false).unwrap();
+    e.toggle_project_set(sid, true).unwrap();
+    assert_eq!(fx.family("Arial").active_state, ActiveState::All);
+    let mut doc = e.organizer_doc().unwrap();
+    doc.sets[0].deleted_at = Some(typeshelf_core::organizer::timestamp(chrono::Utc::now() + chrono::Duration::seconds(2)));
+    e.apply_organizer(&doc).unwrap();
+    assert!(e.list_project_sets().unwrap().is_empty());
+    assert_eq!(fx.family("Arial").active_state, ActiveState::None);
+    assert!(fx.events.lock().unwrap().iter().any(|ev| matches!(ev, Event::ProjectSetToggled { on: false, .. })));
 }
 
 #[test]

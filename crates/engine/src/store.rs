@@ -133,10 +133,12 @@ INSERT OR IGNORE INTO settings (key, value) VALUES ('usage_since', '"' || strfti
     // 7: ascender/descender joined the stored metrics; re-read every file so old rows get them.
     "UPDATE files SET mtime = -1;",
     // 8: collections and project sets sync across the person's computers (organizer.rs). Recent keeps a NULL uid:
-    // it never syncs. `dirty` counts local changes since the last sync.
+    // it never syncs. `dirty` counts local changes since the last sync. `sync_parent`: the synced parent uid when it
+    // cannot be used here (missing, deleted, a cut loop), so the row exports as the document has it.
     r#"
 ALTER TABLE collections ADD COLUMN uid TEXT;
 ALTER TABLE collections ADD COLUMN updated_at TEXT;
+ALTER TABLE collections ADD COLUMN sync_parent TEXT;
 ALTER TABLE project_sets ADD COLUMN uid TEXT;
 ALTER TABLE project_sets ADD COLUMN updated_at TEXT;
 ALTER TABLE project_set_items ADD COLUMN added_at TEXT;
