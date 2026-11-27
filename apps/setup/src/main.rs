@@ -67,6 +67,8 @@ struct Args {
     raw: Vec<String>,
     uninstall: bool,
     silent: bool,
+    /// After a successful silent install, start the installed app (the desktop app's "Restart now").
+    launch: bool,
     wipe_data: bool,
     desktop: bool,
     no_start_menu: bool,
@@ -77,13 +79,17 @@ struct Args {
 }
 
 fn parse_args() -> Args {
-    let raw: Vec<String> = std::env::args().skip(1).collect();
+    parse(std::env::args().skip(1).collect())
+}
+
+fn parse(raw: Vec<String>) -> Args {
     let mut a = Args { raw: raw.clone(), ..Args::default() };
     let mut it = raw.into_iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--uninstall" => a.uninstall = true,
             "--silent" => a.silent = true,
+            "--launch" => a.launch = true,
             "--wipe-data" => a.wipe_data = true,
             "--desktop" => a.desktop = true,
             "--no-start-menu" => a.no_start_menu = true,
@@ -221,7 +227,7 @@ fn silent(args: &Args, uninstall_dir: Option<PathBuf>) -> i32 {
         process::close_app();
     }
     let result = match uninstall_dir {
-        Some(dir) => uninstall::uninstall(&dir, args.wipe_data, &progress).map(drop),
+        Some(dir) => uninstall::uninstall(&dir, args.wipe_data, &progress).map(|_| None),
         None => {
             let opts = install::Options {
                 dir: args.dir.clone().unwrap_or_else(install::default_dir),
@@ -229,11 +235,20 @@ fn silent(args: &Args, uninstall_dir: Option<PathBuf>) -> i32 {
                 desktop: args.desktop,
                 start_at_login: !args.no_start_at_login,
             };
-            install::install(&opts, &progress)
+            install::install(&opts, &progress).map(|()| Some(opts.dir))
         }
     };
     match result {
-        Ok(()) => 0,
+        Ok(installed) => {
+            // Ignored after an uninstall. A failed launch doesn't fail the install.
+            if let (true, Some(dir)) = (args.launch, installed) {
+                match process::launch_app(&dir) {
+                    Ok(()) => log("launched Glyphyard"),
+                    Err(e) => log(format!("couldn't launch Glyphyard: {e}")),
+                }
+            }
+            0
+        }
         Err(e) => {
             log(format!("failed: {e}"));
             1
@@ -345,4 +360,16 @@ fn message_box(text: &str, ask: bool) -> bool {
     use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, IDYES, MB_ICONWARNING, MB_OK, MB_YESNO};
     let buttons = if ask { MB_YESNO } else { MB_OK };
     unsafe { MessageBoxW(None, &HSTRING::from(text), w!("Glyphyard Setup"), buttons | MB_ICONWARNING) == IDYES }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_reads_launch() {
+        let a = parse(vec!["--silent".into(), "--launch".into()]);
+        assert!(a.silent && a.launch);
+        assert!(!parse(vec!["--silent".into()]).launch);
+    }
 }
