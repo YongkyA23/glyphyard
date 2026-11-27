@@ -1,5 +1,6 @@
 // Turns a key press into the shell's quick-activate shortcut string: the global-shortcut plug-in's format,
 // modifiers then one key joined by "+" (e.g. "CmdOrCtrl+Alt+Space"). CmdOrCtrl is Ctrl on Windows and Cmd on macOS.
+import { t } from './i18n'
 import { formatShortcut } from './ui'
 
 type Platform = 'windows' | 'macos'
@@ -31,8 +32,8 @@ export function shortcutFromKey(e: KeyPress, platform: Platform): { shortcut: st
   // `code` names the physical key (layout-independent); some synthetic or remote-desktop events leave it empty.
   const code = e.code && e.code !== 'Unidentified' ? e.code : /^[a-z]$/i.test(e.key) ? `Key${e.key.toUpperCase()}` : /^\d$/.test(e.key) ? `Digit${e.key}` : e.key === ' ' ? 'Space' : e.key
   const key = keyName(code)
-  if (!key) return { error: `${e.key === ' ' ? 'Space' : e.key} can’t be used in a shortcut. Use a letter, a number, a function key or Space.` }
-  if (!mac && e.metaKey) return { error: 'Windows keeps shortcuts with the Windows key for itself. Use Ctrl, Alt or Shift.' }
+  if (!key) return { error: t('{key} can’t be used in a shortcut. Use a letter, a number, a function key or Space.', { key: e.key === ' ' ? 'Space' : e.key }) }
+  if (!mac && e.metaKey) return { error: t('Windows keeps shortcuts with the Windows key for itself. Use Ctrl, Alt or Shift.') }
   const mods = [
     ...((mac ? e.metaKey : e.ctrlKey) ? ['CmdOrCtrl'] : []),
     ...(mac && e.ctrlKey ? ['Ctrl'] : []),
@@ -42,8 +43,8 @@ export function shortcutFromKey(e: KeyPress, platform: Platform): { shortcut: st
   // One modifier is not enough: Ctrl/Cmd + key belongs to the app in front, Alt/Option + key types characters or
   // opens menus, and Shift + key types a capital.
   if (mods.length < 2)
-    return { error: `Hold two modifier keys with it, for example ${formatShortcut('CmdOrCtrl+Alt', platform)} + ${key}.` }
+    return { error: t('Hold two modifier keys with it, for example {example}.', { example: `${formatShortcut('CmdOrCtrl+Alt', platform)} + ${key}` }) }
   const shortcut = [...mods, key].join('+')
-  if (RESERVED[platform].includes(shortcut)) return { error: `${formatShortcut(shortcut, platform)} is used by ${mac ? 'macOS' : 'Windows'}. Pick another combination.` }
+  if (RESERVED[platform].includes(shortcut)) return { error: t('{shortcut} is used by {os}. Pick another combination.', { shortcut: formatShortcut(shortcut, platform), os: mac ? 'macOS' : 'Windows' }) }
   return { shortcut }
 }

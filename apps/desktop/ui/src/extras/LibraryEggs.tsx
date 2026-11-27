@@ -1,5 +1,6 @@
 // Library eggs: "comic sans" / "papyrus" typed in the search, and the fox that runs past for the pangrams.
 import { useEffect, useState } from 'react'
+import { t } from '../i18n'
 import { useApp } from '../state'
 import { playful, reducedMotion, swapFont, type EggFont } from './effects'
 
@@ -16,7 +17,7 @@ export function LibraryEggs({ search, sample }: { search: string; sample: string
   const match = pangram(sample)
   useEffect(() => {
     if (!match || document.activeElement?.id !== 'sample') return
-    playful().then((on) => on && (reducedMotion() ? toast('A quick brown fox just ran past.') : setFox(true)))
+    playful().then((on) => on && (reducedMotion() ? toast(t('A quick brown fox just ran past.')) : setFox(true)))
   }, [match, toast])
 
   useEffect(() => {

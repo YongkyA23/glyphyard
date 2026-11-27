@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
+import { t } from './i18n'
 import { dur, easeOut } from './motion'
 
 export type MenuItem =
@@ -14,7 +15,7 @@ const GAP = 8
 const isAction = (it: MenuItem): it is Exclude<MenuItem, 'sep'> => it !== 'sep'
 
 /** Open with `show(event, items)` from onContextMenu (or a button's onClick); render `menu` once. */
-export function useContextMenu(label = 'Actions') {
+export function useContextMenu(label = t('Actions')) {
   const [open, setOpen] = useState<Open | null>(null)
   const back = useRef<HTMLElement | null>(null)
   /** `below`: open under the element (menu buttons) instead of at the pointer. */

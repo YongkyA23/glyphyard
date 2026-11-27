@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router'
 import { AnimatePresence, motion, useMotionValue } from 'motion/react'
 import { api, tagsOf, type Collection, type Family, type ListFamiliesArgs, type Until } from './api'
 import type { MenuItem } from './menu'
+import { t, tk } from './i18n'
 import { spring } from './motion'
 import { useApp } from './state'
 import { turnsOff } from './temporary'
@@ -24,7 +25,7 @@ export const famNames = (t: Targets) => (isAll(t) ? plural(t.count, 'family', 'f
 /** Names for a toast after the action: for all results, the number the engine actually resolved. */
 const doneNames = (t: Targets, keys: string[]) => (isAll(t) ? plural(keys.length, 'family', 'families') : famNames(t))
 /** Why an action is off for all results: it makes no sense for thousands of families at once. */
-export const NOT_ALL = 'Not for all results'
+export const NOT_ALL = tk('Not for all results')
 
 /** `onChanged(clear)`: refetch; `clear` = the selection no longer matches (fonts deleted or regrouped). */
 export function useFontActions(onChanged: (clear: boolean) => void) {
@@ -37,7 +38,7 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
   const [newColl, setNewColl] = useState<Targets | null>(null)
   const [busy, setBusy] = useState(false)
   useEffect(() => void api.listCollections().then(setCollections, () => {}), [libVersion])
-  const bin = app.platform === 'macos' ? 'Trash' : 'Recycle Bin'
+  const bin = app.platform === 'macos' ? t('Trash') : t('Recycle Bin')
   const mod = app.platform === 'macos' ? '⌘' : 'Ctrl+'
 
   async function setActive(fams: Targets, on: boolean) {
@@ -48,7 +49,7 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
       keys = t.keys
       return t.hashes.length ? api.setActive(t.hashes, on) : []
     })
-    if (res?.some((r) => r.ok)) toast(`${on ? 'Turned on' : 'Turned off'} ${doneNames(fams, keys)}`)
+    if (res?.some((r) => r.ok)) toast(on ? t('Turned on {names}', { names: doneNames(fams, keys) }) : t('Turned off {names}', { names: doneNames(fams, keys) }))
     onChanged(false)
   }
   async function setActiveFor(fams: Targets, until: Until) {
@@ -59,16 +60,16 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
       keys = t.keys
       return t.hashes.length ? api.setActiveFor(t.hashes, until) : []
     })
-    const when = until === 'restart' ? 'until you restart Glyphyard' : 'for 2 hours'
+    const when = until === 'restart' ? t('until you restart Glyphyard') : t('for 2 hours')
     // Fonts already on for good stay on for good (the engine skips them), so the toast names no count then.
     const mixed = isAll(fams) || fams.some((f) => f.activeState !== 'none' && !turnsOff(f))
-    if (res?.some((r) => r.ok)) toast(mixed ? `Turned on ${when}; fonts that were already on stay on` : `Turned on ${doneNames(fams, keys)} ${when}`)
+    if (res?.some((r) => r.ok)) toast(mixed ? t('Turned on {when}; fonts that were already on stay on', { when }) : t('Turned on {names} {when}', { names: doneNames(fams, keys), when }))
     onChanged(false)
   }
   async function setPinned(fams: Family[], pinned: boolean) {
     try {
       await api.setPinned(fams.map((f) => f.key), pinned)
-      toast(pinned ? `Pinned ${famNames(fams)} to the top` : `Unpinned ${famNames(fams)}`)
+      toast(pinned ? t('Pinned {names} to the top', { names: famNames(fams) }) : t('Unpinned {names}', { names: famNames(fams) }))
       onChanged(false)
     } catch (e) {
       toast(errMsg(e))
@@ -78,7 +79,7 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
     try {
       const { keys } = await resolve(fams)
       await api.addToCollection(c.id, keys)
-      toast(`Added ${doneNames(fams, keys)} to ${c.name}`)
+      toast(t('Added {names} to {collection}', { names: doneNames(fams, keys), collection: c.name }))
       bump()
     } catch (e) {
       toast(errMsg(e))
@@ -98,7 +99,7 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
     ...collectionTree(collections).filter(({ c }) => c.builtin !== 'recent')
       .map(({ c, depth }): MenuItem => ({ label: `${' '.repeat(depth)}${c.name}`, onSelect: () => addTo(c, fams) })),
     'sep',
-    { label: 'New collection…', onSelect: () => setNewColl(fams) },
+    { label: t('New collection…'), onSelect: () => setNewColl(fams) },
   ]
 
   /** The right-click menu for these families. */
@@ -110,29 +111,29 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
     const locked = !all && !editable(fams).length
     return [
       // A temporary font is on but not for good: activating keeps it on (the engine drops its timer).
-      { label: fams.some(turnsOff) ? 'Keep on' : 'Activate', hint: `${mod}Shift+A`, disabled: locked || (!all && fams.every((f) => f.activeState === 'all' && !turnsOff(f))), onSelect: () => setActive(targets, true) },
-      { label: 'Deactivate', hint: `${mod}Shift+D`, disabled: locked || (!all && fams.every((f) => f.activeState === 'none')), onSelect: () => setActive(targets, false) },
+      { label: fams.some(turnsOff) ? t('Keep on') : t('Activate'), hint: `${mod}Shift+A`, disabled: locked || (!all && fams.every((f) => f.activeState === 'all' && !turnsOff(f))), onSelect: () => setActive(targets, true) },
+      { label: t('Deactivate'), hint: `${mod}Shift+D`, disabled: locked || (!all && fams.every((f) => f.activeState === 'none')), onSelect: () => setActive(targets, false) },
       {
-        label: 'Turn on for…', disabled: locked, items: [
-          { label: '2 hours', onSelect: () => setActiveFor(targets, { minutes: 120 }) },
-          { label: 'Until I restart Glyphyard', onSelect: () => setActiveFor(targets, 'restart') },
+        label: t('Turn on for…'), disabled: locked, items: [
+          { label: t('2 hours'), onSelect: () => setActiveFor(targets, { minutes: 120 }) },
+          { label: t('Until I restart Glyphyard'), onSelect: () => setActiveFor(targets, 'restart') },
         ],
       },
-      { label: 'Show in folder', disabled: !fams[0]?.faces[0], onSelect: () => api.showInFolder(fams[0].faces[0].path).catch((e) => toast(errMsg(e))) },
+      { label: t('Show in folder'), disabled: !fams[0]?.faces[0], onSelect: () => api.showInFolder(fams[0].faces[0].path).catch((e) => toast(errMsg(e))) },
       'sep',
       all
-        ? { label: 'Pin to top', disabled: true, hint: NOT_ALL, onSelect: () => {} }
+        ? { label: t('Pin to top'), disabled: true, hint: t('Not for all results'), onSelect: () => {} }
         : fams.every((f) => f.pinned)
-          ? { label: 'Unpin', onSelect: () => setPinned(fams, false) }
-          : { label: 'Pin to top', onSelect: () => setPinned(fams, true) },
-      { label: 'Add to collection', items: collectionItems(targets) },
-      { label: 'Tags…', onSelect: () => setTagging(targets) },
-      { label: one ? 'Rename family…' : 'Show as one family…', disabled: all, hint: all ? NOT_ALL : undefined, onSelect: () => setRenaming(fams) },
+          ? { label: t('Unpin'), onSelect: () => setPinned(fams, false) }
+          : { label: t('Pin to top'), onSelect: () => setPinned(fams, true) },
+      { label: t('Add to collection'), items: collectionItems(targets) },
+      { label: t('Tags…'), onSelect: () => setTagging(targets) },
+      { label: one ? t('Rename family…') : t('Show as one family…'), disabled: all, hint: all ? t('Not for all results') : undefined, onSelect: () => setRenaming(fams) },
       'sep',
-      { label: 'Use as Playground font A', disabled: !one, onSelect: () => navigate(`/playground?a=${encodeURIComponent(fams[0].key)}`) },
-      { label: 'Use as Playground font B', disabled: !one, onSelect: () => navigate(`/playground?b=${encodeURIComponent(fams[0].key)}`) },
+      { label: t('Use as Playground font A'), disabled: !one, onSelect: () => navigate(`/playground?a=${encodeURIComponent(fams[0].key)}`) },
+      { label: t('Use as Playground font B'), disabled: !one, onSelect: () => navigate(`/playground?b=${encodeURIComponent(fams[0].key)}`) },
       'sep',
-      { label: 'Delete from disk…', danger: true, disabled: locked || all, hint: all ? NOT_ALL : undefined, onSelect: () => setDeleting(fams) },
+      { label: t('Delete from disk…'), danger: true, disabled: locked || all, hint: all ? t('Not for all results') : undefined, onSelect: () => setDeleting(fams) },
     ]
   }
 
@@ -140,7 +141,7 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
     if (!renaming) return
     try {
       await api.setFamilyName(allHashes(renaming), name)
-      toast(name ? `Now shown as “${name}”` : 'Back to the font’s own family name')
+      toast(name ? t('Now shown as “{name}”', { name }) : t('Back to the font’s own family name'))
       setRenaming(null)
       onChanged(true)
     } catch (e) {
@@ -152,7 +153,8 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
     setBusy(true)
     try {
       const res = await api.deleteFonts(editable(deleting))
-      toast(`Moved ${plural(res.trashed, 'file')} to the ${bin}${res.failed.length ? ` · ${plural(res.failed.length, 'file')} couldn’t be moved` : ''}`)
+      const moved = t('Moved {what} to the {bin}', { what: plural(res.trashed, 'file'), bin })
+      toast(res.failed.length ? t('{base} · {n} couldn’t be moved', { base: moved, n: plural(res.failed.length, 'file') }) : moved)
       setDeleting(null)
       onChanged(true)
     } catch (e) {
@@ -167,26 +169,30 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
     <>
       <TagsDialog fams={tagging} onClose={() => setTagging(null)} />
       <PromptDialog
-        open={!!renaming} onClose={() => setRenaming(null)} onSubmit={rename} confirm="Rename"
-        title={renaming && renaming.length > 1 ? `Show ${famNames(renaming)} as one family` : 'Rename family'}
-        label="Family name in Glyphyard (the font files don’t change)" initial={renaming?.[0]?.family ?? ''}
+        open={!!renaming} onClose={() => setRenaming(null)} onSubmit={rename} confirm={t('Rename')}
+        title={renaming && renaming.length > 1 ? t('Show {names} as one family', { names: famNames(renaming) }) : t('Rename family')}
+        label={t('Family name in Glyphyard (the font files don’t change)')} initial={renaming?.[0]?.family ?? ''}
       >
-        <button type="button" className="btn link" style={{ marginRight: 'auto', paddingLeft: 0 }} onClick={() => rename(null)}>Reset family name</button>
+        <button type="button" className="btn link" style={{ marginRight: 'auto', paddingLeft: 0 }} onClick={() => rename(null)}>{t('Reset family name')}</button>
       </PromptDialog>
       <PromptDialog
-        open={!!newColl} onClose={() => setNewColl(null)} title="New collection" label="Name" confirm="Create and add"
+        open={!!newColl} onClose={() => setNewColl(null)} title={t('New collection')} label={t('Name')} confirm={t('Create and add')}
         onSubmit={(name) => (newColl && createAndAdd(name, newColl), setNewColl(null))}
       />
-      <Dialog open={!!deleting} onClose={() => !busy && setDeleting(null)} title={`Delete ${plural(delFiles, 'font file')} from disk?`}>
+      <Dialog open={!!deleting} onClose={() => !busy && setDeleting(null)} title={t('Delete {files} from disk?', { files: plural(delFiles, 'font file') })}>
         <p>
-          {andList((deleting ?? []).slice(0, 3).map((f) => f.family))}{(deleting?.length ?? 0) > 3 && ` and ${(deleting?.length ?? 0) - 3} more`}:
-          {' '}{delFiles === 1 ? 'the file is' : `all ${plural(delFiles, 'file')} are`} turned off and moved to the {bin}, including copies in other folders.
-          Fonts in system font folders aren’t touched.
+          {t('{names}: {what} turned off and moved to the {bin}, including copies in other folders. Fonts in system font folders aren’t touched.', {
+            names: (deleting?.length ?? 0) > 3
+              ? t('{names} and {n} more', { names: andList((deleting ?? []).slice(0, 3).map((f) => f.family)), n: (deleting?.length ?? 0) - 3 })
+              : andList((deleting ?? []).slice(0, 3).map((f) => f.family)),
+            what: delFiles === 1 ? t('the file is') : t('all {files} are', { files: plural(delFiles, 'file') }),
+            bin,
+          })}
         </p>
         <div className="dialog-actions">
-          <button type="button" className="btn" onClick={() => setDeleting(null)} disabled={busy}>Cancel</button>
+          <button type="button" className="btn" onClick={() => setDeleting(null)} disabled={busy}>{t('Cancel')}</button>
           <button type="button" className="btn primary danger-fill" onClick={remove} disabled={busy} aria-busy={busy}>
-            {busy && <Spinner />}Move to {bin}
+            {busy && <Spinner />}{t('Move to {bin}', { bin })}
           </button>
         </div>
       </Dialog>
@@ -195,30 +201,31 @@ export function useFontActions(onChanged: (clear: boolean) => void) {
   return { menuItems, collectionItems, setActive, setPinned, addTo, openTags: setTagging, collections, dialogs }
 }
 
-const FONT_FILES = [{ name: 'Fonts', extensions: ['ttf', 'otf', 'ttc', 'otc', 'woff', 'woff2'] }]
+const fontFiles = () => [{ name: t('Fonts'), extensions: ['ttf', 'otf', 'ttc', 'otc', 'woff', 'woff2'] }]
 
 /** Adding fonts: copy files/folders into "Imported fonts" (dialogs or drops), or watch a folder where it is. */
 export function useAddFonts() {
   const { toast, bump } = useApp()
   const navigate = useNavigate()
   const fail = (e: unknown) => toast(errMsg(e))
-  const showPath = (path: string) => ({ label: 'Show', run: () => navigate(`/?path=${encodeURIComponent(path)}`) })
+  const showPath = (path: string) => ({ label: t('Show'), run: () => navigate(`/?path=${encodeURIComponent(path)}`) })
 
   async function importPaths(paths: string[]) {
     if (!paths.length) return
     try {
       const r = await api.importPaths(paths)
       bump()
-      const skipped = r.skipped ? ` · ${plural(r.skipped, 'font')} already in your library` : ''
-      if (r.imported) toast(`Imported ${plural(r.imported, 'font')}${skipped}`, showPath(r.folder))
-      else toast(`No new fonts to import${skipped}`)
+      const note = r.skipped ? t('{n} already in your library', { n: plural(r.skipped, 'font') }) : ''
+      const line = (s: string) => (note ? `${s} · ${note}` : s)
+      if (r.imported) toast(line(t('Imported {what}', { what: plural(r.imported, 'font') })), showPath(r.folder))
+      else toast(line(t('No new fonts to import')))
     } catch (e) {
       fail(e)
     }
   }
   return {
     importPaths,
-    addFonts: () => api.pickFiles(FONT_FILES).then((paths) => void (paths && importPaths(paths)), fail),
+    addFonts: () => api.pickFiles(fontFiles()).then((paths) => void (paths && importPaths(paths)), fail),
     addFolder: () => api.pickFolder().then((path) => void (path && importPaths([path])), fail),
     watchFolder: async () => {
       try {
@@ -226,7 +233,7 @@ export function useAddFonts() {
         if (!path) return
         await api.addFolder(path)
         bump()
-        toast(`Watching ${path}`, showPath(path))
+        toast(t('Watching {path}', { path }), showPath(path))
       } catch (e) {
         fail(e)
       }
@@ -276,7 +283,7 @@ function TagsDialog({ fams, onClose }: { fams: Targets | null; onClose: () => vo
     try {
       const { keys } = await resolve(fams)
       const changed = await api.editTags(keys, names.filter((t) => want[t] === true), names.filter((t) => want[t] === false))
-      toast(changed ? `Updated tags on ${changed === 1 && list?.length === 1 ? list[0].family : plural(changed, 'family', 'families')}` : 'No tags changed')
+      toast(changed ? t('Updated tags on {what}', { what: changed === 1 && list?.length === 1 ? list[0].family : plural(changed, 'family', 'families') }) : t('No tags changed'))
       bump()
       onClose()
     } catch (e) {
@@ -288,37 +295,37 @@ function TagsDialog({ fams, onClose }: { fams: Targets | null; onClose: () => vo
 
   const count = (t: string) => list?.filter((f) => cur?.get(f.key)?.includes(t)).length ?? 0
   return (
-    <Dialog open={!!fams} onClose={onClose} title={fams ? `Tags for ${famNames(fams)}` : 'Tags'}>
+    <Dialog open={!!fams} onClose={onClose} title={fams ? t('Tags for {names}', { names: famNames(fams) }) : t('Tags')}>
       {!cur ? (
-        <p className="muted" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Spinner /> Loading tags…</p>
+        <p className="muted" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Spinner /> {t('Loading tags…')}</p>
       ) : (
         <>
           {names.length > 0 ? (
-            <div className="check-list" role="group" aria-label="Tags">
-              {names.map((t) => (
-                <label key={t} className="check-row">
+            <div className="check-list" role="group" aria-label={t('Tags')}>
+              {names.map((tag) => (
+                <label key={tag} className="check-row">
                   <input
-                    type="checkbox" checked={want[t] === true} ref={(el) => void (el && (el.indeterminate = want[t] === null))}
+                    type="checkbox" checked={want[tag] === true} ref={(el) => void (el && (el.indeterminate = want[tag] === null))}
                     // All results: add → remove → leave as is. Otherwise on / off (a mixed tag can't go back to mixed).
-                    onChange={() => setWant((w) => ({ ...w, [t]: list ? w[t] !== true : w[t] === null ? true : w[t] ? false : null }))}
+                    onChange={() => setWant((w) => ({ ...w, [tag]: list ? w[tag] !== true : w[tag] === null ? true : w[tag] ? false : null }))}
                   />
-                  <span style={{ flex: 1 }}>{t}</span>
-                  {want[t] === null && <span className="faint" style={{ fontSize: 12 }}>{list ? `${count(t)} of ${list.length}` : 'Left as is'}</span>}
-                  {!list && want[t] !== null && <span className="faint" style={{ fontSize: 12 }}>{want[t] ? 'Add to all' : 'Remove from all'}</span>}
+                  <span style={{ flex: 1 }}>{tag}</span>
+                  {want[tag] === null && <span className="faint" style={{ fontSize: 12 }}>{list ? t('{n} of {total}', { n: count(tag), total: list.length }) : t('Left as is')}</span>}
+                  {!list && want[tag] !== null && <span className="faint" style={{ fontSize: 12 }}>{want[tag] ? t('Add to all') : t('Remove from all')}</span>}
                 </label>
               ))}
             </div>
-          ) : <p className="muted">No tags yet. Add the first one below.</p>}
+          ) : <p className="muted">{t('No tags yet. Add the first one below.')}</p>}
           <form style={{ display: 'flex', gap: 8 }} onSubmit={(e) => (e.preventDefault(), add())}>
-            <label htmlFor="new-tag" className="sr-only">New tag</label>
-            <input id="new-tag" className="input" style={{ flex: 1 }} placeholder="New tag" value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus />
-            <button type="submit" className="btn" disabled={!draft.trim()}>Add</button>
+            <label htmlFor="new-tag" className="sr-only">{t('New tag')}</label>
+            <input id="new-tag" className="input" style={{ flex: 1 }} placeholder={t('New tag')} value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus />
+            <button type="submit" className="btn" disabled={!draft.trim()}>{t('Add')}</button>
           </form>
         </>
       )}
       <div className="dialog-actions">
-        <button type="button" className="btn" onClick={onClose}>Cancel</button>
-        <button type="button" className="btn primary" onClick={save} disabled={!cur || busy}>Save tags</button>
+        <button type="button" className="btn" onClick={onClose}>{t('Cancel')}</button>
+        <button type="button" className="btn primary" onClick={save} disabled={!cur || busy}>{t('Save tags')}</button>
       </div>
     </Dialog>
   )
@@ -350,7 +357,7 @@ export function useFamilyDrag(onDrop: (collection: { id: number; name: string },
       if (!fams) {
         if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 6) return
         fams = getFams()
-        setLabel(fams.length === 1 ? fams[0].family : `${fams.length} families`)
+        setLabel(fams.length === 1 ? fams[0].family : plural(fams.length, 'family', 'families'))
         document.body.classList.add('dragging-fonts')
         getSelection()?.removeAllRanges()
       }

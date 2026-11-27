@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Family } from '../api'
 import { familyStyle } from '../fonts'
+import { t } from '../i18n'
 import { errMsg } from '../ui'
 import { pick, randomFamilies } from './effects'
 
@@ -22,7 +23,7 @@ export function NameThatFont() {
     if (round > ROUNDS) return
     let live = true
     randomFamilies(4).then(
-      (fs) => live && (fs.length < 4 ? setError('You need at least four font families in your library to play.') : setQ({ choices: fs, answer: pick(fs) })),
+      (fs) => live && (fs.length < 4 ? setError(t('You need at least four font families in your library to play.')) : setQ({ choices: fs, answer: pick(fs) })),
       (e) => live && setError(errMsg(e)),
     )
     return () => void (live = false)
@@ -32,9 +33,9 @@ export function NameThatFont() {
   if (round > ROUNDS)
     return (
       <>
-        <p aria-live="polite">You named {score} of {ROUNDS} fonts{score === ROUNDS ? '. Perfect!' : '.'}</p>
+        <p aria-live="polite">{score === ROUNDS ? t('You named {score} of {rounds} fonts. Perfect!', { score, rounds: ROUNDS }) : t('You named {score} of {rounds} fonts.', { score, rounds: ROUNDS })}</p>
         <div className="dialog-actions">
-          <button type="button" className="btn primary" autoFocus onClick={() => (setQ(null), setPicked(null), setScore(0), setRound(1), setGame((g) => g + 1))}>Play again</button>
+          <button type="button" className="btn primary" autoFocus onClick={() => (setQ(null), setPicked(null), setScore(0), setRound(1), setGame((g) => g + 1))}>{t('Play again')}</button>
         </div>
       </>
     )
@@ -46,9 +47,9 @@ export function NameThatFont() {
   }
   return (
     <>
-      <span className="muted" style={{ fontSize: 13 }}>Round {round} of {ROUNDS} · {score} right so far</span>
+      <span className="muted" style={{ fontSize: 13 }}>{t('Round {round} of {rounds} · {score} right so far', { round, rounds: ROUNDS, score })}</span>
       <p className="egg-word" style={q ? familyStyle(q.answer) : { visibility: 'hidden' }}>{WORDS[(round - 1) % WORDS.length]}</p>
-      <div className="egg-choices" role="group" aria-label="Which font is this?">
+      <div className="egg-choices" role="group" aria-label={t('Which font is this?')}>
         {q?.choices.map((f, i) => {
           const state = !picked ? '' : f.key === q.answer.key ? ' right' : f.key === picked ? ' wrong' : ''
           return (
@@ -59,10 +60,10 @@ export function NameThatFont() {
         })}
       </div>
       <p aria-live="polite" style={{ minHeight: '1.55em' }}>
-        {picked && q && (picked === q.answer.key ? 'Right!' : `Not quite: it’s ${q.answer.family}.`)}
+        {picked && q && (picked === q.answer.key ? t('Right!') : t('Not quite: it’s {family}.', { family: q.answer.family }))}
       </p>
       <div className="dialog-actions">
-        <button ref={next} type="button" className="btn primary" disabled={!picked} onClick={nextRound}>{round === ROUNDS ? 'See your score' : 'Next'}</button>
+        <button ref={next} type="button" className="btn primary" disabled={!picked} onClick={nextRound}>{round === ROUNDS ? t('See your score') : t('Next')}</button>
       </div>
     </>
   )

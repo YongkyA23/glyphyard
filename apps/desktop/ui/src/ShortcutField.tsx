@@ -1,5 +1,6 @@
 // Settings row control for the quick-activate shortcut: "Change", press the new combination, it is checked and saved.
 import { useState, type KeyboardEvent } from 'react'
+import { t } from './i18n'
 import { shortcutFromKey } from './shortcut'
 import { errMsg, formatShortcut } from './ui'
 
@@ -32,7 +33,7 @@ export function ShortcutField({ value, platform, onSave }: { value: string; plat
       await onSave(r.shortcut)
       stop()
     } catch (err) {
-      setError(`${errMsg(err)} Your shortcut is still ${formatShortcut(value, platform)}.`)
+      setError(t('{error} Your shortcut is still {shortcut}.', { error: errMsg(err), shortcut: formatShortcut(value, platform) }))
     } finally {
       setBusy(false)
     }
@@ -43,13 +44,13 @@ export function ShortcutField({ value, platform, onSave }: { value: string; plat
       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <kbd className="kbd">{formatShortcut(value, platform)}</kbd>
         <button
-          type="button" className={recording ? 'btn small outline-accent' : 'btn small'} aria-label={recording || busy ? undefined : 'Change quick activate shortcut'} aria-describedby={error ? 'shortcut-error' : recording ? 'shortcut-hint' : undefined}
+          type="button" className={recording ? 'btn small outline-accent' : 'btn small'} aria-label={recording || busy ? undefined : t('Change quick activate shortcut')} aria-describedby={error ? 'shortcut-error' : recording ? 'shortcut-hint' : undefined}
           onClick={() => (setError(null), setRecording(!recording))} onKeyDown={onKey} onBlur={() => !busy && stop()}
         >
-          {busy ? 'Saving…' : recording ? 'Press the new shortcut…' : 'Change'}
+          {busy ? t('Saving…') : recording ? t('Press the new shortcut…') : t('Change')}
         </button>
       </span>
-      {recording && !error && <span id="shortcut-hint" className="faint" style={{ fontSize: 12 }}>Hold two modifier keys and press a key. Esc cancels.</span>}
+      {recording && !error && <span id="shortcut-hint" className="faint" style={{ fontSize: 12 }}>{t('Hold two modifier keys and press a key. Esc cancels.')}</span>}
       {error && <span id="shortcut-error" role="alert" style={{ fontSize: 12, color: 'var(--bad)', textAlign: 'right' }}>{error}</span>}
     </span>
   )

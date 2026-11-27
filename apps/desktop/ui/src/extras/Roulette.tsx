@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router'
 import { useReducedMotion } from 'motion/react'
 import type { Family } from '../api'
 import { familyStyle } from '../fonts'
+import { t } from '../i18n'
 import { Dialog, errMsg } from '../ui'
 import { playful, randomFamilies, useTaps } from './effects'
 
@@ -39,7 +40,7 @@ function Roulette({ onClose }: { onClose: () => void }) {
   const done = !!win && stopped >= REELS
   return (
     <>
-      {error ? <p role="alert">{error}</p> : pool && !win ? <p>Your library is empty. Add some fonts and spin again.</p> : (
+      {error ? <p role="alert">{error}</p> : pool && !win ? <p>{t('Your library is empty. Add some fonts and spin again.')}</p> : (
         <div className="egg-reels" aria-hidden="true">
           {Array.from({ length: REELS }, (_, i) => {
             const f = !pool ? null : i < stopped ? win : pool[(tick + i * 4) % pool.length]
@@ -47,10 +48,10 @@ function Roulette({ onClose }: { onClose: () => void }) {
           })}
         </div>
       )}
-      <p className="egg-result" aria-live="polite" style={done ? familyStyle(win) : { visibility: 'hidden' }}>{done ? win.family : 'Spinning…'}</p>
+      <p className="egg-result" aria-live="polite" style={done ? familyStyle(win) : { visibility: 'hidden' }}>{done ? win.family : t('Spinning…')}</p>
       <div className="dialog-actions">
-        <button type="button" className="btn" onClick={() => (setPool(null), setError(null), setSpun(0), setRound((r) => r + 1))}>Spin again</button>
-        <button type="button" className="btn primary" disabled={!done} onClick={() => (onClose(), navigate(`/family/${encodeURIComponent(win!.key)}`))}>Open</button>
+        <button type="button" className="btn" onClick={() => (setPool(null), setError(null), setSpun(0), setRound((r) => r + 1))}>{t('Spin again')}</button>
+        <button type="button" className="btn primary" disabled={!done} onClick={() => (onClose(), navigate(`/family/${encodeURIComponent(win!.key)}`))}>{t('Open')}</button>
       </div>
     </>
   )
@@ -69,7 +70,7 @@ export function Logo({ brand, logo }: { brand?: string; logo?: string }) {
           <span aria-hidden="true" className="brand-name">{brand}</span>
         </> : <span aria-hidden="true" className="gy-lockup" />}
       </button>
-      <Dialog open={open} onClose={() => setOpen(false)} title="Font roulette">
+      <Dialog open={open} onClose={() => setOpen(false)} title={t('Font roulette')}>
         <Roulette onClose={() => setOpen(false)} />
       </Dialog>
     </>
