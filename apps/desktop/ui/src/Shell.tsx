@@ -10,6 +10,7 @@ import { useAddFonts } from './fontActions'
 import { useContextMenu, type MenuItem } from './menu'
 import { dur, easeOut, pop, route, spring } from './motion'
 import { useApp } from './state'
+import { UpdateBanner } from './UpdateBanner'
 import { Extras } from './extras/Extras'
 import { t } from './i18n'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -512,6 +513,7 @@ export function Shell() {
         <Sidebar />
       </div>
       <main className="shell-main" ref={main}>
+        <UpdateBanner />
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div key={pathname} className="route" {...route}><ErrorBoundary resetKey={key} sidebar>{outlet}</ErrorBoundary></motion.div>
         </AnimatePresence>
