@@ -2,7 +2,10 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { api, ApiError, errorText, type Admin, type Me, type Role, type Settings } from '../api'
 import { base, fadeRise, fast, row } from '../motion'
-import { ago, Empty, ErrorBox, Loaded, Skel, Spin, Swap, Toggle, useConfirm, useLoad } from '../ui'
+import { ago, Badge, Empty, ErrorBox, Loaded, Skel, Spin, Swap, Toggle, useConfirm, useLoad } from '../ui'
+import { toast } from '../toast'
+import { Hint } from '../Hint'
+import { t, tk } from '../i18n'
 
 const skeleton = (
   <div className="stack-18">
@@ -61,7 +64,7 @@ function Form({ initial, onSaved, admins, owner }: { initial: Settings; onSaved:
     setStatus('saving')
     setError('')
     try {
-      const { install_key: _, server_url: __, ...rest } = s
+      const { install_key: _, server_url: __, connection_password_set: ___, ...rest } = s
       const saved = await api.saveSettings({ ...rest, name_change_days: daysNum })
       setS(saved)
       onSaved(saved)
@@ -178,6 +181,9 @@ function Form({ initial, onSaved, admins, owner }: { initial: Settings; onSaved:
           </div>
         ))}
       </motion.section>
+
+      <UnlockPassword allowEdit={s.allow_connection_edit} isSet={s.connection_password_set} owner={owner}
+        onChanged={(v) => { setS((x) => ({ ...x, connection_password_set: v })); onSaved({ ...initial, connection_password_set: v }) }} />
 
       {admins}
 
@@ -347,9 +353,9 @@ function OwnPassword() {
 }
 
 const UPDATE_FIELDS: [string, string, string][] = [
-  ['file', 'Setup program', '.exe'],
-  ['manifest', 'Manifest', '.manifest'],
-  ['signature', 'Signature', '.sig'],
+  ['file', tk('Setup program'), '.exe'],
+  ['manifest', tk('Manifest'), '.manifest'],
+  ['signature', tk('Signature'), '.sig'],
 ]
 
 function Updates({ owner }: { owner?: boolean }) {
@@ -380,22 +386,98 @@ function Updates({ owner }: { owner?: boolean }) {
   }
   return (
     <motion.section aria-labelledby="upd" className="card pad-20 stack-10" variants={fadeRise}>
-      <h2 id="upd" className="h2">App updates</h2>
+      <h2 id="upd" className="h2 title-row">{t('App updates')} <Hint text={t('Sign the setup program on the computer that keeps the private key, with typeshelf-server update-sign. Apps built with the matching public key check once a day, check the signature and the file, and install the new version when the user quits Glyphyard. The server refuses a setup program that doesn’t match its manifest.')} /></h2>
       <Loaded state={state} skeleton={<Skel w="50%" />}>{(r) => (
         <span className="small">{r ? `Current release: version ${r.version} (${(r.size / 1_048_576).toFixed(1)} MB)` : 'No release uploaded. Desktop apps keep the version they have.'}</span>
       )}</Loaded>
       <form className="stack-10" onSubmit={submit} noValidate>
-        {UPDATE_FIELDS.map(([name, label, accept]) => (
-          <label key={name} className="field"><span>{label} ({accept})</span>
-            <input type="file" name={name} accept={accept} className="input" disabled={!owner} onChange={() => { setError(''); setDone('') }} />
-          </label>
-        ))}
+        <div className="file-grid">
+          {UPDATE_FIELDS.map(([name, label, accept]) => (
+            <label key={name} className="field"><span>{t(label)} ({accept})</span>
+              <input type="file" name={name} accept={accept} disabled={!owner} onChange={() => { setError(''); setDone('') }} />
+            </label>
+          ))}
+        </div>
         <span className="row-8"><button type="submit" className="btn btn-primary" disabled={busy || !owner} aria-describedby={owner === false ? 'upd-owner' : undefined}>{busy && <Spin />}{busy ? 'Uploading…' : 'Upload release'}</button></span>
         {owner === false && <span id="upd-owner" className="meta">Only an owner can upload a release.</span>}
         {error && <span role="alert" className="form-error">{error}</span>}
         <span className="small mute" role="status">{done}</span>
       </form>
-      <span className="meta lh">Sign the setup program on the computer that keeps the private key, with <code>typeshelf-server update-sign</code>. Apps built with the matching public key check once a day, check the signature and the file, and install the new version when the user quits Glyphyard. The server refuses a setup program that doesn’t match its manifest.</span>
+    </motion.section>
+  )
+}
+
+function UnlockPassword({ allowEdit, isSet, owner, onChanged }: { allowEdit: boolean; isSet: boolean; owner?: boolean; onChanged: (set: boolean) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [password, setPassword] = useState('')
+  const [again, setAgain] = useState('')
+  const [shown, setShown] = useState(false)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [confirmDialog, confirm] = useConfirm()
+  const close = () => { setEditing(false); setPassword(''); setAgain(''); setShown(false); setError('') }
+  const save = async (e: FormEvent) => {
+    e.preventDefault()
+    if (password.length < 8) return setError(t('Use a password of at least 8 characters.'))
+    if (password !== again) return setError(t('The two passwords don’t match.'))
+    setBusy(true)
+    setError('')
+    try {
+      const r = await api.setConnectionPassword(password)
+      onChanged(r.connection_password_set)
+      toast(t('Unlock password saved.'))
+      close()
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const remove = async () => {
+    if (!(await confirm(t('Remove the unlock password? Anyone can then change the connection on a computer once it is unlocked by policy.'), t('Remove'), true))) return
+    try {
+      const r = await api.setConnectionPassword(null)
+      onChanged(r.connection_password_set)
+      toast(t('Unlock password removed.'))
+    } catch (err) {
+      toast(errorText(err), { tone: 'bad' })
+    }
+  }
+  return (
+    <motion.section aria-labelledby="unl" className="card pad-20 stack-12" variants={fadeRise}>
+      <div className="row-between">
+        <h2 id="unl" className="h2 title-row">{t('Unlock password')} <Hint text={t('Stored as a one-way hash on every computer so you can unlock offline. Use a long passphrase.')} /></h2>
+        <Badge tone={isSet ? 'ok' : 'outline'}>{isSet ? t('Set') : t('Not set')}</Badge>
+      </div>
+      {!allowEdit && !isSet && <p className="note warn">{t('Connection changes are locked and no unlock password is set, so nobody can change the connection on a locked computer.')}</p>}
+      {owner === false && <span className="meta">{t('Only an owner can set or remove the unlock password.')}</span>}
+      {owner && !editing && (
+        <span className="row-8">
+          <button type="button" className="btn" onClick={() => setEditing(true)}>{isSet ? t('Change password') : t('Set password')}</button>
+          {isSet && <button type="button" className="btn btn-danger" onClick={() => void remove()}>{t('Remove password')}</button>}
+        </span>
+      )}
+      {owner && editing && (
+        <form className="stack-10" onSubmit={save} noValidate>
+          <label className="field"><span>{t('Unlock password (at least 8 characters)')}</span>
+            <span className="row-8">
+              <input type={shown ? 'text' : 'password'} className="input grow" autoFocus autoComplete="new-password" maxLength={128} value={password}
+                onChange={(e) => { setPassword(e.target.value); setError('') }} />
+              <button type="button" className="btn" aria-pressed={shown} aria-label={shown ? t('Hide password') : t('Show password')} onClick={() => setShown(!shown)}>{shown ? t('Hide') : t('Show')}</button>
+            </span>
+          </label>
+          <label className="field"><span>{t('Confirm unlock password')}</span>
+            <input type={shown ? 'text' : 'password'} className="input" autoComplete="new-password" maxLength={128} value={again}
+              onChange={(e) => { setAgain(e.target.value); setError('') }} />
+          </label>
+          {error && <span role="alert" className="form-error">{error}</span>}
+          <span className="row-8">
+            <button type="submit" className="btn btn-primary" disabled={busy}>{busy && <Spin />}{isSet ? t('Change password') : t('Set password')}</button>
+            <button type="button" className="btn" onClick={close}>{t('Cancel')}</button>
+          </span>
+        </form>
+      )}
+      {confirmDialog}
     </motion.section>
   )
 }

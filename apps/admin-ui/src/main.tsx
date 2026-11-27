@@ -24,6 +24,10 @@ import { Requests } from './pages/Requests'
 import { Audit } from './pages/Audit'
 
 import { initTheme } from './theme'
+import './i18n/id'
+import { t } from './i18n'
+import { Remount } from './i18n/LanguageSelect'
+
 
 initTheme()
 
@@ -38,7 +42,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <MotionConfig reducedMotion="user">
       <BrowserRouter>
-        <Routes>
+        <Remount><Routes>
           <Route path="/login" element={<ErrorBoundary><Login /></ErrorBoundary>} />
           <Route element={<Layout />}>
             <Route index element={<Overview />} />
@@ -51,9 +55,9 @@ createRoot(document.getElementById('root')!).render(
             <Route path="requests" element={<Requests />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="audit" element={<Audit />} />
-            <Route path="*" element={<p className="empty">Page not found.</p>} />
+            <Route path="*" element={<p className="empty">{t('Page not found.')}</p>} />
           </Route>
-        </Routes>
+        </Routes></Remount>
         <Toaster />
       </BrowserRouter>
     </MotionConfig>

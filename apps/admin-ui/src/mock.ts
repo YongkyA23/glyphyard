@@ -69,7 +69,7 @@ const fontRequests: FontRequest[] = [
 let settings: Settings = {
   name_change_days: 30, allow_connection_edit: true, deliver_library_to_new: true, activate_delivered: false,
   notify_admin_changes: true, timeline_retention_days: null, server_url: 'https://fonts.example.test/api', install_key: 'tsk_example_key_1234',
-  brand_name: '', brand_color: '', brand_logo: '',
+  brand_name: '', brand_color: '', brand_logo: '', connection_password_set: false,
 }
 
 const audit: AuditEntry[] = [
@@ -253,6 +253,12 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
   ], sp)
   if (p === '/settings' && method === 'PUT') return (settings = { ...settings, ...(body as object) })
   if (p === '/settings') return settings
+  if (p === '/settings/connection-password') {
+    const pw = (body as { password: string | null }).password
+    if (pw !== null && (pw.length < 8 || pw.length > 128)) throw { status: 400, error: 'invalid_password', message: 'The unlock password must be 8 to 128 characters.' }
+    settings.connection_password_set = pw !== null
+    return { connection_password_set: settings.connection_password_set }
+  }
   if (p === '/settings/install-key') return { install_key: (settings.install_key = 'tsk_' + Math.random().toString(36).slice(2)) }
   if (p === '/admins' && method === 'GET') return [{ id: 1, email: 'admin@example.test', role: 'owner', last_login: t(10) }, { id: 2, email: 'second@example.test', role: 'admin', last_login: null }]
   if (p === '/audit') {
@@ -271,6 +277,10 @@ window.fetch = async (input, init) => {
   if (!path.startsWith('/api/admin')) return realFetch(input, init)
   await new Promise((r) => setTimeout(r, 200))
   const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
-  const data = route(init?.method ?? 'GET', path.slice('/api/admin'.length), searchParams, body)
+  let data: unknown
+  try { data = route(init?.method ?? 'GET', path.slice('/api/admin'.length), searchParams, body) } catch (e) {
+    const { status, ...err } = e as { status: number; error: string; message: string }
+    return Response.json(err, { status })
+  }
   return data === undefined ? new Response(null, { status: 204 }) : Response.json(data)
 }
