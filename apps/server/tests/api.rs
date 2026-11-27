@@ -323,7 +323,7 @@ async fn remote_deactivate_arrives_over_websocket() {
     let command_id = r.json()["command_id"].as_i64().unwrap();
 
     let msg = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next()).await.unwrap().unwrap().unwrap();
-    let ServerMessage::Command(cmd) = serde_json::from_str(msg.to_text().unwrap()).unwrap();
+    let ServerMessage::Command(cmd) = serde_json::from_str(msg.to_text().unwrap()).unwrap() else { panic!("expected a command") };
     assert_eq!(cmd.id, command_id);
     assert!(matches!(cmd.kind, CommandKind::Deactivate { ref font } if font.hash == "h1" && font.family == "Fraunces"));
 

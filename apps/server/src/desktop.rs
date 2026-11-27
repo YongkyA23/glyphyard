@@ -235,7 +235,11 @@ async fn ws(State(s): State<AppState>, install: Install, upgrade: WebSocketUpgra
 }
 
 async fn send(socket: &mut WebSocket, cmd: Command) -> bool {
-    let text = serde_json::to_string(&ServerMessage::Command(cmd)).expect("message serializes");
+    send_message(socket, &ServerMessage::Command(cmd)).await
+}
+
+async fn send_message(socket: &mut WebSocket, msg: &ServerMessage) -> bool {
+    let text = serde_json::to_string(msg).expect("message serializes");
     socket.send(Message::Text(text.into())).await.is_ok()
 }
 
@@ -268,8 +272,8 @@ async fn run_socket(s: AppState, install_id: String, mut socket: WebSocket) {
     }
     while open {
         tokio::select! {
-            cmd = rx.recv() => match cmd {
-                Some(cmd) if cmd.id > last_sent => {
+            msg = rx.recv() => match msg {
+                Some(ServerMessage::Command(cmd)) if cmd.id > last_sent => {
                     let id = cmd.id;
                     open = send(&mut socket, cmd).await;
                     if open {
@@ -278,7 +282,8 @@ async fn run_socket(s: AppState, install_id: String, mut socket: WebSocket) {
                         }
                     }
                 }
-                Some(_) => {}
+                Some(ServerMessage::Command(_)) => {}
+                Some(notice) => open = send_message(&mut socket, &notice).await,
                 None => open = false, // replaced by a newer connection
             },
             msg = socket.recv() => match msg {

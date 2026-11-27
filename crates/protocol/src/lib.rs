@@ -160,6 +160,13 @@ pub struct Command {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
     Command(Command),
+    /// The person's display name or name-change limit changed: on another of their computers, or by an admin
+    /// merge or split. WebSocket only (not queued): a computer that was offline picks it up from `GET /me`.
+    /// Desktops older than this message ignore it.
+    Identity { name: String, next_name_change: Option<DateTime<Utc>> },
+    /// The person's synced collections and project sets changed on another of their computers: pull
+    /// `GET /me/organizer`. WebSocket only; every connect pulls anyway.
+    OrganizerChanged { rev: i64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

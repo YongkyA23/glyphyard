@@ -6,17 +6,17 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use typeshelf_protocol::{Command, CommandKind, FONT_NOT_HERE_CODE, FONT_NOT_HERE_SUFFIX};
+use typeshelf_protocol::{Command, CommandKind, ServerMessage, FONT_NOT_HERE_CODE, FONT_NOT_HERE_SUFFIX};
 
 #[derive(Default)]
 pub struct Hub {
     /// One live socket per install; a reconnect replaces the old sender (which ends the old socket loop).
-    conns: Mutex<HashMap<String, (u64, UnboundedSender<Command>)>>,
+    conns: Mutex<HashMap<String, (u64, UnboundedSender<ServerMessage>)>>,
     next_conn: AtomicU64,
 }
 
 impl Hub {
-    pub fn connect(&self, install_id: &str) -> (u64, UnboundedReceiver<Command>) {
+    pub fn connect(&self, install_id: &str) -> (u64, UnboundedReceiver<ServerMessage>) {
         let (tx, rx) = unbounded_channel();
         let conn = self.next_conn.fetch_add(1, Ordering::Relaxed);
         self.lock().insert(install_id.to_string(), (conn, tx));
@@ -40,14 +40,30 @@ impl Hub {
     }
 
     fn push(&self, install_id: &str, cmd: Command) {
+        self.notify(install_id, ServerMessage::Command(cmd));
+    }
+
+    /// Sends a live-only message to the install's socket, if it is connected. Nothing is stored.
+    pub fn notify(&self, install_id: &str, msg: ServerMessage) {
         if let Some((_, tx)) = self.lock().get(install_id) {
-            let _ = tx.send(cmd);
+            let _ = tx.send(msg);
         }
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, (u64, UnboundedSender<Command>)>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, (u64, UnboundedSender<ServerMessage>)>> {
         self.conns.lock().unwrap_or_else(|e| e.into_inner())
     }
+}
+
+/// Sends a live-only message to every connected computer of the person `install_id` belongs to, except `except`.
+pub fn notify_person(c: &Connection, hub: &Hub, install_id: &str, except: Option<&str>, msg: &ServerMessage) -> rusqlite::Result<()> {
+    let person = db::person(c, install_id)?;
+    for id in db::person_devices(c, &person)? {
+        if Some(id.as_str()) != except {
+            hub.notify(&id, msg.clone());
+        }
+    }
+    Ok(())
 }
 
 /// Stores the command (so it survives offline periods) for the install and for every install merged into it

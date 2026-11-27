@@ -162,6 +162,20 @@ pub fn insert_event(c: &Connection, install_id: &str, kind: &str, by: &str, text
     Ok(())
 }
 
+/// The person an install belongs to: the install it was merged into, or itself. Unknown ids map to themselves.
+pub fn person(c: &Connection, id: &str) -> rusqlite::Result<String> {
+    Ok(c.query_row("SELECT COALESCE(merged_into, id) FROM installs WHERE id = ?1", [id], |r| r.get(0)).optional()?.unwrap_or_else(|| id.to_string()))
+}
+
+/// The person's computers that are not revoked: the person's own install first, then the ones merged into it.
+pub fn person_devices(c: &Connection, person: &str) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = c.prepare(
+        "SELECT id FROM installs WHERE (id = ?1 OR merged_into = ?1) AND revoked_at IS NULL ORDER BY merged_into IS NOT NULL, first_seen",
+    )?;
+    let ids = stmt.query_map([person], |r| r.get(0))?.collect();
+    ids
+}
+
 pub fn install_name(c: &Connection, id: &str) -> rusqlite::Result<Option<String>> {
     c.query_row("SELECT name FROM installs WHERE id = ?1", [id], |r| r.get(0)).optional()
 }
