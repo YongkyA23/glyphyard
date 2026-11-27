@@ -1,12 +1,13 @@
 // Hold Space on the family page (focus not on a control or text field) for a full-window poster of the family.
 import { useEffect, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
+import { t } from '../../i18n'
 import { keysBusy } from '../../ui'
 import './glyph-tools.css'
 
 /** Space activates focused controls, so a press on one (fields, dialogs and menus are `keysBusy`) leaves the poster shut. */
-const onControl = (t: EventTarget | null) =>
-  t instanceof Element && !!t.closest('a[href], button, input, summary, [role="button"], [role="tab"], [role="menuitem"], [role="checkbox"], [role="radio"], [role="switch"], [role="option"], [role="slider"]')
+const onControl = (target: EventTarget | null) =>
+  target instanceof Element && !!target.closest('a[href], button, input, summary, [role="button"], [role="tab"], [role="menuitem"], [role="checkbox"], [role="radio"], [role="switch"], [role="option"], [role="slider"]')
 
 export function Poster({ family, sample, style }: { family: string; sample: string; style: CSSProperties }) {
   const [open, setOpen] = useState(false)
@@ -26,10 +27,10 @@ export function Poster({ family, sample, style }: { family: string; sample: stri
   }, [])
   if (!open) return null
   return createPortal(
-    <div className="poster" role="img" aria-label={`${family} poster: ${sample}`}>
+    <div className="poster" role="img" aria-label={t('{family} poster: {sample}', { family, sample })}>
       <h2 className="poster-name" style={style}>{family}</h2>
       <p className="poster-sample" style={style}>{sample}</p>
-      <span className="poster-hint">Release Space or press Esc to close</span>
+      <span className="poster-hint">{t('Release Space or press Esc to close')}</span>
     </div>,
     document.body,
   )

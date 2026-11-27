@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, type AxisPreset } from '../api'
+import { t } from '../i18n'
 import { errMsg, PromptDialog } from '../ui'
 import { useApp } from '../state'
 import type { AxisState } from './Playground'
@@ -28,14 +29,14 @@ export function AxisPresets({ s, set }: { s: AxisState | null; set: (s: AxisStat
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
       {items.map((p) => (
         <div key={p.name} className="row-between">
-          <button type="button" className="btn small link" style={{ paddingLeft: 0 }} aria-label={`Apply preset ${p.name}`} onClick={() => apply(p)}>{p.name}</button>
-          <button type="button" className="btn small link" aria-label={`Delete preset ${p.name}`} onClick={() => run(api.deleteAxisPreset(key, p.name), `Preset “${p.name}” deleted`)}>Delete</button>
+          <button type="button" className="btn small link" style={{ paddingLeft: 0 }} aria-label={t('Apply preset {name}', { name: p.name })} onClick={() => apply(p)}>{p.name}</button>
+          <button type="button" className="btn small link" aria-label={t('Delete preset {name}', { name: p.name })} onClick={() => run(api.deleteAxisPreset(key, p.name), t('Preset “{name}” deleted', { name: p.name }))}>{t('Delete')}</button>
         </div>
       ))}
-      <button type="button" className="btn small" style={{ alignSelf: 'flex-start' }} onClick={() => setNaming(true)}>Save axes as preset…</button>
+      <button type="button" className="btn small" style={{ alignSelf: 'flex-start' }} onClick={() => setNaming(true)}>{t('Save axes as preset…')}</button>
       <PromptDialog
-        open={naming} title="Save axis preset" label="Preset name" confirm="Save" onClose={() => setNaming(false)}
-        onSubmit={(name) => (setNaming(false), run(api.saveAxisPreset(key, name, s.v), `Preset “${name.trim()}” saved`))}
+        open={naming} title={t('Save axis preset')} label={t('Preset name')} confirm={t('Save')} onClose={() => setNaming(false)}
+        onSubmit={(name) => (setNaming(false), run(api.saveAxisPreset(key, name, s.v), t('Preset “{name}” saved', { name: name.trim() })))}
       />
     </div>
   )

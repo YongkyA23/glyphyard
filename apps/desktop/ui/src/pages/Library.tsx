@@ -15,6 +15,7 @@ import { PreselectBar } from '../PreselectBar'
 import { collapse, dur, easeOut, rise, spring, STAGGER_CAP, staggerDelay } from '../motion'
 import { useApp } from '../state'
 import { RequestFontButton } from '../RequestFont'
+import { t, tk } from '../i18n'
 import { useBreathing } from '../useBreathing'
 import { usePreviewWheel } from '../usePreviewWheel'
 import { useSampleText } from '../useSampleText'
@@ -24,23 +25,23 @@ import {
 
 /** SuperSearch tokens (the backend parses them); clicking one in the "?" menu adds it to the search. */
 const TOKENS: [string, string][] = [
-  ['tag:headline', 'Has this tag'], ['foundry:IBM', 'Foundry contains'], ['foundry:"Monotype Imaging"', 'Quotes for spaces'],
-  ['designer:Carter', 'Designer contains'], ['category:serif', 'Or sans, display, mono…'],
-  ['license:personal', 'Or licensed, client…'], ['weight:700', 'Has this weight'], ['weight:>600', 'Heavier (or < lighter)'],
-  ['weight:300-500', 'Weight range'], ['italic', 'Has italics'], ['variable', 'Variable font'], ['active', 'Turned on'], ['inactive', 'Turned off'],
-  ['pinned', 'Pinned to the top'], ['system', 'System font'], ['char:€ß', 'Has these characters'], ['lang:vietnamese', 'Covers a language'],
+  ['tag:headline', tk('Has this tag')], ['foundry:IBM', tk('Foundry contains')], ['foundry:"Monotype Imaging"', tk('Quotes for spaces')],
+  ['designer:Carter', tk('Designer contains')], ['category:serif', tk('Or sans, display, mono…')],
+  ['license:personal', tk('Or licensed, client…')], ['weight:700', tk('Has this weight')], ['weight:>600', tk('Heavier (or < lighter)')],
+  ['weight:300-500', tk('Weight range')], ['italic', tk('Has italics')], ['variable', tk('Variable font')], ['active', tk('Turned on')], ['inactive', tk('Turned off')],
+  ['pinned', tk('Pinned to the top')], ['system', tk('System font')], ['char:€ß', tk('Has these characters')], ['lang:vietnamese', tk('Covers a language')],
 ]
 const PinMark = () => (
-  <svg role="img" aria-label="Pinned" className="pin-mark" width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-    <title>Pinned</title>
+  <svg role="img" aria-label={t('Pinned')} className="pin-mark" width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+    <title>{t('Pinned')}</title>
     <path d="M9.6 1.6 14.4 6.4l-1.9.6-2.7 2.7.3 2.9-1.3 1.3L2.1 7.2l1.3-1.3 2.9.3L9 3.5Z" /><path d="M5.6 10.4 1.8 14.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
   </svg>
 )
 
 const FILTERS: [FamilyFilter, string][] = [
-  ['all', 'All'], ['active', 'Active'], ['inactive', 'Inactive'], ['admin', 'Set by admin'], ['unknown_license', 'Unknown license'], ['duplicates', 'Duplicates'],
+  ['all', tk('All')], ['active', tk('Active')], ['inactive', tk('Inactive')], ['admin', tk('Set by admin')], ['unknown_license', tk('Unknown license')], ['duplicates', tk('Duplicates')],
 ]
-const SORTS: [FamilySort, string][] = [['name', 'Name A–Z'], ['name_desc', 'Name Z–A'], ['date', 'Recently added'], ['foundry', 'Foundry'], ['random', 'Random']]
+const SORTS: [FamilySort, string][] = [['name', tk('Name A–Z')], ['name_desc', tk('Name Z–A')], ['date', tk('Recently added')], ['foundry', tk('Foundry')], ['random', tk('Random')]]
 const CATEGORIES = Object.entries(CATEGORY_LABEL) as [FontCategory, string][]
 const newSeed = () => Math.floor(Math.random() * 2 ** 31)
 /** A URL value if it is one of `list`'s keys, else null. */
@@ -59,7 +60,10 @@ function savedView(): View {
     return 'list'
   }
 }
-const ADMIN_VERB = { activated: 'turned on', deactivated: 'turned off', blocked: 'blocked', delivered: 'added' }
+const ADMIN_MSG = {
+  activated: tk('Your admin turned on {fonts} for you'), deactivated: tk('Your admin turned off {fonts} for you'),
+  blocked: tk('Your admin blocked {fonts} for you'), delivered: tk('Your admin added {fonts} to your library'),
+}
 const DEFAULT_SAMPLE = 'Sphinx of black quartz, judge my vow'
 /** Families per page; previews load only for rows that scroll into view. */
 const PAGE = 50
@@ -105,13 +109,17 @@ const itemEvents = (f: Family, i: number, h: ItemHandlers) => ({
 })
 
 const ItemSwitch = ({ f, h }: { f: Family; h: ItemHandlers }) => (
-  <Switch
-    on={f.activeState !== 'none'} mixed={f.activeState === 'some'} disabled={f.system} onClick={() => h.toggle(f)} title={turnsOff(f) ?? undefined}
-    label={f.system ? `${f.family} is a system font, always on` : `${f.activeState === 'all' ? 'Deactivate' : 'Activate'} ${f.family}${turnsOff(f) ? `. ${turnsOff(f)}` : ''}`}
-  />
+  // The wrapper carries the tour anchor (Switch takes no extra props); it must not change the row's layout.
+  <span data-tour="font-switch" style={{ display: 'inline-flex', flexShrink: 0 }}>
+    <Switch
+      on={f.activeState !== 'none'} mixed={f.activeState === 'some'} disabled={f.system} onClick={() => h.toggle(f)} title={turnsOff(f) ?? undefined}
+      label={f.system ? t('{family} is a system font, always on', { family: f.family })
+        : `${f.activeState === 'all' ? t('Deactivate {family}', { family: f.family }) : t('Activate {family}', { family: f.family })}${turnsOff(f) ? `. ${turnsOff(f)}` : ''}`}
+    />
+  </span>
 )
 const ItemCheck = ({ f, i, selected, h }: { f: Family; i: number; selected: boolean; h: ItemHandlers }) => (
-  <input type="checkbox" className="item-check" aria-label={`Select ${f.family}`} checked={selected} onChange={() => {}} onClick={(e) => h.check(f, i, e)} />
+  <input type="checkbox" className="item-check" aria-label={t('Select {family}', { family: f.family })} checked={selected} onChange={() => {}} onClick={(e) => h.check(f, i, e)} />
 )
 const familyLink = (f: Family) => `/family/${encodeURIComponent(f.key)}`
 /** Tells the family page it can go Back to this list (same filters and page). */
@@ -133,13 +141,13 @@ const FamilyRow = memo(function FamilyRow({ f, i, first, sample, size, error, se
           {clockMark(f)}
         </span>
         <span className="faint" style={{ fontSize: 12 }}>
-          {plural(f.styles, 'style')} · {f.foundry}{f.isVariable && ' · variable'}{f.category && ` · ${CATEGORY_LABEL[f.category]}`}
+          {plural(f.styles, 'style')} · {f.foundry}{f.isVariable && ` · ${t('variable')}`}{f.category && ` · ${t(CATEGORY_LABEL[f.category]) /* i18n-dynamic */}`}
         </span>
         <span style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           <LicenseBadge license={f.license} />
-          {f.system && <Badge tone="neutral">System</Badge>}
-          {f.adminSet && <Badge tone="accent">Set by admin</Badge>}
-          {f.hasDuplicates && <Link to="/organize" className="badge warn" style={{ textDecoration: 'none' }} draggable={false}>Duplicates</Link>}
+          {f.system && <Badge tone="neutral">{t('System')}</Badge>}
+          {f.adminSet && <Badge tone="accent">{t('Set by admin')}</Badge>}
+          {f.hasDuplicates && <Link to="/organize" className="badge warn" style={{ textDecoration: 'none' }} draggable={false}>{t('Duplicates')}</Link>}
         </span>
       </div>
       <div ref={pvRef} className="sample" style={{ ...(seen ? familyStyle(f) : {}), ...pvStyle, fontSize: size, color: on ? 'var(--ink)' : 'var(--disabled)' }}>{sample}</div>
@@ -167,7 +175,7 @@ const FamilyCard = memo(function FamilyCard({ f, i, first, sample, size, error, 
           {clockMark(f)}
         </span>
         <span className="faint ellipsis" style={{ fontSize: 12 }}>
-          {plural(f.styles, 'style')}{f.category && ` · ${CATEGORY_LABEL[f.category]}`}{f.isVariable && ' · variable'}
+          {plural(f.styles, 'style')}{f.category && ` · ${t(CATEGORY_LABEL[f.category]) /* i18n-dynamic */}`}{f.isVariable && ` · ${t('variable')}`}
         </span>
       </div>
       {error && <p role="alert" className="row-error" style={{ padding: 0 }}>{error}</p>}
@@ -202,14 +210,14 @@ function FolderBar({ node, onDone }: { node: FolderNode; onDone: () => void }) {
   }
   return (
     <div className="folder-bar">
-      <span className="faint" style={{ fontSize: 13 }}>{num(node.activeCount)} of {plural(node.fontCount, 'font')} on</span>
-      <button type="button" className="btn small" disabled={busy || node.activeCount === node.fontCount} onClick={() => run(() => api.setFolderActive(node.path, true))}>Turn all on</button>
-      <button type="button" className="btn small" disabled={busy || node.activeCount === 0} onClick={() => run(() => api.setFolderActive(node.path, false))}>Turn all off</button>
+      <span className="faint" style={{ fontSize: 13 }}>{t('{n} of {fonts} on', { n: num(node.activeCount), fonts: plural(node.fontCount, 'font') })}</span>
+      <button type="button" className="btn small" disabled={busy || node.activeCount === node.fontCount} onClick={() => run(() => api.setFolderActive(node.path, true))}>{t('Turn all on')}</button>
+      <button type="button" className="btn small" disabled={busy || node.activeCount === 0} onClick={() => run(() => api.setFolderActive(node.path, false))}>{t('Turn all off')}</button>
       <label className="check">
         <input type="checkbox" checked={node.autoActivate} disabled={busy} onChange={(e) => run(() => api.setFolderAuto(node.path, e.target.checked))} />
-        Auto-activate new fonts in this folder
+        {t('Auto-activate new fonts in this folder')}
       </label>
-      <button type="button" className="btn small" onClick={() => api.showInFolder(node.path).catch((e) => toast(errMsg(e)))}>Show in folder</button>
+      <button type="button" className="btn small" onClick={() => api.showInFolder(node.path).catch((e) => toast(errMsg(e)))}>{t('Show in folder')}</button>
     </div>
   )
 }
@@ -320,10 +328,10 @@ export function Library() {
     setReload((n) => n + 1)
   })
   const targets: Targets = all && data ? { query: query(), count: data.total } : [...sel.values()]
-  const { show, menu } = useContextMenu('Font actions')
-  const tokensMenu = useContextMenu('Search tokens')
-  const samplesMenu = useContextMenu('Sample texts')
-  const addMenu = useContextMenu('Add fonts')
+  const { show, menu } = useContextMenu(t('Font actions'))
+  const tokensMenu = useContextMenu(t('Search tokens'))
+  const samplesMenu = useContextMenu(t('Sample texts'))
+  const addMenu = useContextMenu(t('Add fonts'))
   const drag = useFamilyDrag((c, fams) => actions.addTo(c, fams), (target, dragged) =>
     navigate(`/playground?a=${encodeURIComponent(target)}&b=${encodeURIComponent(dragged.key)}`))
 
@@ -369,12 +377,12 @@ export function Library() {
   }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const args = query()
-    const t = setTimeout(() => api.familyPage(args, (page - 1) * PAGE, PAGE).then((d) => {
+    const timer = setTimeout(() => api.familyPage(args, (page - 1) * PAGE, PAGE).then((d) => {
       setData(d)
       // A page past the end (an old or edited URL, or a shrunk list) moves to the last page; the URL follows.
       if (page > 1 && (page - 1) * PAGE >= d.total) setPage(Math.max(1, Math.ceil(d.total / PAGE)))
     }, () => setData({ items: [], total: 0 })), search || chars ? 150 : 0)
-    return () => clearTimeout(t)
+    return () => clearTimeout(timer)
   }, [scopeKey, page, libVersion, reload]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function toggle(f: Family) {
@@ -415,10 +423,10 @@ export function Library() {
   const h = useMemo<ItemHandlers>(() => ({
     toggle: (f) => live.current.toggle(f),
     pick: (f, i, e) => {
-      const t = e.target as Element
+      const el = e.target as Element
       const ctrl = e.ctrlKey || e.metaKey
-      if (t.closest('button, input, label, select, textarea')) return
-      if (t.closest('a')) {
+      if (el.closest('button, input, label, select, textarea')) return
+      if (el.closest('a')) {
         if (!ctrl && !e.shiftKey) return // a plain click on the name opens the family
         e.preventDefault()
       }
@@ -474,8 +482,9 @@ export function Library() {
   }
 
   const collName = actions.collections.find((c) => String(c.id) === collectionId)?.name
-  const scope = system ? 'System fonts · always on' : path ? `Folder: ${path}`
-    : collectionId ? `Collection${collName ? `: ${collName}` : ''}` : license ? `License: ${LICENSE_LABEL[license]}` : tag ? `Tag: ${tag}` : null
+  const scope = system ? t('System fonts · always on') : path ? t('Folder: {path}', { path })
+    : collectionId ? (collName ? t('Collection: {name}', { name: collName }) : t('Collection'))
+      : license ? t('License: {label}', { label: t(LICENSE_LABEL[license]) /* i18n-dynamic */ }) : tag ? t('Tag: {tag}', { tag }) : null
   const selList = [...sel.values()]
   const mod = app.platform === 'macos' ? '⌘' : 'Ctrl+'
   const offline = folders.filter((f) => f.status === 'offline').length
@@ -493,16 +502,16 @@ export function Library() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
       <div className="toolbar" ref={top}>
-        <div className="input-group" style={{ flex: '1 1 220px' }}>
-          <label htmlFor="search" className="sr-only">Search fonts</label>
+        <div className="input-group" style={{ flex: '1 1 220px' }} data-tour="library-search">
+          <label htmlFor="search" className="sr-only">{t('Search fonts')}</label>
           <input
             ref={searchRef} id="search" type="search" className="input" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder={counts ? `Search ${num(counts.library)} fonts` : 'Search fonts'}
+            placeholder={counts ? t('Search {n} fonts', { n: num(counts.library) }) : t('Search fonts')}
           />
           <button
-            type="button" className="input-addon" aria-label="Search tokens" title="Search tokens" aria-haspopup="menu"
+            type="button" className="input-addon" aria-label={t('Search tokens')} title={t('Search tokens')} aria-haspopup="menu"
             onClick={(e) => tokensMenu.show(e, TOKENS.map(([token, hint]): MenuItem => ({
-              label: token, hint,
+              label: token, hint: t(hint), // i18n-dynamic
               onSelect: () => {
                 setSearch((s) => `${s.trim() ? `${s.trim()} ` : ''}${token} `)
                 searchRef.current?.focus()
@@ -510,44 +519,44 @@ export function Library() {
             })), true)}
           >?</button>
         </div>
-        <label htmlFor="chars" className="sr-only">Only fonts that have these characters</label>
+        <label htmlFor="chars" className="sr-only">{t('Only fonts that have these characters')}</label>
         <input
           id="chars" type="search" className="input" style={{ flex: '0 1 130px' }} value={chars} onChange={(e) => setChars(e.target.value)}
-          placeholder="Characters" title="Only fonts that have every one of these characters"
+          placeholder={t('Characters')} title={t('Only fonts that have every one of these characters')}
         />
-        <label htmlFor="lang" className="sr-only">Only fonts that cover this language</label>
+        <label htmlFor="lang" className="sr-only">{t('Only fonts that cover this language')}</label>
         <select
           id="lang" className="select" value={lang} style={{ width: 'auto' }} onChange={(e) => setLang(e.target.value)} onFocus={loadLangs}
-          title="Only fonts that have every letter of a language"
+          title={t('Only fonts that have every letter of a language')}
         >
-          <option value="">Any language</option>
+          <option value="">{t('Any language')}</option>
           {langs.map((l) => <option key={l.id} value={l.id}>{l.name} ({num(l.families)})</option>)}
         </select>
         <div className="input-group" style={{ flex: '2 1 260px' }}>
-          <label htmlFor="sample" className="sr-only">Sample text</label>
+          <label htmlFor="sample" className="sr-only">{t('Sample text')}</label>
           <input
             id="sample" type="text" className="input" value={sample} onChange={(e) => setSample(e.target.value)}
             onBlur={() => api.updateSettings({ sampleText: sample }).catch(() => {})}
           />
           <button
-            ref={sampleBtn} type="button" className="input-addon" aria-label="Sample text presets" title="Sample text presets (Enter)" aria-haspopup="menu"
+            ref={sampleBtn} type="button" className="input-addon" aria-label={t('Sample text presets')} title={t('Sample text presets (Enter)')} aria-haspopup="menu"
             onClick={(e) => samplesMenu.show(e, [
-              ...presets.map((t): MenuItem => ({
-                label: t, onSelect: () => (setSample(t), api.updateSettings({ sampleText: t }).catch(() => {})),
+              ...presets.map((txt): MenuItem => ({
+                label: txt, onSelect: () => (setSample(txt), api.updateSettings({ sampleText: txt }).catch(() => {})),
               })),
               ...(presets.length ? ['sep' as const] : []),
-              { label: 'Edit presets…', onSelect: () => navigate('/settings') },
+              { label: t('Edit presets…'), onSelect: () => navigate('/settings') },
             ], true)}
           >
             <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5 6 7.5 9 4.5" /></svg>
           </button>
         </div>
         <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-          Size
+          {t('Size')}
           <input type="range" min={16} max={72} value={size} onChange={(e) => setSize(Number(e.target.value))} style={{ width: 120 }} />
           <span style={{ width: 36 }}>{size}px</span>
         </label>
-        <label className="sr-only" htmlFor="sort">Sort</label>
+        <label className="sr-only" htmlFor="sort">{t('Sort')}</label>
         <select
           id="sort" className="select" value={sort} style={{ width: 'auto' }}
           onChange={(e) => {
@@ -556,21 +565,21 @@ export function Library() {
             setSort(v)
           }}
         >
-          {SORTS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          {SORTS.map(([k, label]) => <option key={k} value={k}>{t(label) /* i18n-dynamic */}</option>)}
         </select>
         <AnimatePresence initial={false}>
           {sort === 'random' && (
             <motion.button
-              key="shuffle" type="button" className="btn small" onClick={() => setSeed(newSeed())} title="Shuffle again"
+              key="shuffle" type="button" className="btn small" onClick={() => setSeed(newSeed())} title={t('Shuffle again')}
               initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} transition={spring.pop}
             >
               <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M2 4h2.5c3 0 4 8 7 8H14M2 12h2.5c1.2 0 2-1.3 2.7-3M9 6.5C9.8 5 10.6 4 11.5 4H14M12 2l2 2-2 2M12 10l2 2-2 2" /></svg>
-              Shuffle
+              {t('Shuffle')}
             </motion.button>
           )}
         </AnimatePresence>
-        <div className="seg" role="group" aria-label="View">
-          {([['list', 'List view', ListIcon], ['grid', 'Grid view', GridIcon]] as const).map(([v, label, Icon]) => (
+        <div className="seg" role="group" aria-label={t('View')}>
+          {([['list', t('List view'), ListIcon], ['grid', t('Grid view'), GridIcon]] as const).map(([v, label, Icon]) => (
             <button key={v} type="button" aria-pressed={view === v} aria-label={label} title={label} onClick={() => setView(v)}>
               {view === v && <motion.span layoutId="seg-hi" className="seg-hi" transition={spring.glide} />}
               <Icon />
@@ -579,31 +588,31 @@ export function Library() {
         </div>
         {app.serverConfigured && <RequestFontButton />}
         <button
-          type="button" className="btn small" aria-haspopup="menu"
+          type="button" className="btn small" aria-haspopup="menu" data-tour="library-add"
           onClick={(e) => addMenu.show(e, [
-            { label: 'Add fonts…', hint: 'F', onSelect: add.addFonts },
-            { label: 'Add folder (copy)…', hint: 'D', onSelect: add.addFolder },
-            { label: 'Watch a folder…', hint: 'W', onSelect: add.watchFolder },
+            { label: t('Add fonts…'), hint: 'F', onSelect: add.addFonts },
+            { label: t('Add folder (copy)…'), hint: 'D', onSelect: add.addFolder },
+            { label: t('Watch a folder…'), hint: 'W', onSelect: add.watchFolder },
           ], true)}
         >
-          + Add ▾
+          {t('+ Add ▾')}
         </button>
       </div>
 
       <div className="chips" style={{ padding: '12px 24px' }}>
         {!system && FILTERS.filter(([k]) => k !== 'admin' || app.serverConfigured).map(([k, label]) => (
-          <Chip key={k} pressed={filter === k} onClick={() => setFilter(k)}>{label}</Chip>
+          <Chip key={k} pressed={filter === k} onClick={() => setFilter(k)}>{t(label) /* i18n-dynamic */}</Chip>
         ))}
         <span className="chip-divider" aria-hidden="true" />
-        <span role="group" aria-label="Category" className="chips">
-          <Chip pressed={category === null} onClick={() => setCategory(null)}>Any type</Chip>
+        <span role="group" aria-label={t('Category')} className="chips">
+          <Chip pressed={category === null} onClick={() => setCategory(null)}>{t('Any type')}</Chip>
           {CATEGORIES.map(([k, label]) => (
-            <Chip key={k} pressed={category === k} onClick={() => setCategory(category === k ? null : k)}>{label}</Chip>
+            <Chip key={k} pressed={category === k} onClick={() => setCategory(category === k ? null : k)}>{t(label) /* i18n-dynamic */}</Chip>
           ))}
         </span>
         {scope && (
           <Chip pressed onClick={() => setParams({})}>
-            <span className="ellipsis" style={{ maxWidth: 260 }}>{scope}</span> <span aria-hidden="true">✕</span><span className="sr-only">(clear)</span>
+            <span className="ellipsis" style={{ maxWidth: 260 }}>{scope}</span> <span aria-hidden="true">✕</span><span className="sr-only">{t('(clear)')}</span>
           </Chip>
         )}
       </div>
@@ -615,12 +624,12 @@ export function Library() {
         <motion.div key="admin" {...collapse} style={{ overflow: 'hidden' }}>
         <div role="status" className="banner" style={{ margin: '4px 24px 8px' }}>
           <span style={{ fontWeight: 500, color: 'var(--accent-ink)' }}>
-            Your admin {ADMIN_VERB[adminChange.action]} {plural(adminChange.fonts.length, 'font')} {adminChange.action === 'delivered' ? 'to your library' : 'for you'}
+            {t(ADMIN_MSG[adminChange.action], { fonts: plural(adminChange.fonts.length, 'font') }) /* i18n-dynamic */}
           </span>
           <span style={{ color: 'var(--banner-ink)', flex: '1 1 200px' }}>
-            {andList(adminFamilies)} · {ago(adminChange.at)}.{adminChange.action === 'activated' && ' You can turn any of them off.'}
+            {andList(adminFamilies)} · {ago(adminChange.at)}.{adminChange.action === 'activated' && ` ${t('You can turn any of them off.')}`}
           </span>
-          <button type="button" className="btn small" style={{ borderColor: 'var(--accent-line)' }} onClick={dismissAdmin}>Got it</button>
+          <button type="button" className="btn small" style={{ borderColor: 'var(--accent-line)' }} onClick={dismissAdmin}>{t('Got it')}</button>
         </div>
         </motion.div>
       )}
@@ -628,28 +637,28 @@ export function Library() {
 
       <AnimatePresence initial={false}>
         {sel.size > 0 && (
-          <motion.div key="selbar" className="select-bar" role="toolbar" aria-label="Selected fonts" {...collapse}>
+          <motion.div key="selbar" className="select-bar" role="toolbar" aria-label={t('Selected fonts')} {...collapse}>
             <div className="select-bar-inner">
-              <span style={{ fontWeight: 500, marginRight: 4 }} role="status">{all ? `All ${num(total)} results selected` : `${num(sel.size)} selected`}</span>
-              {offerAll && <button type="button" className="btn small link" onClick={() => setAllAt(resultsVersion)}>Select all {num(total)} results</button>}
-              {all && <button type="button" className="btn small link" onClick={justThisPage}>Select just this page</button>}
-              <button type="button" className="btn small" onClick={() => actions.setActive(targets, true)} title={`${mod}Shift+A`}>Activate</button>
-              <button type="button" className="btn small" onClick={() => actions.setActive(targets, false)} title={`${mod}Shift+D`}>Deactivate</button>
-              <button type="button" className="btn small" aria-haspopup="menu" onClick={(e) => show(e, actions.collectionItems(targets), true)}>Add to collection ▾</button>
-              <button type="button" className="btn small" onClick={() => actions.openTags(targets)}>Tags…</button>
+              <span style={{ fontWeight: 500, marginRight: 4 }} role="status">{all ? t('All {n} results selected', { n: num(total) }) : t('{n} selected', { n: num(sel.size) })}</span>
+              {offerAll && <button type="button" className="btn small link" onClick={() => setAllAt(resultsVersion)}>{t('Select all {n} results', { n: num(total) })}</button>}
+              {all && <button type="button" className="btn small link" onClick={justThisPage}>{t('Select just this page')}</button>}
+              <button type="button" className="btn small" onClick={() => actions.setActive(targets, true)} title={`${mod}Shift+A`}>{t('Activate')}</button>
+              <button type="button" className="btn small" onClick={() => actions.setActive(targets, false)} title={`${mod}Shift+D`}>{t('Deactivate')}</button>
+              <button type="button" className="btn small" aria-haspopup="menu" onClick={(e) => show(e, actions.collectionItems(targets), true)}>{t('Add to collection ▾')}</button>
+              <button type="button" className="btn small" onClick={() => actions.openTags(targets)}>{t('Tags…')}</button>
               {all
-                ? <button type="button" className="btn small" disabled title={`${NOT_ALL}: select just this page to pin`} aria-label={`Pin to top. ${NOT_ALL}`}>Pin to top</button>
+                ? <button type="button" className="btn small" disabled title={t('{reason}: select just this page to pin', { reason: t(NOT_ALL) /* i18n-dynamic */ })} aria-label={t('Pin to top. {reason}', { reason: t(NOT_ALL) /* i18n-dynamic */ })}>{t('Pin to top')}</button>
                 : selList.every((f) => f.pinned)
-                  ? <button type="button" className="btn small" onClick={() => actions.setPinned(selList, false)}>Unpin</button>
-                  : <button type="button" className="btn small" onClick={() => actions.setPinned(selList, true)}>Pin to top</button>}
-              <button type="button" className="btn small" aria-haspopup="menu" onClick={(e) => show(e, actions.menuItems(targets), true)}>More ▾</button>
-              <button type="button" className="btn small link" style={{ marginLeft: 'auto' }} onClick={() => (setSel(new Map()), setAllAt(null))} title="Esc">Clear</button>
+                  ? <button type="button" className="btn small" onClick={() => actions.setPinned(selList, false)}>{t('Unpin')}</button>
+                  : <button type="button" className="btn small" onClick={() => actions.setPinned(selList, true)}>{t('Pin to top')}</button>}
+              <button type="button" className="btn small" aria-haspopup="menu" onClick={(e) => show(e, actions.menuItems(targets), true)}>{t('More ▾')}</button>
+              <button type="button" className="btn small link" style={{ marginLeft: 'auto' }} onClick={() => (setSel(new Map()), setAllAt(null))} title="Esc">{t('Clear')}</button>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <div className={sel.size ? 'results has-selection' : 'results'}>
+      <div className={sel.size ? 'results has-selection' : 'results'} data-tour="font-list">
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={view} className={view === 'grid' ? 'font-grid' : 'font-list'}
@@ -662,7 +671,7 @@ export function Library() {
             })}
           </motion.div>
         </AnimatePresence>
-        {rows?.length === 0 && <motion.p className="faint" style={{ padding: '24px 0' }} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>No fonts match.</motion.p>}
+        {rows?.length === 0 && <motion.p className="faint" style={{ padding: '24px 0' }} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>{t('No fonts match.')}</motion.p>}
         {data && <div style={{ paddingTop: 16 }}><Pager page={page} size={PAGE} total={data.total} onPage={go} /></div>}
       </div>
       {menu}
@@ -674,15 +683,15 @@ export function Library() {
       <ErrorBoundary quiet><LibraryEggs search={search} sample={sample} /></ErrorBoundary>
 
       <div className="statusbar">
-        {counts && <span>{num(counts.active)} active</span>}
+        {counts && <span>{t('{n} active', { n: num(counts.active) })}</span>}
         {counts && <span>{plural(counts.library, 'font')}</span>}
         <span>
-          {folders.length - offline} {folders.length - offline === 1 ? 'folder' : 'folders'} watching{offline ? ` · ${offline} offline` : ''}
+          {folders.length - offline === 1 ? t('{n} folder watching', { n: 1 }) : t('{n} folders watching', { n: folders.length - offline })}{offline ? ` · ${t('{n} offline', { n: offline })}` : ''}
         </span>
         {health && (
           <span>
-            Last activation check: {fmtWhen(health.lastCheck)},{' '}
-            {health.problems.length ? <Link to="/settings">{plural(health.problems.length, 'problem')}</Link> : 'no problems'}
+            {t('Last activation check: {when},', { when: fmtWhen(health.lastCheck) })}{' '}
+            {health.problems.length ? <Link to="/settings">{plural(health.problems.length, 'problem')}</Link> : t('no problems')}
           </span>
         )}
       </div>

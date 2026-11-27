@@ -4,6 +4,8 @@ import { animate, AnimatePresence, motion, useReducedMotion } from 'motion/react
 import { api, tagsOf, type Axis, type Face, type Family, type FamilyDetail, type FileRow, type FontDetails, type GlyphBlock, type License, type ProjectSet } from '../api'
 import { AXIS_NAME, axisStep, faceStyle, familyStyle, pickFace } from '../fonts'
 import { cssStagger, dur, easeOut, pop, rise, spring } from '../motion'
+import { Hint } from '../Hint'
+import { t, tk } from '../i18n'
 import { useContextMenu } from '../menu'
 import { useApp } from '../state'
 import { useBreathing } from '../useBreathing'
@@ -16,31 +18,31 @@ import { Poster } from './family/Poster'
 import { Badge, basename, CATEGORY_LABEL, Chip, Dialog, dirname, errMsg, LicenseBadge, num, plural, Skel, Switch, useSeen, type Tone } from '../ui'
 
 const FEATURE_NAME: Record<string, string> = {
-  liga: 'Ligatures', dlig: 'Discretionary ligatures', calt: 'Contextual alternates', kern: 'Kerning', onum: 'Old-style figures', lnum: 'Lining figures',
-  tnum: 'Tabular figures', pnum: 'Proportional figures', frac: 'Fractions', smcp: 'Small caps', c2sc: 'Caps to small caps', zero: 'Slashed zero',
-  case: 'Case-sensitive forms', salt: 'Stylistic alternates', swsh: 'Swashes', sups: 'Superscript', subs: 'Subscript', ordn: 'Ordinals',
+  liga: tk('Ligatures'), dlig: tk('Discretionary ligatures'), calt: tk('Contextual alternates'), kern: tk('Kerning'), onum: tk('Old-style figures'), lnum: tk('Lining figures'),
+  tnum: tk('Tabular figures'), pnum: tk('Proportional figures'), frac: tk('Fractions'), smcp: tk('Small caps'), c2sc: tk('Caps to small caps'), zero: tk('Slashed zero'),
+  case: tk('Case-sensitive forms'), salt: tk('Stylistic alternates'), swsh: tk('Swashes'), sups: tk('Superscript'), subs: tk('Subscript'), ordn: tk('Ordinals'),
 }
-const featureName = (t: string) => FEATURE_NAME[t] ?? (/^ss\d\d$/.test(t) ? `Stylistic set ${Number(t.slice(2))}` : /^cv\d\d$/.test(t) ? `Character variant ${Number(t.slice(2))}` : t)
+const featureName = (tag: string) => FEATURE_NAME[tag] ? t(FEATURE_NAME[tag]) /* i18n-dynamic */ : /^ss\d\d$/.test(tag) ? t('Stylistic set {n}', { n: Number(tag.slice(2)) }) : /^cv\d\d$/.test(tag) ? t('Character variant {n}', { n: Number(tag.slice(2)) }) : tag
 const ON_BY_DEFAULT = new Set(['liga', 'calt', 'kern'])
 
 const FILE_STATUS: Record<FileRow['status'], [string, Tone]> = {
-  active: ['Active', 'ok'], older_version: ['Older version', 'warn'], alternate: ['Alternate', 'accent'], grouped: ['Grouped with variable', 'neutral'], inactive: ['Inactive', 'neutral'],
-  system: ['System font', 'neutral'],
+  active: [tk('Active'), 'ok'], older_version: [tk('Older version'), 'warn'], alternate: [tk('Alternate'), 'accent'], grouped: [tk('Grouped with variable'), 'neutral'], inactive: [tk('Inactive'), 'neutral'],
+  system: [tk('System font'), 'neutral'],
 }
 /** Back to the Library: History Back when the Library opened this page (same list, filters and page), else the Library itself. */
 function BackLink() {
   const navigate = useNavigate()
   const fromLibrary = !!(useLocation().state as { fromLibrary?: boolean } | null)?.fromLibrary
-  return <Link to="/" className="back" onClick={(e) => fromLibrary && (e.preventDefault(), navigate(-1))}>← Library</Link>
+  return <Link to="/" className="back" onClick={(e) => fromLibrary && (e.preventDefault(), navigate(-1))}>← {t('Library')}</Link>
 }
 
-const LICENSE_OPTIONS: [License, string][] = [['licensed', 'Licensed'], ['personal', 'Personal use only'], ['client', 'Client-provided'], ['unknown', 'Unknown']]
+const LICENSE_OPTIONS: [License, string][] = [['licensed', tk('Licensed')], ['personal', tk('Personal use only')], ['client', tk('Client-provided')], ['unknown', tk('Unknown')]]
 
 const WATERFALL = [72, 48, 32, 24, 16]
 /** Seconds the Play showcase spends sweeping one axis (max → min → default). */
 const SWEEP = 2.4
 const TABS = [
-  ['styles', 'Styles'], ['preview', 'Preview'], ['glyphs', 'Glyphs'], ['similar', 'Similar'], ['details', 'Details'], ['files', 'Files and versions'], ['license', 'License'],
+  ['styles', tk('Styles')], ['preview', tk('Preview')], ['glyphs', tk('Glyphs')], ['similar', tk('Similar')], ['details', tk('Details')], ['files', tk('Files and versions')], ['license', tk('License')],
 ] as const
 type Tab = (typeof TABS)[number][0]
 /** Weight order, each italic right after its upright. */
@@ -53,11 +55,11 @@ function FaceRow({ face, i, sample, size, axes, onSize, onToggle }: { face: Face
   const on = face.active || face.system
   return (
     <div ref={ref} className="face-row enter" style={cssStagger(i)}>
-      <Switch on={on} disabled={face.system} onClick={onToggle} label={face.system ? `${face.fullName} is a system font, always on` : `${on ? 'Deactivate' : 'Activate'} ${face.fullName}`} />
+      <Switch on={on} disabled={face.system} onClick={onToggle} label={face.system ? t('{family} is a system font, always on', { family: face.fullName }) : on ? t('Deactivate {family}', { family: face.fullName }) : t('Activate {family}', { family: face.fullName })} />
       <div className="face-meta">
         <span className="ellipsis" style={{ fontWeight: 500 }}>{face.style}</span>
         <span className="faint ellipsis" style={{ fontSize: 12 }}>
-          {face.weight}{face.italic && ' · italic'}{face.isVariable && ' · variable'} · v{face.version}{turnsOff({ faces: [face] }) && ` · ${turnsOff({ faces: [face] })}`}
+          {face.weight}{face.italic && ` · ${t('italic')}`}{face.isVariable && ` · ${t('variable')}`} · v{face.version}{turnsOff({ faces: [face] }) && ` · ${turnsOff({ faces: [face] })}`}
         </span>
       </div>
       <div ref={pvRef} className="sample" style={{ ...(seen ? faceStyle(face) : {}), ...pvStyle, fontSize: size, color: on ? 'var(--ink)' : 'var(--ink-2)' }}>{sample}</div>
@@ -101,7 +103,7 @@ function GlyphSection({ b, style, onPeek, onCopy, onMenu }: { b: GlyphBlock; sty
             const ch = String.fromCodePoint(cp)
             return (
               <button
-                key={cp} type="button" className="glyph" style={{ ...style, ...cssStagger(i) }} aria-label={`${ch} ${uPlus(cp)}, copy`} data-cp={cp}
+                key={cp} type="button" className="glyph" style={{ ...style, ...cssStagger(i) }} aria-label={t('{ch} {code}, copy', { ch, code: uPlus(cp) })} data-cp={cp}
                 onClick={() => onCopy(cp)} onMouseEnter={() => onPeek(cp)} onFocus={() => onPeek(cp)} onContextMenu={(e) => onMenu(e, cp)}
               >{ch}</button>
             )
@@ -112,7 +114,7 @@ function GlyphSection({ b, style, onPeek, onCopy, onMenu }: { b: GlyphBlock; sty
       )}
       {seen && b.chars.length > GLYPH_CAP && (
         <button type="button" className="btn small" style={{ alignSelf: 'flex-start' }} onClick={() => setAll(!all)}>
-          {all ? `Show the first ${num(GLYPH_CAP)}` : `Show all ${num(b.chars.length)}`}
+          {all ? t('Show the first {n}', { n: num(GLYPH_CAP) }) : t('Show all {n}', { n: num(b.chars.length) })}
         </button>
       )}
     </section>
@@ -133,7 +135,7 @@ function GlyphsTab({ fam, extra }: { fam: FamilyDetail; extra: CSSProperties }) 
   const [anatomy, setAnatomy] = useState(false)
   const copySvg = useCopySvg(face?.hash ?? '')
   const alt = useAltHeld(peek !== null || picked !== null)
-  const { show, menu } = useContextMenu('Character')
+  const { show, menu } = useContextMenu(t('Character'))
   useEffect(() => {
     if (!face) return
     let live = true
@@ -143,53 +145,53 @@ function GlyphsTab({ fam, extra }: { fam: FamilyDetail; extra: CSSProperties }) 
     )
     return () => void (live = false)
   }, [face?.hash, toast]) // eslint-disable-line react-hooks/exhaustive-deps
-  if (!face) return <p className="faint" style={{ margin: 0 }}>This family has no fonts left.</p>
+  if (!face) return <p className="faint" style={{ margin: 0 }}>{t('This family has no fonts left.')}</p>
 
   const ready = data?.hash === face.hash ? data : null
   const cur = ready?.blocks.some((b) => b.name === block) ? block : ''
   const style = { ...faceStyle(face), ...extra }
   const copy = (cp: number) => {
     const ch = String.fromCodePoint(cp)
-    navigator.clipboard.writeText(ch).then(() => toast(`Copied ${ch} (${uPlus(cp)})`), () => toast('Couldn’t copy to the clipboard.'))
+    navigator.clipboard.writeText(ch).then(() => toast(t('Copied {ch} ({code})', { ch, code: uPlus(cp) })), () => toast(t('Couldn’t copy to the clipboard.')))
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div className="glyph-tools muted">
         {faces.length > 1 && (
           <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            Style
+            {t('Style')}
             <select className="select" value={face.hash} onChange={(e) => (setHash(e.target.value), setPeek(null), setPicked(null))}>
               {faces.map((x) => <option key={x.hash} value={x.hash}>{x.style}</option>)}
             </select>
           </label>
         )}
         <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          Unicode block
+          {t('Unicode block')}
           <select className="select" value={cur} onChange={(e) => setBlock(e.target.value)} disabled={!ready}>
-            <option value="">All blocks</option>
+            <option value="">{t('All blocks')}</option>
             {ready?.blocks.map((b) => <option key={b.name} value={b.name}>{b.name} ({num(b.chars.length)})</option>)}
           </select>
         </label>
-        {ready && <span>{plural(ready.total, 'character')} mapped · {plural(fam.glyphCount, 'glyph')} in the font</span>}
+        {ready && <span>{t('{chars} mapped · {glyphs} in the font', { chars: plural(ready.total, 'character'), glyphs: plural(fam.glyphCount, 'glyph') })}</span>}
         <button type="button" className="btn small" disabled={picked === null} onClick={() => picked !== null && copySvg(picked)}>
-          {picked !== null ? `Copy ${String.fromCodePoint(picked)} (${uPlus(picked)}) as SVG` : 'Click a character to copy it as SVG'}
+          {picked !== null ? t('Copy {ch} ({code}) as SVG', { ch: String.fromCodePoint(picked), code: uPlus(picked) }) : t('Click a character to copy it as SVG')}
         </button>
-        <button type="button" className="btn small" aria-pressed={anatomy} disabled={picked === null} onClick={() => setAnatomy(!anatomy)}>Show anatomy</button>
+        <button type="button" className="btn small" aria-pressed={anatomy} disabled={picked === null} onClick={() => setAnatomy(!anatomy)}>{t('Show anatomy')}</button>
         <span className="glyph-info" aria-hidden="true">
           <b style={style}>{peek !== null ? String.fromCodePoint(peek) : ''}</b>
-          <span className="mono" style={{ fontSize: 12 }}>{peek !== null ? uPlus(peek) : 'Hover a character · hold Alt for anatomy'}</span>
+          <span className="mono" style={{ fontSize: 12 }}>{peek !== null ? uPlus(peek) : t('Hover a character · hold Alt for anatomy')}</span>
         </span>
       </div>
       {!ready ? (
         <div className="glyph-grid" aria-busy="true">{Array.from({ length: 24 }, (_, i) => <Skel key={i} h={64} r={8} />)}</div>
       ) : ready.blocks.length === 0 ? (
-        <p className="faint" style={{ margin: 0 }}>No characters found in this font’s character map.</p>
+        <p className="faint" style={{ margin: 0 }}>{t('No characters found in this font’s character map.')}</p>
       ) : (
         <div onMouseLeave={() => setPeek(null)}>
           {ready.blocks.filter((b) => !cur || b.name === cur).map((b) => (
             <GlyphSection
               key={`${face.hash}-${b.name}`} b={b} style={style} onPeek={setPeek} onCopy={(cp) => (setPicked(cp), copy(cp))}
-              onMenu={(e, cp) => (setPicked(cp), show(e, [{ label: 'Copy character', onSelect: () => copy(cp) }, { label: 'Copy as SVG', onSelect: () => copySvg(cp) }]))}
+              onMenu={(e, cp) => (setPicked(cp), show(e, [{ label: t('Copy character'), onSelect: () => copy(cp) }, { label: t('Copy as SVG'), onSelect: () => copySvg(cp) }]))}
             />
           ))}
         </div>
@@ -207,17 +209,17 @@ function ExtLink({ url }: { url: string }) {
   if (!href) return <>{url}</>
   // The webview can't open new windows; the browser is opened from Rust (open_url).
   const open = (e: React.MouseEvent) => (e.preventDefault(), void api.openUrl(href).catch(() => {}))
-  return <a href={href} onClick={open} rel="noreferrer noopener">{url.replace(/^https?:\/\//i, '').replace(/\/$/, '')} <span aria-hidden="true">↗</span><span className="sr-only">(opens in your browser)</span></a>
+  return <a href={href} onClick={open} rel="noreferrer noopener">{url.replace(/^https?:\/\//i, '').replace(/\/$/, '')} <span aria-hidden="true">↗</span><span className="sr-only">{t('(opens in your browser)')}</span></a>
 }
 const withLink = (text: string | null, url: string | null): ReactNode =>
   text && url ? <>{text} · <ExtLink url={url} /></> : url ? <ExtLink url={url} /> : text
 
 function DetailsTab({ d }: { d: FontDetails }) {
   const rows: [string, ReactNode][] = [
-    ['Copyright', d.copyright], ['Trademark', d.trademark], ['Manufacturer', withLink(d.manufacturer, d.vendorUrl)],
-    ['Designer', withLink(d.designer, d.designerUrl)], ['Description', d.description], ['License', withLink(d.license, d.licenseUrl)],
-    ['Version', d.version], ['Unique ID', d.uniqueId], ['Format', d.format], ['Units per em', d.upm != null ? num(d.upm) : null],
-    ['Glyphs', num(d.glyphCount)],
+    [t('Copyright'), d.copyright], [t('Trademark'), d.trademark], [t('Manufacturer'), withLink(d.manufacturer, d.vendorUrl)],
+    [t('Designer'), withLink(d.designer, d.designerUrl)], [t('Description'), d.description], [t('License'), withLink(d.license, d.licenseUrl)],
+    [t('Version'), d.version], [t('Unique ID'), d.uniqueId], [t('Format'), d.format], [t('Units per em'), d.upm != null ? num(d.upm) : null],
+    [t('Glyphs'), num(d.glyphCount)],
   ]
   return (
     <dl className="details">
@@ -239,7 +241,7 @@ function TagEditor({ familyKey }: { familyKey: string }) {
   const [draft, setDraft] = useState('')
   useEffect(() => {
     tagsOf([familyKey]).then((m) => setTags(m.get(familyKey) ?? []), () => setTags([]))
-    api.listTags().then((t) => setKnown(t.map((x) => x.name)), () => {})
+    api.listTags().then((ts) => setKnown(ts.map((x) => x.name)), () => {})
   }, [familyKey, libVersion])
 
   async function save(next: string[]) {
@@ -255,28 +257,28 @@ function TagEditor({ familyKey }: { familyKey: string }) {
   }
   if (!tags) return <Skel w={180} h={26} r={13} />
   return (
-    <div className="tag-editor" role="group" aria-label="Tags">
+    <div className="tag-editor" role="group" aria-label={t('Tags')}>
       <AnimatePresence initial={false} mode="popLayout">
-        {tags.map((t) => (
-          <motion.span key={t} layout className="tag-chip" {...pop} transition={spring.pop}>
-            <Link to={`/?tag=${encodeURIComponent(t)}`} className="plain-link">#{t}</Link>
-            <button type="button" aria-label={`Remove tag ${t}`} onClick={() => save(tags.filter((x) => x !== t))}>✕</button>
+        {tags.map((name) => (
+          <motion.span key={name} layout className="tag-chip" {...pop} transition={spring.pop}>
+            <Link to={`/?tag=${encodeURIComponent(name)}`} className="plain-link">#{name}</Link>
+            <button type="button" aria-label={t('Remove tag {name}', { name })} onClick={() => save(tags.filter((x) => x !== name))}>✕</button>
           </motion.span>
         ))}
       </AnimatePresence>
       <form
         onSubmit={(e) => {
           e.preventDefault()
-          const t = draft.trim()
-          if (t && !tags.includes(t)) save([...tags, t])
+          const name = draft.trim()
+          if (name && !tags.includes(name)) save([...tags, name])
           setDraft('')
         }}
       >
         <input
-          className="tag-input" list="tag-suggestions" aria-label="Add a tag" placeholder={tags.length ? '+ Tag' : '+ Add a tag'}
+          className="tag-input" list="tag-suggestions" aria-label={t('Add a tag')} placeholder={tags.length ? t('+ Tag') : t('+ Add a tag')}
           value={draft} onChange={(e) => setDraft(e.target.value)}
         />
-        <datalist id="tag-suggestions">{known.filter((t) => !tags.includes(t)).map((t) => <option key={t} value={t} />)}</datalist>
+        <datalist id="tag-suggestions">{known.filter((k) => !tags.includes(k)).map((k) => <option key={k} value={k} />)}</datalist>
       </form>
     </div>
   )
@@ -290,7 +292,7 @@ function SimilarCard({ f, i }: { f: Family; i: number }) {
       <span aria-hidden="true" style={{ ...style, fontSize: 44, lineHeight: 1.1 }}>Ag</span>
       <span className="ellipsis" style={{ ...style, fontSize: 18, color: 'var(--ink-2)' }}>{f.family}</span>
       <span className="faint" style={{ fontSize: 12 }}>
-        {plural(f.styles, 'style')}{f.category && ` · ${CATEGORY_LABEL[f.category]}`} · {f.foundry}
+        {plural(f.styles, 'style')}{f.category && ` · ${t(CATEGORY_LABEL[f.category]) /* i18n-dynamic */}`} · {f.foundry}
       </span>
     </Link>
   )
@@ -329,7 +331,7 @@ export function FamilyPage() {
       setFam(f)
       setNote(f.licenseInfo.note)
       setAxes((cur) => Object.fromEntries(f.axes.map((a) => [a.tag, cur[a.tag] ?? a.default])))
-      setFeat((cur) => Object.fromEntries(f.features.map((t) => [t, cur[t] ?? ON_BY_DEFAULT.has(t)])))
+      setFeat((cur) => Object.fromEntries(f.features.map((tag) => [tag, cur[tag] ?? ON_BY_DEFAULT.has(tag)])))
     }, (e) => setError(errMsg(e)))
   }, [key, libVersion])
 
@@ -346,7 +348,7 @@ export function FamilyPage() {
     )
 
   const fvs = fam.axes.map((a) => `'${a.tag}' ${axes[a.tag] ?? a.default}`).join(', ') || 'normal'
-  const ffs = Object.entries(feat).map(([t, v]) => `'${t}' ${v ? 1 : 0}`).join(', ') || 'normal'
+  const ffs = Object.entries(feat).map(([tag, v]) => `'${tag}' ${v ? 1 : 0}`).join(', ') || 'normal'
   const previewStyle = { ...familyStyle(fam), fontVariationSettings: fvs, fontFeatureSettings: ffs }
   const allOn = fam.activeState === 'all'
 
@@ -388,7 +390,7 @@ export function FamilyPage() {
     }
   }
   const attach = async () => {
-    const path = await api.pickFile([{ name: 'License', extensions: ['txt', 'pdf', 'md', 'rtf', 'html'] }]).catch(() => null)
+    const path = await api.pickFile([{ name: t('License'), extensions: ['txt', 'pdf', 'md', 'rtf', 'html'] }]).catch(() => null)
     if (path) setLicense(fam.licenseInfo.label, path)
   }
   const openSets = () => {
@@ -398,7 +400,7 @@ export function FamilyPage() {
   const addToSet = async (s: ProjectSet) => {
     try {
       setSets(await api.saveProjectSet({ id: s.id, name: s.name, note: s.note, familyKeys: [...s.familyKeys, fam.key] }))
-      toast(`Added ${fam.family} to ${s.name}`)
+      toast(t('Added {family} to {set}', { family: fam.family, set: s.name }))
     } catch (e) {
       toast(errMsg(e))
     }
@@ -413,30 +415,30 @@ export function FamilyPage() {
           <h1 className="family-title" style={familyStyle(fam)}>{fam.family}</h1>
           <div className="muted" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', fontSize: 13 }}>
             <span>{fam.foundry}</span><span aria-hidden="true">·</span>
-            <span>{plural(fam.styles, 'style')}{fam.isVariable && ' + variable'}</span>
+            <span>{plural(fam.styles, 'style')}{fam.isVariable && ` + ${t('variable')}`}</span>
             {fam.faces[0] && <><span aria-hidden="true">·</span><span>v{fam.faces[0].version}</span></>}
             <LicenseBadge license={fam.license} />
-            {fam.system && <Badge tone="neutral">System font · always on</Badge>}
-            {fam.adminSet && <Badge tone="accent">Set by admin</Badge>}
-            {fam.category && <Badge tone="neutral">{CATEGORY_LABEL[fam.category]}</Badge>}
-            {fam.pinned && <Badge tone="accent">Pinned</Badge>}
+            {fam.system && <Badge tone="neutral">{t('System font · always on')}</Badge>}
+            {fam.adminSet && <Badge tone="accent">{t('Set by admin')}</Badge>}
+            {fam.category && <Badge tone="neutral">{t(CATEGORY_LABEL[fam.category]) /* i18n-dynamic */}</Badge>}
+            {fam.pinned && <Badge tone="accent">{t('Pinned')}</Badge>}
             {turnsOff(fam) && <Badge tone="accent">{turnsOff(fam)}</Badge>}
           </div>
           <TagEditor familyKey={fam.key} />
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           <button type="button" className={allOn ? 'btn primary' : 'btn'} aria-pressed={allOn} onClick={toggleFamily} disabled={fam.system} style={{ fontWeight: 500 }}>
-            {allOn ? 'All on · turn off' : fam.activeState === 'some' ? 'Turn all on' : 'Activate family'}
+            {allOn ? t('All on · turn off') : fam.activeState === 'some' ? t('Turn all on') : t('Activate family')}
           </button>
-          <button type="button" className="btn" onClick={openSets}>Add to project set</button>
-          <button type="button" className="btn" onClick={() => fam.faces[0] && api.showInFolder(fam.faces[0].path).catch((e) => toast(errMsg(e)))}>Show in folder</button>
+          <button type="button" className="btn" onClick={openSets}>{t('Add to project set')}</button>
+          <button type="button" className="btn" onClick={() => fam.faces[0] && api.showInFolder(fam.faces[0].path).catch((e) => toast(errMsg(e)))}>{t('Show in folder')}</button>
         </div>
       </div>
 
-      <div role="tablist" aria-label="Font views" className="tabs">
+      <div role="tablist" aria-label={t('Font views')} className="tabs">
         {TABS.map(([k, label]) => (
           <button key={k} type="button" role="tab" id={`tab-${k}`} aria-controls={`panel-${k}`} aria-selected={tab === k} onClick={() => setTab(k)}>
-            {label}
+            {t(label) /* i18n-dynamic */}
             {tab === k && <motion.span layoutId="tab-ink" className="tab-ink" transition={spring.glide} />}
           </button>
         ))}
@@ -450,7 +452,7 @@ export function FamilyPage() {
         {tab === 'styles' && (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {byWeight(fam.faces).map((x, i) => <FaceRow key={x.hash} face={x} i={i} sample={shownSample} size={previewSize} axes={fam.axes} onSize={nudgeSize} onToggle={() => toggleFace(x)} />)}
-            {!fam.faces.length && <p className="faint" style={{ margin: 0 }}>This family has no fonts left.</p>}
+            {!fam.faces.length && <p className="faint" style={{ margin: 0 }}>{t('This family has no fonts left.')}</p>}
           </div>
         )}
 
@@ -461,15 +463,15 @@ export function FamilyPage() {
               {fam.axes.length > 0 && (
                 <>
                   <div className="row-between">
-                    <h2 className="h-small">Variable axes</h2>
+                    <h2 className="h-small">{t('Variable axes')}</h2>
                     {!reduce && (
-                      <button type="button" className="btn small" aria-pressed={playing} onClick={play}>{playing ? '■ Stop' : '▶ Play'}</button>
+                      <button type="button" className="btn small" aria-pressed={playing} onClick={play}>{playing ? t('■ Stop') : t('▶ Play')}</button>
                     )}
                   </div>
                   {fam.axes.map((a) => (
                     <label key={a.tag} style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
                       <span className="row-between">
-                        <span>{AXIS_NAME[a.tag] ?? a.tag} <span className="faint">({a.tag})</span></span>
+                        <span>{AXIS_NAME[a.tag] ? t(AXIS_NAME[a.tag]) /* i18n-dynamic */ : a.tag} <span className="faint">({a.tag})</span></span>
                         <span className="muted">{axes[a.tag]}</span>
                       </span>
                       <input
@@ -482,34 +484,34 @@ export function FamilyPage() {
               )}
               {fam.features.length > 0 && (
                 <>
-                  <h2 className="h-small" style={{ marginTop: fam.axes.length ? 4 : 0 }}>OpenType features</h2>
+                  <h2 className="h-small" style={{ marginTop: fam.axes.length ? 4 : 0 }}>{t('OpenType features')}</h2>
                   <div className="chips">
-                    {fam.features.map((t) => (
-                      <Chip key={t} className="chip square" pressed={!!feat[t]} onClick={() => setFeat({ ...feat, [t]: !feat[t] })}>
-                        {featureName(t)} ({t})
+                    {fam.features.map((tag) => (
+                      <Chip key={tag} className="chip square" pressed={!!feat[tag]} onClick={() => setFeat({ ...feat, [tag]: !feat[tag] })}>
+                        {featureName(tag)} ({tag})
                       </Chip>
                     ))}
                   </div>
                 </>
               )}
-              {!fam.axes.length && !fam.features.length && <p className="muted" style={{ margin: 0 }}>This font has no variable axes or optional OpenType features.</p>}
-              <button type="button" className="btn" onClick={() => navigate(`/playground?a=${encodeURIComponent(fam.key)}`)}>Open in playground</button>
+              {!fam.axes.length && !fam.features.length && <p className="muted" style={{ margin: 0 }}>{t('This font has no variable axes or optional OpenType features.')}</p>}
+              <button type="button" className="btn" onClick={() => navigate(`/playground?a=${encodeURIComponent(fam.key)}`)}>{t('Open in playground')}</button>
             </div>
           </div>
         )}
 
         {tab === 'glyphs' && <GlyphsTab fam={fam} extra={{ fontVariationSettings: fvs, fontFeatureSettings: ffs }} />}
 
-        {tab === 'details' && (fam.details ? <DetailsTab d={fam.details} /> : <p className="faint" style={{ margin: 0 }}>No details available for this font.</p>)}
+        {tab === 'details' && (fam.details ? <DetailsTab d={fam.details} /> : <p className="faint" style={{ margin: 0 }}>{t('No details available for this font.')}</p>)}
 
         {tab === 'similar' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <p className="muted" style={{ margin: 0, fontSize: 13 }}>Fonts in your library that look close to {fam.family}, most similar first.</p>
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>{t('Fonts in your library that look close to {family}, most similar first.', { family: fam.family })}</p>
             <div className="similar-grid">
               {similar === null && [0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="select-card similar-card"><Skel w={60} h={40} /><Skel w="70%" h={14} /><Skel w="50%" h={10} /></div>)}
               {similar?.map((f, i) => <SimilarCard key={f.key} f={f} i={i} />)}
             </div>
-            {similar?.length === 0 && <p className="faint" style={{ margin: 0 }}>No similar fonts found.</p>}
+            {similar?.length === 0 && <p className="faint" style={{ margin: 0 }}>{t('No similar fonts found.')}</p>}
           </div>
         )}
 
@@ -517,31 +519,28 @@ export function FamilyPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="table-wrap">
               <table style={{ minWidth: 720 }}>
-                <thead><tr><th>File</th><th>Version</th><th>Location</th><th>Status</th></tr></thead>
+                <thead><tr><th>{t('File')}</th><th>{t('Version')}</th><th>{t('Location')}</th><th>{t('Status')} <Hint text={t('Only one version of a font can be active at a time. Older versions were renamed by auto-organize, so they keep their internal font name but are easy to tell apart here.')} /></th></tr></thead>
                 <tbody>
                   {fam.files.map((r) => (
                     <tr key={r.path}>
                       <td>{basename(r.path)}</td><td>{r.version}</td><td className="muted">{dirname(r.path)}</td>
-                      <td><Badge tone={FILE_STATUS[r.status][1]}>{FILE_STATUS[r.status][0]}</Badge></td>
+                      <td><Badge tone={FILE_STATUS[r.status][1]}>{t(FILE_STATUS[r.status][0]) /* i18n-dynamic */}</Badge></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
-              Only one version of a font can be active at a time. Older versions were renamed by auto-organize, so they keep their internal font name but are easy to tell apart here.
-            </p>
           </div>
         )}
 
         {tab === 'license' && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24 }}>
             <fieldset className="fieldset">
-              <legend>License label</legend>
+              <legend>{t('License label')}</legend>
               {LICENSE_OPTIONS.map(([v, label]) => (
                 <label key={v} style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 36 }}>
                   <input type="radio" name="lic" checked={fam.licenseInfo.label === v} onChange={() => setLicense(v)} style={{ width: 16, height: 16 }} />
-                  <span>{label}</span>
+                  <span>{t(label) /* i18n-dynamic */}</span>
                 </label>
               ))}
             </fieldset>
@@ -554,44 +553,46 @@ export function FamilyPage() {
                       <span className="faint ellipsis" style={{ fontSize: 12 }}>{dirname(fam.licenseInfo.file)}</span>
                     </span>
                     <span style={{ display: 'flex', gap: 8 }}>
-                      <button type="button" className="btn small" onClick={() => api.showInFolder(fam.licenseInfo.file!).catch((e) => toast(errMsg(e)))}>Show in folder</button>
-                      <button type="button" className="btn small" onClick={attach}>Replace</button>
+                      <button type="button" className="btn small" onClick={() => api.showInFolder(fam.licenseInfo.file!).catch((e) => toast(errMsg(e)))}>{t('Show in folder')}</button>
+                      <button type="button" className="btn small" onClick={attach}>{t('Replace')}</button>
                     </span>
                   </>
                 ) : (
                   <>
-                    <span className="muted">No license file attached</span>
-                    <button type="button" className="btn small" onClick={attach}>Attach file…</button>
+                    <span className="muted">{t('No license file attached')}</span>
+                    <button type="button" className="btn small" onClick={attach}>{t('Attach file…')}</button>
                   </>
                 )}
               </div>
-              <label htmlFor="licnote" style={{ fontWeight: 500 }}>Notes</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <label htmlFor="licnote" style={{ fontWeight: 500 }}>{t('Notes')}</label>
+                <Hint text={t('The label and file move with the font when auto-organize tidies folders.')} />
+              </div>
               <textarea
                 id="licnote" rows={4} className="textarea" value={note} onChange={(e) => setNote(e.target.value)}
                 onBlur={() => note !== fam.licenseInfo.note && setLicense(fam.licenseInfo.label, undefined, note)}
               />
-              <p className="muted" style={{ margin: 0, fontSize: 13 }}>The label and file move with the font when auto-organize tidies folders.</p>
             </div>
           </div>
         )}
       </motion.div>
       </AnimatePresence>
 
-      <Dialog open={setsOpen} onClose={() => setSetsOpen(false)} title={`Add ${fam.family} to a project set`}>
-        {sets.length === 0 && <p className="muted">No project sets yet. <Link to="/sets">Create one</Link>.</p>}
+      <Dialog open={setsOpen} onClose={() => setSetsOpen(false)} title={t('Add {family} to a project set', { family: fam.family })}>
+        {sets.length === 0 && <p className="muted">{t('No project sets yet.')} <Link to="/sets">{t('Create one')}</Link></p>}
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {sets.map((s) => {
             const has = s.familyKeys.includes(fam.key)
             return (
               <div key={s.id} className="row-between list-row">
                 <span>{s.name} <span className="faint" style={{ fontSize: 12 }}>· {plural(s.familyKeys.length, 'font')}</span></span>
-                <button type="button" className="btn small" disabled={has} onClick={() => addToSet(s)}>{has ? 'Added' : 'Add'}</button>
+                <button type="button" className="btn small" disabled={has} onClick={() => addToSet(s)}>{has ? t('Added') : t('Add')}</button>
               </div>
             )
           })}
         </div>
         <div className="dialog-actions">
-          <button type="button" className="btn" onClick={() => setSetsOpen(false)}>Done</button>
+          <button type="button" className="btn" onClick={() => setSetsOpen(false)}>{t('Done')}</button>
         </div>
       </Dialog>
     </div>
