@@ -95,7 +95,7 @@ version=$(cargo pkgid --manifest-path Cargo.toml -p typeshelf-desktop | sed 's/.
 bundle=target/universal-apple-darwin/release/bundle
 mkdir -p dist
 dmg=dist/Glyphyard-$version.dmg
-cp "$bundle"/dmg/Glyphyard_*_universal.dmg "$dmg"
+cp "$bundle/dmg/Glyphyard_${version}_universal.dmg" "$dmg"
 
 # Notarize and check the verdict from notarytool's JSON (exit codes alone have not always been reliable).
 # Command lines are never echoed (no set -x), and notarytool does not print the password.

@@ -359,7 +359,7 @@ export default {
   'Password changed. You were signed out everywhere else.': 'Kata sandi diubah. Kamu dikeluarkan dari semua tempat lain.',
   'Choose the release file, its manifest and its signature.': 'Pilih file rilis, manifes, dan tanda tangannya.',
   'Version {version} for {platform} is now offered to every computer.': 'Versi {version} untuk {platform} sekarang ditawarkan ke semua komputer.',
-  'The upload is larger than 100 MB, the most the server accepts. Check that you chose the setup program.': 'Unggahan lebih besar dari 100 MB, batas maksimum server. Pastikan kamu memilih program penyetelan.',
+  'The upload is larger than 100 MB, the most the server accepts. Check that you chose the release file.': 'Unggahan lebih besar dari 100 MB, batas maksimum server. Pastikan kamu memilih file rilis.',
   '{platform}: version {version} ({size} MB)': '{platform}: versi {version} ({size} MB)',
   '{platform}: no release uploaded': '{platform}: belum ada rilis yang diunggah',
   'Desktop apps keep the version they have.': 'Aplikasi desktop tetap memakai versi yang ada.',

@@ -42,19 +42,19 @@ enum Cmd {
         data: PathBuf,
     },
     /// Create the key pair that signs app updates. Keep the private key file offline; bake the printed
-    /// public key into the app with `scripts/build-windows.ps1 -UpdateKey`.
+    /// public key into the app with `scripts/build-windows.ps1 -UpdateKey` or `scripts/build-macos.sh --update-key`.
     UpdateKeygen {
         /// Where to write the private key (must not exist yet).
         #[arg(long)]
         out: PathBuf,
     },
-    /// Write `<setup>.manifest` (version, size, BLAKE3 hash) and `<setup>.manifest.sig` for a setup program.
+    /// Write `<file>.manifest` (version, size, BLAKE3 hash) and `<file>.manifest.sig` for a release file (the Windows setup program or the Mac .app.tar.gz).
     UpdateSign {
         setup: PathBuf,
         /// The private key file from `update-keygen`.
         #[arg(long)]
         key: PathBuf,
-        /// The setup program's version; read from a `Glyphyard-Setup-<version>.exe` (or older `Typeshelf-Setup-…`) file name when left out.
+        /// The release's version; read from a `Glyphyard-Setup-<version>.exe` (or older `Typeshelf-Setup-…`) or `Glyphyard-<version>.app.tar.gz` file name when left out.
         #[arg(long)]
         version: Option<String>,
         /// `windows` or `macos`; read from the file name when left out.
@@ -114,7 +114,7 @@ async fn main() -> anyhow::Result<()> {
             let mut f = open.open(&out).with_context(|| format!("creating {}", out.display()))?;
             std::io::Write::write_all(&mut f, format!("{private}\n").as_bytes())?;
             println!("Private key written to {}. Keep it offline; anyone who has it can ship updates.", out.display());
-            println!("Public key (pass to scripts/build-windows.ps1 -UpdateKey):\n{public}");
+            println!("Public key (pass to scripts/build-windows.ps1 -UpdateKey or scripts/build-macos.sh --update-key):\n{public}");
         }
         Cmd::UpdateSign { setup, key, version, platform } => {
             let name = setup.file_name().and_then(|n| n.to_str()).unwrap_or_default();

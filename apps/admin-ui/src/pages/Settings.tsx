@@ -376,7 +376,7 @@ function Updates({ owner }: { owner?: boolean }) {
       setDone(t('Version {version} for {platform} is now offered to every computer.', { version: r.version, platform: r.platform === 'macos' ? 'macOS' : 'Windows' }))
       formEl.reset()
     } catch (err) {
-      setError(err instanceof ApiError && err.status === 413 ? t('The upload is larger than 100 MB, the most the server accepts. Check that you chose the setup program.') : errMsg(err))
+      setError(err instanceof ApiError && err.status === 413 ? t('The upload is larger than 100 MB, the most the server accepts. Check that you chose the release file.') : errMsg(err))
     } finally {
       setBusy(false)
     }

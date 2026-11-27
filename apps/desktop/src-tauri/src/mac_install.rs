@@ -85,7 +85,13 @@ fn verify_and_swap(ready: &Ready, bundle: &Path) -> Result<(), InstallError> {
     update::check_file(&ready.manifest, bytes.as_slice()).map_err(|e| failed("refused the update", &e))?;
     let parent = bundle.parent().ok_or_else(|| failed("finding the app's folder", &bundle.display()))?;
     let staging = parent.join(format!(".glyphyard-update-{}", ready.manifest.version));
-    let _ = fs::remove_dir_all(&staging);
+    // Also sweeps what an earlier install left behind (an old app, or a tar error file).
+    for entry in fs::read_dir(parent).into_iter().flatten().flatten() {
+        if entry.file_name().to_string_lossy().starts_with(".glyphyard-update-") {
+            let path = entry.path();
+            let _ = fs::remove_dir_all(&path).or_else(|_| fs::remove_file(&path));
+        }
+    }
     fs::create_dir(&staging).map_err(|e| failed("creating the staging folder", &e))?;
     let result = unpack(&bytes, &staging).and_then(|new| {
         swap(bundle, &new).map_err(|e| match e.kind() {
@@ -101,6 +107,11 @@ fn verify_and_swap(ready: &Ready, bundle: &Path) -> Result<(), InstallError> {
 fn unpack(bytes: &[u8], staging: &Path) -> Result<PathBuf, InstallError> {
     let failed = |e: String| InstallError::Failed(format!("unpacking the update: {e}"));
     let tar = if cfg!(target_os = "macos") { "/usr/bin/tar" } else { "tar" };
+    // tar's stderr goes to a file beside the staging folder (not inside it), read after tar exits: no pipe to drain.
+    let mut err_path = staging.as_os_str().to_owned();
+    err_path.push(".tar-err");
+    let err_path = PathBuf::from(err_path);
+    let err_file = fs::File::create(&err_path).map(Stdio::from).unwrap_or_else(|_| Stdio::null());
     let mut child = Command::new(tar)
         .arg("-xzf")
         .arg("-")
@@ -108,16 +119,20 @@ fn unpack(bytes: &[u8], staging: &Path) -> Result<PathBuf, InstallError> {
         .arg(staging)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(err_file)
         .spawn()
         .map_err(|e| failed(e.to_string()))?;
     let written = child.stdin.take().map(|mut stdin| stdin.write_all(bytes));
-    let status = child.wait().map_err(|e| failed(e.to_string()))?;
+    let status = child.wait();
+    let tar_err = fs::read_to_string(&err_path).unwrap_or_default();
+    let _ = fs::remove_file(&err_path);
+    let status = status.map_err(|e| failed(e.to_string()))?;
     if let Some(Err(e)) = written {
         return Err(failed(e.to_string()));
     }
     if !status.success() {
-        return Err(failed(format!("tar exited with {status}")));
+        let tar_err: String = tar_err.trim().chars().take(500).collect();
+        return Err(failed(format!("tar exited with {status}: {tar_err}")));
     }
     new_app(staging).ok_or_else(|| failed("it does not hold exactly one app".into()))
 }
@@ -226,6 +241,20 @@ mod tests {
         assert_eq!(bin(&old), b"new");
         assert!(no_staging(&apps));
         assert!(!ready.path.exists());
+    }
+
+    #[test]
+    fn leftover_staging_folders_are_swept() {
+        let root = temp("sweep");
+        let apps = root.join("Applications");
+        let old = fake_app(&apps, "Glyphyard.app", b"old");
+        fake_app(&apps, ".glyphyard-update-0.0.1", b"ancient");
+        fake_app(&root.join("src"), "Glyphyard.app", b"new");
+        let bytes = tarball(&root.join("src"), &["Glyphyard.app"]);
+        let ready = ready(&root, &bytes, &bytes);
+        install(&ready, &old).unwrap();
+        assert_eq!(bin(&old), b"new");
+        assert!(no_staging(&apps));
     }
 
     #[test]
