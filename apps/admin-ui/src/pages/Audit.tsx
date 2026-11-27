@@ -8,7 +8,7 @@ import { Empty, fmtShort, Loaded, PageHeader, Pager, Table, TableSkeleton, useLo
 // Actions added later show their code until they get a label here.
 const LABELS: Record<string, string> = {
   sign_in: tk('Signed in'), sign_in_failed: tk('Sign-in locked after failed attempts'),
-  settings_changed: tk('Changed settings'), install_key_regenerated: tk('Regenerated the install key'),
+  settings_changed: tk('Changed settings'), install_key_regenerated: tk('Regenerated the install key'), install_key_set: tk('Set a custom install key'),
   admin_added: tk('Added an admin'), admin_removed: tk('Removed an admin'), role_changed: tk('Changed a role'),
   password_reset: tk('Reset a password'), password_changed: tk('Changed their password'),
   font_uploaded: tk('Uploaded a font'), license_changed: tk('Changed a license'), font_blocked: tk('Blocked a font'), font_unblocked: tk('Unblocked a font'),

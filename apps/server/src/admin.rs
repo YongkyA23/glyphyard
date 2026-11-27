@@ -197,13 +197,30 @@ fn valid_logo(s: &str) -> bool {
     s.len() <= MAX_LOGO && data.is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_alphanumeric() || b"+/=".contains(&b)))
 }
 
-async fn regenerate_key(State(s): State<AppState>, Owner(admin): Owner) -> ApiResult<Json<Value>> {
+/// A custom install key: 8–128 URL-unreserved characters, so it travels unescaped in the `X-Install-Key` header
+/// and in a `?key=` query alike.
+fn valid_install_key(k: &str) -> bool {
+    (8..=128).contains(&k.len()) && k.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.~".contains(&b))
+}
+
+/// No body: a new random key. `{ "install_key": "…" }`: that key. Either way computers set up with the old key are
+/// refused until they use the new one.
+async fn regenerate_key(State(s): State<AppState>, Owner(admin): Owner, body: axum::body::Bytes) -> ApiResult<Json<Value>> {
+    let custom = if body.iter().all(u8::is_ascii_whitespace) {
+        None
+    } else {
+        let bad = || ApiError::bad_request("invalid_install_key", "The install key must be 8 to 128 characters: letters, digits, - _ . or ~, no spaces.");
+        let v: Value = serde_json::from_slice(&body).map_err(|_| bad())?;
+        let key = v.get("install_key").and_then(Value::as_str).filter(|k| valid_install_key(k)).ok_or_else(bad)?;
+        Some(key.to_string())
+    };
     let mut db = s.db();
     let tx = db.transaction()?;
     let mut settings = db::settings(&tx)?;
-    settings.install_key = auth::random_hex(16);
+    let action = if custom.is_some() { "install_key_set" } else { "install_key_regenerated" };
+    settings.install_key = custom.unwrap_or_else(|| auth::random_hex(16));
     db::save_settings(&tx, &settings)?;
-    audit::record(&tx, &admin.email, "install_key_regenerated", "", "")?;
+    audit::record(&tx, &admin.email, action, "", "")?;
     tx.commit()?;
     Ok(Json(json!({ "install_key": settings.install_key })))
 }

@@ -143,6 +143,9 @@ function queueFont(f: FontState, active: boolean) {
   setTimeout(() => { if (queued.get(f.hash) === active) { queued.delete(f.hash); f.active = active } }, 3000)
 }
 
+/** Same rule as the server's `valid_install_key`. */
+const INSTALL_KEY = /^[A-Za-z0-9._~-]{8,128}$/
+
 function route(method: string, p: string, sp: URLSearchParams, body: unknown): unknown {
   const m = (re: RegExp) => p.match(re)
   if (p === '/me') return { email: 'admin@example.test', role: 'owner' }
@@ -296,7 +299,13 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
     settings.connection_password_set = pw !== null
     return { connection_password_set: settings.connection_password_set }
   }
-  if (p === '/settings/install-key') return { install_key: (settings.install_key = 'tsk_' + Math.random().toString(36).slice(2)) }
+  if (p === '/settings/install-key') {
+    const custom = (body as { install_key?: unknown } | undefined)?.install_key
+    if (custom !== undefined && !(typeof custom === 'string' && INSTALL_KEY.test(custom))) {
+      throw { status: 400, error: 'invalid_install_key', message: 'The install key must be 8 to 128 characters: letters, digits, - _ . or ~, no spaces.' }
+    }
+    return { install_key: (settings.install_key = typeof custom === 'string' ? custom : 'tsk_' + Math.random().toString(36).slice(2)) }
+  }
   if (p === '/admins' && method === 'GET') return [{ id: 1, email: 'admin@example.test', role: 'owner', last_login: at(10) }, { id: 2, email: 'second@example.test', role: 'admin', last_login: null }]
   if (p === '/audit') {
     const all = audit.filter((e) => (!sp.get('admin') || e.admin === sp.get('admin')) && (!sp.get('action') || e.action === sp.get('action')))
