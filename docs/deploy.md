@@ -73,7 +73,32 @@ Optional, both off by default:
   `typeshelf-server update-keygen --out update-key.txt` writes the private key (owner-only file on Linux/macOS) and prints the public key. Build with
   `-UpdateKey <public key>`; a build without it never checks for updates and hides Settings › "Update automatically".
   For each release: `typeshelf-server update-sign dist/Glyphyard-Setup-<version>.exe --key update-key.txt` writes
-  `<setup>.manifest` and `<setup>.manifest.sig`; upload the three files in admin Settings › App updates. Apps
+  `<setup>.manifest` and `<setup>.manifest.sig`; upload the three files in admin Settings › App updates (the
+  manifest says whether the release is for Windows or Mac; each has its own slot). Apps
   check a minute after start and daily, verify the signature and the file, ignore versions that are not newer,
   and run the setup program with `--silent` when the user quits (not when Glyphyard Setup or the uninstaller is the one closing the app). A release the app refuses shows a notice in its Settings under "Update automatically"; it usually means the release was signed with a different key than the app was built with. Anyone with the private key can ship code to
   every computer: keep it off the server. Losing it means rebuilding the app with a new key.
+
+## Mac release
+Build on a Mac with Xcode command line tools (`xcode-select --install`), bun, and both Rust targets:
+```
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+./scripts/build-macos.sh --server-url https://fonts.example.com --install-key <key> --update-key <public key>
+```
+It writes `dist/Glyphyard-<version>.dmg` (a universal app) and `dist/Glyphyard-<version>.app.tar.gz` (what updates
+install). The server URL, install key and update public key are the same ones as the Windows build; the
+private key stays on the signing PC. Carry the `.app.tar.gz` there, run
+`typeshelf-server update-sign dist/Glyphyard-<version>.app.tar.gz --key update-key.txt`, and upload the three
+files in admin Settings › App updates.
+
+Without `--sign-identity` the app is ad-hoc signed and the script prints one line saying so. To sign, add
+`--sign-identity "Developer ID Application: <name> (<team id>)"`; to notarize as well, set either
+`APPLE_API_KEY`, `APPLE_API_ISSUER` and `APPLE_API_KEY_PATH`, or `APPLE_ID`, `APPLE_PASSWORD` and `APPLE_TEAM_ID`.
+
+An unsigned build:
+- is blocked on first open until allowed in System Settings › Privacy & Security › Open Anyway;
+- may need Glyphyard allowed once under App Management for updates to apply;
+- may ask for folder access again after an update.
+
+Install the app in `/Applications` (or a folder the user can write to), or updates cannot apply. An update
+replaces the app when the user quits; Glyphyard does not relaunch, the new version starts the next time it is opened.
