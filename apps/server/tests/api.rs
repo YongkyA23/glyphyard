@@ -1776,6 +1776,9 @@ async fn connection_password_set_and_pushed() {
     assert_eq!(r.json(), json!({ "connection_password_set": false }));
     assert_eq!(s.admin(Method::GET, "/settings", None).await.json()["connection_password_set"], false);
     assert_eq!(last_pushed_hash(&s, &token).await, "");
+    let log = s.audit("?action=connection_password_cleared").await;
+    assert_eq!(log["items"].as_array().unwrap().len(), 1);
+    assert_eq!(log["items"][0]["detail"], "");
 }
 
 #[tokio::test]
@@ -1789,6 +1792,13 @@ async fn connection_password_validation() {
     let (_, cookie) = s.plain_admin("two@example.com").await;
     let r = s.as_admin(&cookie, Method::PUT, "/settings/connection-password", Some(json!({ "password": "correct horse" }))).await;
     assert_eq!(r.status, StatusCode::FORBIDDEN);
+    // A missing key or a wrong type is an error, never a silent clear.
+    s.admin(Method::PUT, "/settings/connection-password", Some(json!({ "password": "correct horse" }))).await;
+    for bad in [json!({}), json!({ "pasword": "typo" }), json!({ "password": 5 })] {
+        let r = s.admin(Method::PUT, "/settings/connection-password", Some(bad.clone())).await;
+        assert_eq!((r.status, r.json()["error"].clone()), (StatusCode::BAD_REQUEST, json!("invalid_password")), "{bad}");
+        assert_eq!(s.admin(Method::GET, "/settings", None).await.json()["connection_password_set"], true, "{bad}");
+    }
 }
 
 #[tokio::test]

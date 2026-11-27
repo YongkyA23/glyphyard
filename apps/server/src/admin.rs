@@ -210,16 +210,13 @@ async fn regenerate_key(State(s): State<AppState>, Owner(admin): Owner) -> ApiRe
 
 /// `null` or `""` clears the unlock password. The hash is computed before the database lock is taken (argon2 is slow).
 async fn set_connection_password(State(s): State<AppState>, Owner(admin): Owner, Json(body): Json<Value>) -> ApiResult<Json<Value>> {
-    let password = body.get("password").and_then(Value::as_str).filter(|p| !p.is_empty());
-    if body.get("password").is_some_and(|p| !p.is_null() && !p.is_string()) {
-        return Err(ApiError::bad_request("invalid_password", "The unlock password must be 8 to 128 characters."));
-    }
-    let hash = match password {
-        Some(p) if !(8..=128).contains(&p.chars().count()) => {
-            return Err(ApiError::bad_request("invalid_password", "The unlock password must be 8 to 128 characters."));
-        }
-        Some(p) => auth::hash_password(p),
-        None => String::new(),
+    let bad = || ApiError::bad_request("invalid_password", "The unlock password must be 8 to 128 characters.");
+    let hash = match body.get("password") {
+        None => return Err(bad()),
+        Some(Value::Null) => String::new(),
+        Some(Value::String(p)) if p.is_empty() => String::new(),
+        Some(Value::String(p)) if (8..=128).contains(&p.chars().count()) => auth::hash_password(p),
+        Some(_) => return Err(bad()),
     };
     let mut db = s.db();
     let tx = db.transaction()?;
