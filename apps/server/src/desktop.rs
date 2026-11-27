@@ -26,6 +26,7 @@ pub fn routes() -> Router<AppState> {
         .route("/me/commands/{id}/ack", post(ack))
         .route("/me/ws", get(ws))
         .route("/me/library", get(library::my_library))
+        .route("/me/organizer", get(crate::organizer::get).put(crate::organizer::put))
         .route("/library/files/{hash}", get(library::download))
         .merge(crate::update::desktop_routes())
 }
