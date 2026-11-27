@@ -2,26 +2,26 @@
 import type { AuditEntry, FamilyRow, FontRequest, FontState, InstallDetail, InstallSummary, LibraryFile, Overview, Page, Settings } from './api'
 
 const now = Date.now()
-const t = (mins: number) => new Date(now - mins * 60000).toISOString()
+const at = (mins: number) => new Date(now - mins * 60000).toISOString()
 const day = 1440
 
 const installs: InstallSummary[] = [
-  { id: '7F3A-2C9E-91C2', name: 'Budi Santoso', previous_names: ['Budi S.'], os: 'Windows 11', app_version: '1.0.0', active_fonts: 86, last_seen: t(1), online: true, next_name_change: t(-15 * day), flags: ['override'] },
-  { id: '1B77-40DA-0E15', name: 'Sari Wulandari', previous_names: ['Sari W.'], os: 'Windows 11', app_version: '1.0.0', active_fonts: 54, last_seen: t(2), online: true, next_name_change: t(-30 * day), flags: [] },
-  { id: 'C902-7E11-5A3B', name: 'Rizky Pratama', previous_names: [], os: 'Windows 10', app_version: '1.0.0', active_fonts: 112, last_seen: t(3), online: true, next_name_change: null, flags: ['failures'] },
-  { id: 'E41D-03B7-7C6A', name: 'Budi S.', previous_names: [], os: 'macOS · Intel', app_version: '1.0.0', active_fonts: 0, last_seen: t(3 * day), online: false, next_name_change: null, flags: ['possible_duplicate'] },
-  { id: '9AF0-6D25-3E8B', name: 'Putri Ananda', previous_names: [], os: 'Windows 11', app_version: '0.9.2', active_fonts: 61, last_seen: t(16 * day), online: false, next_name_change: null, flags: ['stale'] },
+  { id: '7F3A-2C9E-91C2', name: 'Budi Santoso', previous_names: ['Budi S.'], os: 'Windows 11', app_version: '1.0.0', active_fonts: 86, last_seen: at(1), online: true, next_name_change: at(-15 * day), flags: ['override'] },
+  { id: '1B77-40DA-0E15', name: 'Sari Wulandari', previous_names: ['Sari W.'], os: 'Windows 11', app_version: '1.0.0', active_fonts: 54, last_seen: at(2), online: true, next_name_change: at(-30 * day), flags: [] },
+  { id: 'C902-7E11-5A3B', name: 'Rizky Pratama', previous_names: [], os: 'Windows 10', app_version: '1.0.0', active_fonts: 112, last_seen: at(3), online: true, next_name_change: null, flags: ['failures'] },
+  { id: 'E41D-03B7-7C6A', name: 'Budi S.', previous_names: [], os: 'macOS · Intel', app_version: '1.0.0', active_fonts: 0, last_seen: at(3 * day), online: false, next_name_change: null, flags: ['possible_duplicate'] },
+  { id: '9AF0-6D25-3E8B', name: 'Putri Ananda', previous_names: [], os: 'Windows 11', app_version: '0.9.2', active_fonts: 61, last_seen: at(16 * day), online: false, next_name_change: null, flags: ['stale'] },
   // Filler so the pagers have several pages.
   ...Array.from({ length: 130 }, (_, i): InstallSummary => ({
     id: `F${String(i).padStart(3, '0')}-0000-0000`, name: `Designer ${i + 1}`, previous_names: [], os: i % 9 ? 'Windows 11' : 'macOS · Apple silicon',
-    app_version: '1.0.0', active_fonts: (i * 7) % 90, last_seen: t(i * 37), online: i % 4 === 0, next_name_change: null, flags: i % 11 ? [] : ['stale'],
+    app_version: '1.0.0', active_fonts: (i * 7) % 90, last_seen: at(i * 37), online: i % 4 === 0, next_name_change: null, flags: i % 11 ? [] : ['stale'],
   })),
 ]
 const FAMILIES = ['Sample Sans', 'Aster Serif', 'Boreal Mono', 'Cinder', 'Dovetail', 'Ember Display', 'Fjord', 'Gable', 'Harbor Slab', 'Iris', 'Juniper', 'Kestrel', 'Lumen', 'Marlow', 'Nimbus', 'Onyx Condensed', 'Pavilion', 'Quarry', 'Reed', 'Saffron', 'Tundra', 'Umber', 'Vesper', 'Willow', 'Yarrow']
 const STYLES = ['Regular', 'Italic', 'Bold', 'Bold Italic', 'Light', 'Medium', 'SemiBold', 'Black']
 const SOURCES: FontState['source'][] = ['user', 'user', 'admin', 'library', 'project_set']
 const mk = (hash: string, family: string, style: string, active: boolean, source: FontState['source'], mins: number, overridden = false, in_library = false, blocked = false): FontState =>
-  ({ hash, ps_name: `${family.replace(/ /g, '')}-${style.replace(/ /g, '')}`, family, style, active, source, overridden, updated_at: t(mins), in_library, blocked })
+  ({ hash, ps_name: `${family.replace(/ /g, '')}-${style.replace(/ /g, '')}`, family, style, active, source, overridden, updated_at: at(mins), in_library, blocked })
 const fonts: FontState[] = [
   mk('h1', 'Fraunces', 'Regular', false, 'admin', 1440, true),
   mk('h2', 'Space Grotesk', 'Medium', true, 'admin', 30, false, true),
@@ -36,21 +36,21 @@ const fonts: FontState[] = [
   }),
 ]
 const detail = (s: InstallSummary): InstallDetail => ({
-  ...s, first_seen: t(26 * day), merged_from: [],
-  name_history: [{ name: s.name, from: t(15 * day), to: null }, ...s.previous_names.map((n) => ({ name: n, from: t(26 * day), to: t(15 * day) }))],
-  overrides: s.flags.includes('override') ? [{ font: fonts[0], admin_at: t(day), user_at: t(5) }] : [],
+  ...s, first_seen: at(26 * day), merged_from: [],
+  name_history: [{ name: s.name, from: at(15 * day), to: null }, ...s.previous_names.map((n) => ({ name: n, from: at(26 * day), to: at(15 * day) }))],
+  overrides: s.flags.includes('override') ? [{ font: fonts[0], admin_at: at(day), user_at: at(5) }] : [],
 })
 const library: LibraryFile[] = [
-  { hash: 'h2', filename: 'SpaceGrotesk-Medium.otf', ps_name: 'SpaceGrotesk-Medium', family: 'Space Grotesk', style: 'Medium', version: '2.0', license: 'licensed', size: 84000, delivered_to: 'all', active_on: 41, blocked: false, uploaded_at: t(9 * day) },
-  { hash: 'h4', filename: 'Syne-SemiBold.otf', ps_name: 'Syne-SemiBold', family: 'Syne', style: 'SemiBold', version: '2.0', license: 'client', size: 52000, delivered_to: ['7F3A-2C9E-91C2'], active_on: 12, blocked: false, uploaded_at: t(9 * day) },
-  { hash: 'h9', filename: 'BebasNeue.otf', ps_name: 'BebasNeue', family: 'Bebas Neue', style: 'Regular', version: '1.0', license: 'unknown', size: 31000, delivered_to: 'none', active_on: 0, blocked: true, uploaded_at: t(2 * day) },
+  { hash: 'h2', filename: 'SpaceGrotesk-Medium.otf', ps_name: 'SpaceGrotesk-Medium', family: 'Space Grotesk', style: 'Medium', version: '2.0', license: 'licensed', size: 84000, delivered_to: 'all', active_on: 41, blocked: false, uploaded_at: at(9 * day) },
+  { hash: 'h4', filename: 'Syne-SemiBold.otf', ps_name: 'Syne-SemiBold', family: 'Syne', style: 'SemiBold', version: '2.0', license: 'client', size: 52000, delivered_to: ['7F3A-2C9E-91C2'], active_on: 12, blocked: false, uploaded_at: at(9 * day) },
+  { hash: 'h9', filename: 'BebasNeue.otf', ps_name: 'BebasNeue', family: 'Bebas Neue', style: 'Regular', version: '1.0', license: 'unknown', size: 31000, delivered_to: 'none', active_on: 0, blocked: true, uploaded_at: at(2 * day) },
 ]
 const overview: Overview = {
   installs: 48, online: 31, os: { windows: 46, macos: 2 }, name_changes_month: 6, overrides_week: 4, failures_week: 3,
   recent: [
-    { id: 1, install_id: installs[0].id, install_name: 'Budi Santoso', kind: 'override', text: 'Budi Santoso turned off Fraunces, which you turned on', by: 'user', at: t(5) },
-    { id: 2, install_id: installs[2].id, install_name: 'Rizky Pratama', kind: 'failure', text: 'Montserrat Bold failed to activate for Rizky Pratama (file missing)', by: 'system', at: t(60) },
-    { id: 3, install_id: installs[1].id, install_name: 'Sari', kind: 'font', text: 'You turned on Space Grotesk for 12 users', by: 'admin', at: t(130) },
+    { id: 1, install_id: installs[0].id, install_name: 'Budi Santoso', kind: 'override', text: 'Budi Santoso turned off Fraunces, which you turned on', by: 'user', at: at(5) },
+    { id: 2, install_id: installs[2].id, install_name: 'Rizky Pratama', kind: 'failure', text: 'Montserrat Bold failed to activate for Rizky Pratama (file missing)', by: 'system', at: at(60) },
+    { id: 3, install_id: installs[1].id, install_name: 'Sari', kind: 'font', text: 'You turned on Space Grotesk for 12 users', by: 'admin', at: at(130) },
   ],
   attention: { overrides: 4, failures: 3, possible_duplicates: 2, stale: 5, requests: 2 },
   top_fonts: [{ family: 'Space Grotesk', users: 41 }, { family: 'Fraunces', users: 33 }, { family: 'Syne', users: 19 }],
@@ -62,9 +62,9 @@ const overview: Overview = {
   })),
 }
 const fontRequests: FontRequest[] = [
-  { id: 3, install_id: installs[1].id, install_name: 'Sari Wulandari', font_name: 'Söhne Buch', note: 'For the Acme rebrand deck, due Friday.', at: t(40), done_at: null },
-  { id: 2, install_id: installs[0].id, install_name: 'Budi Santoso', font_name: 'GT America Condensed', note: null, at: t(2 * day), done_at: null },
-  { id: 1, install_id: installs[2].id, install_name: 'Rizky Pratama', font_name: 'Founders Grotesk', note: 'Client sent a PDF that uses it.', at: t(6 * day), done_at: t(5 * day) },
+  { id: 3, install_id: installs[1].id, install_name: 'Sari Wulandari', font_name: 'Söhne Buch', note: 'For the Acme rebrand deck, due Friday.', at: at(40), done_at: null },
+  { id: 2, install_id: installs[0].id, install_name: 'Budi Santoso', font_name: 'GT America Condensed', note: null, at: at(2 * day), done_at: null },
+  { id: 1, install_id: installs[2].id, install_name: 'Rizky Pratama', font_name: 'Founders Grotesk', note: 'Client sent a PDF that uses it.', at: at(6 * day), done_at: at(5 * day) },
 ]
 let settings: Settings = {
   name_change_days: 30, allow_connection_edit: true, deliver_library_to_new: true, activate_delivered: false,
@@ -73,13 +73,15 @@ let settings: Settings = {
 }
 
 const audit: AuditEntry[] = [
-  { id: 6, at: t(4), admin: 'admin@example.test', action: 'font_delivered', target: 'h2', detail: 'SpaceGrotesk-Medium to all' },
-  { id: 5, at: t(40), admin: 'second@example.test', action: 'font_blocked', target: 'h9', detail: 'BebasNeue' },
-  { id: 4, at: t(90), admin: 'second@example.test', action: 'sign_in', target: '', detail: '' },
-  { id: 3, at: t(day), admin: 'admin@example.test', action: 'settings_changed', target: '', detail: 'name_change_days: 14 → 30' },
-  { id: 2, at: t(2 * day), admin: 'admin@example.test', action: 'admin_added', target: 'second@example.test', detail: 'role admin' },
-  { id: 1, at: t(3 * day), admin: 'admin@example.test', action: 'install_key_regenerated', target: '', detail: '' },
-  ...Array.from({ length: 70 }, (_, i): AuditEntry => ({ id: -i, at: t(4 * day + i * 60), admin: 'admin@example.test', action: 'sign_in', target: '', detail: '' })),
+  { id: 8, at: at(2), admin: 'admin@example.test', action: 'connection_password_cleared', target: '', detail: '' },
+  { id: 7, at: at(3), admin: 'admin@example.test', action: 'connection_password_set', target: '', detail: '' },
+  { id: 6, at: at(4), admin: 'admin@example.test', action: 'font_delivered', target: 'h2', detail: 'SpaceGrotesk-Medium to all' },
+  { id: 5, at: at(40), admin: 'second@example.test', action: 'font_blocked', target: 'h9', detail: 'BebasNeue' },
+  { id: 4, at: at(90), admin: 'second@example.test', action: 'sign_in', target: '', detail: '' },
+  { id: 3, at: at(day), admin: 'admin@example.test', action: 'settings_changed', target: '', detail: 'name_change_days: 14 → 30' },
+  { id: 2, at: at(2 * day), admin: 'admin@example.test', action: 'admin_added', target: 'second@example.test', detail: 'role admin' },
+  { id: 1, at: at(3 * day), admin: 'admin@example.test', action: 'install_key_regenerated', target: '', detail: '' },
+  ...Array.from({ length: 70 }, (_, i): AuditEntry => ({ id: -i, at: at(4 * day + i * 60), admin: 'admin@example.test', action: 'sign_in', target: '', detail: '' })),
 ]
 
 // Each overview poll nudges the numbers and, every other poll, adds an event (so live-update motion is visible).
@@ -195,9 +197,9 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
     return { changed, skipped }
   }
   if (m(/^\/installs\/[^/]+\/timeline$/)) return paged([
-    { id: 1, at: t(5), by: 'user', kind: 'override', text: 'Turned off Fraunces' },
-    { id: 2, at: t(day), by: 'admin', kind: 'font', text: 'Fraunces turned on remotely' },
-    { id: 3, at: t(15 * day), by: 'user', kind: 'name', text: 'Changed name from “Budi S.” to “Budi Santoso”' },
+    { id: 1, at: at(5), by: 'user', kind: 'override', text: 'Turned off Fraunces' },
+    { id: 2, at: at(day), by: 'admin', kind: 'font', text: 'Fraunces turned on remotely' },
+    { id: 3, at: at(15 * day), by: 'user', kind: 'name', text: 'Changed name from “Budi S.” to “Budi Santoso”' },
   ], sp)
   if (m(/^\/installs\/[^/]+\/fonts$/)) {
     const b = body as { hash: string; active: boolean }
@@ -210,9 +212,9 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
   if (one) return detail(installs.find((i) => i.id === decodeURIComponent(one[1])) ?? installs[0])
   if (p === '/installs/merge') return detail(installs[0])
   if (p === '/name-changes') return paged([
-    { at: t(1), install_ids: [installs[1].id], old_name: 'Sari W.', new_name: 'Sari Wulandari', by: 'user', next_allowed: t(-30 * day) },
-    { at: t(3 * day), install_ids: ['A3C1-77E0-2B4D', '0F9E-1A2B-8C3D'], old_name: 'Rina (old laptop)', new_name: 'Rina Kusuma', by: 'merge', next_allowed: null },
-    { at: t(26 * day), install_ids: [installs[0].id], old_name: null, new_name: 'Budi S.', by: 'first', next_allowed: null },
+    { at: at(1), install_ids: [installs[1].id], old_name: 'Sari W.', new_name: 'Sari Wulandari', by: 'user', next_allowed: at(-30 * day) },
+    { at: at(3 * day), install_ids: ['A3C1-77E0-2B4D', '0F9E-1A2B-8C3D'], old_name: 'Rina (old laptop)', new_name: 'Rina Kusuma', by: 'merge', next_allowed: null },
+    { at: at(26 * day), install_ids: [installs[0].id], old_name: null, new_name: 'Budi S.', by: 'first', next_allowed: null },
   ], sp, (r) => `${r.old_name ?? ''} ${r.new_name} ${r.install_ids.join(' ')}`)
   if (p === '/library' && method === 'GET') {
     return paged(library, sp, (f) => `${f.family} ${f.style} ${f.ps_name} ${f.filename}`, {
@@ -249,7 +251,7 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
   }
   if (p === '/organize/reports') return paged([
     { install_id: installs[2].id, name: 'Rizky Pratama', duplicates: 41, version_conflicts: 6, name_clashes: 0, last_organized: null },
-    { install_id: installs[1].id, name: 'Sari Wulandari', duplicates: 0, version_conflicts: 0, name_clashes: 0, last_organized: t(day) },
+    { install_id: installs[1].id, name: 'Sari Wulandari', duplicates: 0, version_conflicts: 0, name_clashes: 0, last_organized: at(day) },
   ], sp)
   if (p === '/settings' && method === 'PUT') return (settings = { ...settings, ...(body as object) })
   if (p === '/settings') return settings
@@ -260,7 +262,7 @@ function route(method: string, p: string, sp: URLSearchParams, body: unknown): u
     return { connection_password_set: settings.connection_password_set }
   }
   if (p === '/settings/install-key') return { install_key: (settings.install_key = 'tsk_' + Math.random().toString(36).slice(2)) }
-  if (p === '/admins' && method === 'GET') return [{ id: 1, email: 'admin@example.test', role: 'owner', last_login: t(10) }, { id: 2, email: 'second@example.test', role: 'admin', last_login: null }]
+  if (p === '/admins' && method === 'GET') return [{ id: 1, email: 'admin@example.test', role: 'owner', last_login: at(10) }, { id: 2, email: 'second@example.test', role: 'admin', last_login: null }]
   if (p === '/audit') {
     const all = audit.filter((e) => (!sp.get('admin') || e.admin === sp.get('admin')) && (!sp.get('action') || e.action === sp.get('action')))
     return { ...paged(all, sp), admins: [...new Set(audit.map((e) => e.admin))].sort(), actions: [...new Set(audit.map((e) => e.action))].sort() }

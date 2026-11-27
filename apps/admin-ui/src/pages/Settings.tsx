@@ -302,7 +302,8 @@ function ResetPassword({ admin, onDone }: { admin: Admin; onDone: () => void }) 
       <label className="field grow"><span>{t('New password for {email}', { email: admin.email })}</span>
         <input type="password" className="input" autoComplete="new-password" value={password} onChange={(e) => { setPassword(e.target.value); setError('') }} />
       </label>
-      <span className="title-row"><button type="submit" className="btn btn-primary" disabled={busy}>{busy && <Spin />}{busy ? t('Saving…') : t('Set password')}</button><Hint text={t('They are signed out everywhere. Share the new password with them privately.')} /></span>
+      <button type="submit" className="btn btn-primary" disabled={busy}>{busy && <Spin />}{busy ? t('Saving…') : t('Set password')}</button>
+      <span className="meta full">{t('They are signed out everywhere. Share the new password with them privately.')}</span>
       {error && <span role="alert" className="form-error full">{error}</span>}
     </motion.form>
   )
@@ -339,7 +340,8 @@ function OwnPassword() {
         <label className="field grow"><span>{t('New password')}</span>
           <input type="password" className="input" autoComplete="new-password" value={password} onChange={(e) => { setPassword(e.target.value); setError(''); setStatus('') }} />
         </label>
-        <span className="title-row"><button type="submit" className="btn btn-primary" disabled={status === 'saving'}>{status === 'saving' && <Spin />}{status === 'saving' ? t('Changing…') : t('Change password')}</button><Hint text={t('Changing it signs you out on every other browser.')} /></span>
+        <button type="submit" className="btn btn-primary" disabled={status === 'saving'}>{status === 'saving' && <Spin />}{status === 'saving' ? t('Changing…') : t('Change password')}</button>
+        <span className="meta full">{t('Changing it signs you out on every other browser.')}</span>
         {error && <span role="alert" className="form-error full">{error}</span>}
         <span className="meta full" role="status">{status === 'saved' ? t('Password changed. You were signed out everywhere else.') : ''}</span>
       </form>
@@ -429,7 +431,7 @@ function UnlockPassword({ allowEdit, isSet, owner, onChanged }: { allowEdit: boo
     }
   }
   const remove = async () => {
-    if (!(await confirm(t('Remove the unlock password? Anyone can then change the connection on a computer once it is unlocked by policy.'), t('Remove'), true))) return
+    if (!(await confirm(t('Remove the unlock password? On a locked computer, nobody will be able to unlock the connection settings any more.'), t('Remove'), true))) return
     try {
       const r = await api.setConnectionPassword(null)
       onChanged(r.connection_password_set)

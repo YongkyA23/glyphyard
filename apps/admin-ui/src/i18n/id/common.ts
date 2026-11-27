@@ -25,7 +25,7 @@ export default {
   'The two passwords don’t match.': 'Kedua kata sandi tidak sama.',
   'Unlock password saved.': 'Kata sandi buka kunci disimpan.',
   'Unlock password removed.': 'Kata sandi buka kunci dihapus.',
-  'Remove the unlock password? Anyone can then change the connection on a computer once it is unlocked by policy.': 'Hapus kata sandi buka kunci? Setelah itu siapa pun bisa mengubah koneksi di komputer yang dibuka kuncinya lewat kebijakan.',
+  'Remove the unlock password? On a locked computer, nobody will be able to unlock the connection settings any more.': 'Hapus kata sandi buka kunci? Di komputer yang terkunci, tidak akan ada lagi yang bisa membuka kunci pengaturan koneksi.',
   'Stored as a one-way hash on every computer so you can unlock offline. Use a long passphrase.': 'Disimpan sebagai hash satu arah di setiap komputer supaya kamu bisa membuka kunci secara offline. Pakai frasa sandi yang panjang.',
   'Only an owner can set or remove the unlock password.': 'Hanya pemilik yang bisa mengatur atau menghapus kata sandi buka kunci.',
   'Connection changes are locked and no unlock password is set, so nobody can change the connection on a locked computer.': 'Perubahan koneksi dikunci dan belum ada kata sandi buka kunci, jadi tidak ada yang bisa mengubah koneksi di komputer yang terkunci.',

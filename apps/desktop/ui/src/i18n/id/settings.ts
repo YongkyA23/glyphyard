@@ -4,7 +4,7 @@ export default {
   'Settings': 'Pengaturan',
   'Add': 'Tambah',
   'Remove': 'Hapus',
-  'Install': 'Pasang',
+  'Install': 'Instal',
   'Show': 'Tampilkan',
   'Hide': 'Sembunyikan',
 
@@ -68,7 +68,7 @@ export default {
 
   // App
   'App': 'Aplikasi',
-  'Start at login': 'Buka saat login',
+  'Start at login': 'Mulai saat login',
   'Fonts are ready as soon as you sign in to your computer': 'Font langsung siap begitu kamu masuk ke komputer',
   'Start in the tray': 'Mulai di tray',
   'Open quietly without showing the window': 'Buka diam-diam tanpa menampilkan jendela',
@@ -124,6 +124,7 @@ export default {
   'Offline': 'Offline',
   'changes will sync when the connection is back': 'perubahan akan disinkronkan saat koneksi kembali',
   'Can’t connect': 'Tidak bisa terhubung',
+  'Can’t save': 'Tidak bisa menyimpan',
   'check the server address and install key': 'periksa alamat server dan kunci instalasi',
   'Test passed': 'Tes berhasil',
   'the server accepted this address and key': 'server menerima alamat dan kunci ini',
@@ -205,7 +206,7 @@ export default {
   '{families} not turned on since {date}, when Glyphyard started counting.':
     '{families} belum pernah diaktifkan sejak {date}, saat Glyphyard mulai menghitung.',
   '{families} not turned on in the last 12 months.': '{families} belum diaktifkan dalam 12 bulan terakhir.',
-  '{names} and {n} more': '{names}, dan {n} lainnya',
+  '{names} and {n} more': '{names} dan {n} lainnya',
   'Select it in the Library': 'Pilih keluarga font itu di Pustaka',
   'Select all {n} in the Library': 'Pilih semua {n} di Pustaka',
   'Every family was turned on at least once in the last 12 months.':

@@ -20,6 +20,7 @@ const LABELS: Record<string, string> = {
   fonts_bulk_on: tk('Turned fonts on in bulk'), fonts_bulk_off: tk('Turned fonts off in bulk'), fonts_bulk_block: tk('Blocked fonts in bulk'),
   font_request_done: tk('Marked a font request done'), font_request_reopened: tk('Reopened a font request'),
   release_uploaded: tk('Uploaded an app release'),
+  connection_password_set: tk('Unlock password set'), connection_password_cleared: tk('Unlock password removed'),
 }
 const label = (action: string) => (LABELS[action] ? t(LABELS[action]) : action) // i18n-dynamic
 

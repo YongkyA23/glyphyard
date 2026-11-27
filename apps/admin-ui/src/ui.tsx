@@ -16,7 +16,7 @@ import { Hint } from './Hint'
 
 /** A thrown error's message, translated when it is one of the backend's known English messages. */
 // oxlint-disable-next-line react/only-export-components -- shared helper, kept beside useLoad
-export const errMsg =(e: unknown) => t(errorText(e)) // i18n-dynamic: the dictionary holds the known backend messages
+export const errMsg = (e: unknown) => t(errorText(e)) // i18n-dynamic: the dictionary holds the known backend messages
 
 export type Load<T> = {
   data?: T; error?: string; loading: boolean; at?: Date

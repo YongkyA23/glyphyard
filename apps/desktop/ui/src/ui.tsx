@@ -186,11 +186,14 @@ function PromptForm({ label, initial, confirm, onClose, onSubmit, children }: {
   )
 }
 
+const throttleMsg = (m: number) =>
+  m === 1 ? t('Too many wrong passwords. Try again in 1 minute.') : t('Too many wrong passwords. Try again in {m} minutes.', { m })
+
 /** Unknown props aside, an ApiError message or a generic fallback. */
 export const errMsg = (e: unknown) =>
   isApiError(e, 'unlock_throttled') && typeof e.retryAfterSecs === 'number'
     ? // The engine's text has the minutes baked in; rebuild it so it can be translated.
-      t('Too many wrong passwords. Try again in {m} minutes.', { m: Math.max(1, Math.ceil(e.retryAfterSecs / 60)) })
+      throttleMsg(Math.max(1, Math.ceil(e.retryAfterSecs / 60)))
     : e && typeof e === 'object' && 'message' in e && typeof (e as { message: unknown }).message === 'string'
       ? t((e as { message: string }).message) // i18n-dynamic: known backend messages have dictionary entries
       : t('Something went wrong.')

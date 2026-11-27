@@ -46,7 +46,7 @@ export function UserDetail() {
   return (
     <div className="page">
       <Loaded state={state} skeleton={detailSkeleton}>{(u) => <Detail u={u} reload={() => state.reload(true)} />}</Loaded>
-      {state.data === undefined && <Link to="/users" className="back">← Users</Link>}
+      {state.data === undefined && <Link to="/users" className="back">{t('← Users')}</Link>}
     </div>
   )
 }

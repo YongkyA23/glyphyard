@@ -39,6 +39,8 @@ jobs:
         run: |
           bun install --frozen-lockfile
           bunx tsc --noEmit -p tsconfig.app.json
+          bun src/i18n/i18n.check.ts
+          bun ../../../scripts/i18n-check.ts src
           bunx oxlint
       - name: Admin UI
         shell: bash
@@ -46,4 +48,6 @@ jobs:
         run: |
           bun install --frozen-lockfile
           bunx tsc --noEmit -p tsconfig.app.json
+          bun src/i18n/i18n.check.ts
+          bun ../../scripts/i18n-check.ts src
           bunx oxlint

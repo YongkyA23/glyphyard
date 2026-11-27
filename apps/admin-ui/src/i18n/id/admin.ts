@@ -4,7 +4,7 @@ export default {
   'Users': 'Pengguna',
   'Name history': 'Riwayat nama',
   'Shared library': 'Pustaka bersama',
-  'Auto-organize': 'Rapikan otomatis',
+  'Auto-organize': 'Atur otomatis',
   'Font requests': 'Permintaan font',
   'Settings': 'Pengaturan',
   'Audit log': 'Log audit',
@@ -82,7 +82,7 @@ export default {
 
   // backend messages shown through errMsg()
   'Can’t reach the server. Check your connection and try again.': 'Tidak bisa terhubung ke server. Periksa koneksimu lalu coba lagi.',
-  'Your session has ended. Sign in again.': 'Sesimu sudah berakhir. Masuk lagi.',
+  'Your session has ended. Sign in again.': 'Sesi kamu sudah berakhir. Masuk lagi.',
   'The unlock password must be 8 to 128 characters.': 'Kata sandi buka kunci harus 8 sampai 128 karakter.',
   'pick two different installs': 'pilih dua instalasi yang berbeda',
   'enter an email address': 'masukkan alamat email',
@@ -116,11 +116,11 @@ export default {
   'Select': 'Pilih',
   'Pick everyone or specific users. The file is downloaded to their app and appears in their library. Choose whether it’s also turned on.': 'Pilih semua orang atau pengguna tertentu. File diunduh ke aplikasi mereka dan muncul di pustaka mereka. Tentukan apakah font juga langsung diaktifkan.',
   'A blocked font is turned off on every computer and can’t be turned on again, even if a user has their own copy.': 'Font yang diblokir dinonaktifkan di semua komputer dan tidak bisa diaktifkan lagi, meski pengguna punya salinannya sendiri.',
-  'Delivered {files}.': 'Mengirim {files}.',
+  'Delivered {files}.': '{files} dikirim.',
   'Blocked': 'Diblokir',
-  'Blocked {files}.': 'Memblokir {files}.',
+  'Blocked {files}.': '{files} diblokir.',
   'Unblocked {files}.': 'Membuka blokir {files}.',
-  'Deleted {files}.': 'Menghapus {files}.',
+  'Deleted {files}.': '{files} dihapus.',
   'Removed delivery of {files}.': 'Pengiriman {files} dibatalkan.',
   'Skipped 1 that was already done, blocked or gone.': 'Melewati 1 yang sudah selesai, diblokir, atau hilang.',
   'Skipped {n} that were already done, blocked or gone.': 'Melewati {n} yang sudah selesai, diblokir, atau hilang.',
@@ -244,7 +244,7 @@ export default {
   'Name history pages': 'Halaman riwayat nama',
 
   // Organize
-  'Case': 'Kasus',
+  'Case': 'Jenis',
   'File': 'File',
   'What will happen': 'Yang akan terjadi',
   'Exact copy': 'Salinan persis',
@@ -279,7 +279,7 @@ export default {
   'Nothing to do': 'Tidak ada yang perlu dilakukan',
   'Requested · waiting for user': 'Diminta · menunggu pengguna',
   'Sending…': 'Mengirim…',
-  'Request auto-organize': 'Minta rapikan otomatis',
+  'Request auto-organize': 'Minta atur otomatis',
   'Report pages': 'Halaman laporan',
 
   // Settings

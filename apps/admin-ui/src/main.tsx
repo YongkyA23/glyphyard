@@ -38,6 +38,9 @@ if (import.meta.env.DEV) {
   if (sessionStorage.getItem('mock') === '1') await import('./mock')
 }
 
+// A component, so it renders again with the language when Remount rebuilds the tree.
+const NotFound = () => <p className="empty">{t('Page not found.')}</p>
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <MotionConfig reducedMotion="user">
@@ -55,7 +58,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="requests" element={<Requests />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="audit" element={<Audit />} />
-            <Route path="*" element={<p className="empty">{t('Page not found.')}</p>} />
+            <Route path="*" element={<NotFound />} />
           </Route>
         </Routes></Remount>
         <Toaster />

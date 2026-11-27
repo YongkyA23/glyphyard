@@ -42,7 +42,7 @@ impl Engine {
             // A clock moved back must not leave a lock far longer than the lock time.
             let secs = (until - Utc::now()).num_seconds().clamp(1, LOCK_MINUTES * 60);
             let mins = (secs + 59) / 60;
-            return Err(EngineError::new("unlock_throttled", format!("Too many wrong passwords. Try again in {mins} minutes."))
+            return Err(EngineError::new("unlock_throttled", format!("Too many wrong passwords. Try again in {mins} minute{}.", if mins == 1 { "" } else { "s" }))
                 .with("retryAfterSecs", secs));
         }
         let parsed = PasswordHash::new(&hash).map_err(|_| unavailable())?;

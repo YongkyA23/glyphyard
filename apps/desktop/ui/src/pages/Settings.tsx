@@ -503,6 +503,7 @@ function UnlockForm({ onUnlocked, onCancel }: { onUnlocked: (password: string) =
     e.preventDefault()
     if (!pw || busy) return
     setBusy(true)
+    setError(null)
     try {
       await api.unlockConnection(pw)
       onUnlocked(pw)
@@ -525,11 +526,11 @@ function UnlockForm({ onUnlocked, onCancel }: { onUnlocked: (password: string) =
             onChange={(e) => (setPw(e.target.value), setError(null))}
           />
         </label>
-        <button type="button" className="btn" style={{ height: 42 }} aria-label={show ? t('Hide password') : t('Show password')} onClick={() => setShow(!show)}>
+        <button type="button" className="btn" style={{ height: 42 }} aria-label={t('Show password')} aria-pressed={show} onClick={() => setShow(!show)}>
           {show ? t('Hide') : t('Show')}
         </button>
       </div>
-      {error && <p id="unlock-error" role="alert" style={{ color: 'var(--bad)', fontSize: 13 }}>{error}</p>}
+      {error && <p id="unlock-error" role="alert" style={{ color: 'var(--bad)', fontSize: 13, margin: 0 }}>{error}</p>}
       <div className="dialog-actions">
         <button type="button" className="btn" onClick={onCancel}>{t('Cancel')}</button>
         <button type="submit" className="btn primary" disabled={!pw || busy}>{busy ? t('Unlocking…') : t('Unlock')}</button>
@@ -569,7 +570,10 @@ function ConnectionSection() {
     try {
       await fn()
     } catch (e) {
-      setResult({ color: 'var(--bad)', label: t('Can’t connect'), detail: errMsg(e) })
+      // The held password is no good any more: the fields lock again.
+      const passwordProblem = ['wrong_password', 'unlock_unavailable', 'connection_locked'].some((code) => isApiError(e, code))
+      if (passwordProblem) setPassword(null)
+      setResult({ color: 'var(--bad)', label: passwordProblem ? t('Can’t save') : t('Can’t connect'), detail: errMsg(e) })
     } finally {
       setBusy(false)
     }
@@ -587,7 +591,7 @@ function ConnectionSection() {
   }
   const test = () => run(async () => {
     const r = await api.testConnection(server.trim(), key.trim())
-    setResult(r.ok ? { color: 'var(--ok)', label: t('Test passed'), detail: t('the server accepted this address and key') } : { color: 'var(--bad)', label: t('Can’t connect'), detail: r.error ?? t('check the server address and install key') })
+    setResult(r.ok ? { color: 'var(--ok)', label: t('Test passed'), detail: t('the server accepted this address and key') } : { color: 'var(--bad)', label: t('Can’t connect'), detail: r.error ? t(r.error) /* i18n-dynamic: engine text */ : t('check the server address and install key') })
   })
   const save = () => run(async () => {
     const next = await api.saveConnection(server.trim(), key.trim(), password ?? undefined)
@@ -620,7 +624,7 @@ function ConnectionSection() {
         </div>
       )}
       {/* One button for both, so focus comes back to it when the unlock dialog closes. */}
-      {!c.editable && c.unlockable && (
+      {!c.editable && (c.unlockable || password !== null) && (
         <div>
           <button type="button" className="btn small" onClick={() => (password === null ? setUnlocking(true) : lockAgain())}>
             {password === null ? t('Unlock with admin password') : t('Lock again')}

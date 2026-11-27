@@ -15,6 +15,7 @@ export default {
   'No unlock password is set for this computer.': 'Belum ada kata sandi buka kunci untuk komputer ini.',
   'That password isn’t right.': 'Kata sandi itu salah.',
   'That password isn\'t right.': 'Kata sandi itu salah.',
+  'Too many wrong passwords. Try again in 1 minute.': 'Terlalu banyak kata sandi salah. Coba lagi dalam 1 menit.',
   'Too many wrong passwords. Try again in {m} minutes.': 'Terlalu banyak kata sandi salah. Coba lagi dalam {m} menit.',
 
   // Dates and times (ui.tsx fmtWhen / ago).

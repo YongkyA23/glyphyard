@@ -96,8 +96,7 @@ code, .mono { font-family: var(--font-mono); font-size: 12px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .pills { display: flex; flex-wrap: wrap; gap: 8px; }
 .pills .badge { font-size: 12px; padding: 3px 10px; }
-.info-cards, .merge-cards { display: flex; flex-wrap: wrap; gap: 16px; }
-.info-cards > * { flex: 1 1 320px; }
+.merge-cards { display: flex; flex-wrap: wrap; gap: 16px; }
 
 /* ---------- utility ---------- */
 .stack-2, .stack-4, .stack-6, .stack-8, .stack-10, .stack-12, .stack-14, .stack-18 { display: flex; flex-direction: column; }
@@ -109,7 +108,7 @@ code, .mono { font-family: var(--font-mono); font-size: 12px; }
 .end { justify-content: flex-end; }
 .mb-4 { margin-bottom: 4px; } .mb-6 { margin-bottom: 6px; } .mb-8 { margin-bottom: 8px; } .mb-10 { margin-bottom: 10px; }
 .mt-12 { margin-top: 12px; }
-.pad-16 { padding: 16px; } .pad-18 { padding: 18px; } .pad-20 { padding: 20px; }
+.pad-18 { padding: 18px; } .pad-20 { padding: 20px; }
 .small { font-size: 13px; }
 .meta { font-size: 12px; color: var(--faint); }
 .mute { color: var(--mute); }
@@ -129,10 +128,6 @@ code, .mono { font-family: var(--font-mono); font-size: 12px; }
 /* ---------- cards + headings ---------- */
 .card { border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--bg); }
 .card-accent { border-color: var(--accent-line); background: var(--accent-soft-2); }
-.card-bad { border-color: var(--bad-line); background: var(--bad-wash); }
-.card-bad .strong { font-weight: 600; color: var(--bad-ink); }
-.card-bad .small { color: var(--bad-text); }
-.info-cards .strong { font-weight: 600; }
 .h2 { margin: 0; font-size: 16px; font-weight: 600; }
 .h2-sm { font-size: 15px; }
 

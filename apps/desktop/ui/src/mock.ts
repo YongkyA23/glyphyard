@@ -190,8 +190,9 @@ function verifyUnlock(password: string) {
   const wait = unlockLockedUntil - Date.now()
   if (wait > 0) {
     const retryAfterSecs = Math.ceil(wait / 1000)
-    // Word for word what the engine sends ("1 minutes" included); errMsg() builds the translated text from retryAfterSecs.
-    throw err('unlock_throttled', `Too many wrong passwords. Try again in ${Math.max(1, Math.ceil(retryAfterSecs / 60))} minutes.`, { retryAfterSecs })
+    // Word for word what the engine sends; errMsg() builds the translated text from retryAfterSecs.
+    const m = Math.max(1, Math.ceil(retryAfterSecs / 60))
+    throw err('unlock_throttled', `Too many wrong passwords. Try again in ${m} minute${m === 1 ? '' : 's'}.`, { retryAfterSecs })
   }
   if (password !== UNLOCK_PASSWORD) {
     if (++unlockFailures >= 5) {
