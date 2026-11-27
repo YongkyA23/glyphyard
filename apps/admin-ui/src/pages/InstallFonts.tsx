@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
 import { api, errorText, type FamilyRow, type FamilySort, type FontFilter, type FontSelection, type FontSource, type FontState, type InstallDetail } from '../api'
+import { Hint } from '../Hint'
+import { t } from '../i18n'
 import { fadeRise, row } from '../motion'
 import { toast } from '../toast'
 import { ago, Chips, Empty, Loaded, Pager, plural, Skel, Toggle, useConfirm, useDebounced, useLoad, usePage } from '../ui'
@@ -9,13 +11,12 @@ import { PENDING_MS, useFontToggle } from './useFontToggle'
 import './install-fonts.css'
 
 const sourceText = (f: FontState, who: string) =>
-  f.overridden ? `Turned on by admin · turned off by ${who}`
-    : f.source === 'admin' ? 'Turned on by admin'
-    : f.source === 'project_set' ? 'Project set'
-    : f.source === 'library' ? 'Shared library'
-    : f.active ? `Turned on by ${who}` : `Turned off by ${who}`
+  f.overridden ? t('Turned on by admin · turned off by {name}', { name: who })
+    : f.source === 'admin' ? t('Turned on by admin')
+    : f.source === 'project_set' ? t('Project set')
+    : f.source === 'library' ? t('Shared library')
+    : f.active ? t('Turned on by {name}', { name: who }) : t('Turned off by {name}', { name: who })
 
-const num = (n: number) => n.toLocaleString('en-US')
 const famText = (f: string) => ({ fontFamily: `'${f}', var(--font-ui)` })
 type StateFilter = 'all' | 'on' | 'off'
 type Action = 'on' | 'off' | 'block'
@@ -100,8 +101,8 @@ export function InstallFonts({ u, who }: { u: InstallDetail; who: string }) {
         setFamWait((w) => ({ ...w, [f]: { want, n: fams.length === 1 ? changed.length : undefined } }))
       }
     }
-    const why = action === 'block' ? 'not in Shared library' : 'blocked'
-    const left = (skipped ? ` · ${skipped} skipped (${why})` : '') + (failed.length ? ' · part of the selection failed' : '')
+    const why = action === 'block' ? t('not in Shared library') : t('blocked')
+    const left = [skipped ? t('{n} skipped ({why})', { n: skipped, why }) : '', failed.length ? t('part of the selection failed') : ''].filter(Boolean).map((x) => ` · ${x}`).join('')
     const n = plural(changed.length, 'font')
     const opposite = action === 'on' ? 'off' : 'on'
     const undo = async () => {
@@ -114,18 +115,18 @@ export function InstallFonts({ u, who }: { u: InstallDetail; who: string }) {
         mark(r.changed, opposite === 'on')
       }
       refresh()
-      return r?.skipped ? `Undone · ${r.skipped} skipped (blocked)` : undefined
+      return r?.skipped ? t('Undone · {n} skipped (blocked)', { n: r.skipped }) : undefined
     }
-    if (failed.length) toast(`${errorText(failed[0])} · the rest was applied`, { tone: 'bad' })
-    if (!changed.length) toast(`No fonts changed${left}`)
-    else toast((action === 'block' ? `Blocked ${n}` : `Turning ${action} ${n} on ${who}’s computer`) + left, { undo })
+    if (failed.length) toast(t('{error} · the rest was applied', { error: errorText(failed[0]) }), { tone: 'bad' })
+    if (!changed.length) toast(t('No fonts changed') + left)
+    else toast((action === 'block' ? t('Blocked {fonts}', { fonts: n }) : action === 'on' ? t('Turning on {fonts} on {name}’s computer', { fonts: n, name: who }) : t('Turning off {fonts} on {name}’s computer', { fonts: n, name: who })) + left, { undo })
     setSelState(none(key))
     headingRef.current?.focus()
     refresh()
   }
 
   const fromBar = async (action: Action) => {
-    if (action === 'block' && !(await confirm('Block these fonts on every computer? Only fonts in the Shared library can be blocked; others are skipped.', 'Block', true))) return
+    if (action === 'block' && !(await confirm(t('Block these fonts on every computer? Only fonts in the Shared library can be blocked; others are skipped.'), t('Block'), true))) return
     const sels: FontSelection[] = sel.all ? [{ all: true }] : [
       ...(sel.families.size ? [{ families: [...sel.families.keys()] }] : []),
       ...(sel.hashes.size ? [{ hashes: [...sel.hashes.keys()] }] : []),
@@ -158,29 +159,32 @@ export function InstallFonts({ u, who }: { u: InstallDetail; who: string }) {
   return (
     <motion.section aria-labelledby="af" className="card pad-18 stack-10" variants={fadeRise}>
       <div className="row-between">
-        <h2 id="af" ref={headingRef} tabIndex={-1} className="h2 h2-sm">Fonts · {u.active_fonts} on</h2>
-        <Link to="/library" className="small">Turn on fonts…</Link>
+        <div className="title-row">
+          <h2 id="af" ref={headingRef} tabIndex={-1} className="h2 h2-sm">{t('Fonts · {n} on', { n: u.active_fonts })}</h2>
+          <Hint text={t('Changes reach {name}’s computer within seconds while online.', { name: who })} />
+        </div>
+        <Link to="/library" className="small">{t('Turn on fonts…')}</Link>
       </div>
       <div className="ifx-tools">
-        <label htmlFor="fsearch" className="sr-only">Search this user's fonts</label>
-        <input id="fsearch" type="search" className="input ifx-search" placeholder={`Search ${who}’s fonts`} value={q} onChange={(e) => setQ(e.target.value)} />
-        <Chips small label="Font state" value={stateF} onChange={setStateF} options={[['all', 'All'], ['on', 'On'], ['off', 'Off']]} />
-        <Chips small label="Sort families" value={sort} onChange={setSort} options={[['name', 'A–Z'], ['recent', 'Recently changed']]} />
-        <select className="input" aria-label="Source" value={source} onChange={(e) => setSource(e.target.value as '' | FontSource)}>
-          <option value="">Any source</option>
-          <option value="user">Turned on by {who}</option>
-          <option value="admin">Turned on by admin</option>
-          <option value="library">Shared library</option>
-          <option value="project_set">Project set</option>
+        <label htmlFor="fsearch" className="sr-only">{t('Search this user’s fonts')}</label>
+        <input id="fsearch" type="search" className="input ifx-search" placeholder={t('Search {name}’s fonts', { name: who })} value={q} onChange={(e) => setQ(e.target.value)} />
+        <Chips small label={t('Font state')} value={stateF} onChange={setStateF} options={[['all', t('All')], ['on', t('On')], ['off', t('Off')]]} />
+        <Chips small label={t('Sort families')} value={sort} onChange={setSort} options={[['name', t('A–Z')], ['recent', t('Recently changed')]]} />
+        <select className="input" aria-label={t('Source')} value={source} onChange={(e) => setSource(e.target.value as '' | FontSource)}>
+          <option value="">{t('Any source')}</option>
+          <option value="user">{t('Turned on by {name}', { name: who })}</option>
+          <option value="admin">{t('Turned on by admin')}</option>
+          <option value="library">{t('Shared library')}</option>
+          <option value="project_set">{t('Project set')}</option>
         </select>
-        <label className="ifx-check"><input type="checkbox" className="check" checked={overridden} onChange={(e) => setOverridden(e.target.checked)} />User overrides only</label>
+        <label className="ifx-check"><input type="checkbox" className="check" checked={overridden} onChange={(e) => setOverridden(e.target.checked)} />{t('User overrides only')}</label>
       </div>
       {error && <span role="alert" className="form-error">{error}</span>}
       <Loaded state={state} skeleton={skeleton}>{({ items, total, fonts }) => <>
         <span className="meta" aria-live="polite">{plural(total, 'family', 'families')} · {plural(fonts, 'font')}</span>
         {total === 0 && (filtered
-          ? <Empty title="No fonts match these filters" action={<button type="button" className="btn btn-sm" onClick={clearFilters}>Clear filters</button>} />
-          : <Empty title="No fonts reported by this computer yet." />)}
+          ? <Empty title={t('No fonts match these filters')} action={<button type="button" className="btn btn-sm" onClick={clearFilters}>{t('Clear filters')}</button>} />
+          : <Empty title={t('No fonts reported by this computer yet.')} />)}
         <div>
           <AnimatePresence initial={false}>
             {items.map((f, i) => {
@@ -189,23 +193,23 @@ export function InstallFonts({ u, who }: { u: InstallDetail; who: string }) {
               const on = wait ? wait.want : f.on === f.styles
               const mixed = !wait && f.on > 0 && f.on < f.styles
               const checked = sel.all || sel.families.has(f.family)
-              const sources = f.sources.map((s) => s === 'user' ? `by ${who}` : s === 'admin' ? 'by admin' : s === 'library' ? 'Shared library' : 'Project set').join(', ')
+              const sources = f.sources.map((s) => s === 'user' ? t('by {name}', { name: who }) : s === 'admin' ? t('by admin') : s === 'library' ? t('Shared library') : t('Project set')).join(', ')
               return (
                 <motion.div key={f.family} className="ifx-fam" {...row(i, items.length)} layout={false}>
                   <div className="font-row">
-                    <input type="checkbox" className="check" aria-label={`Select ${f.family}`} checked={checked} disabled={sel.all}
+                    <input type="checkbox" className="check" aria-label={t('Select {name}', { name: f.family })} checked={checked} disabled={sel.all}
                       onChange={(e) => pickFamily(items, i, e.target.checked, (e.nativeEvent as MouseEvent).shiftKey)} />
                     <span className="font-info">
                       <span className="font-name ellipsis" style={famText(f.family)}>{f.family}</span>
                       <span className="meta">
-                        {plural(f.styles, 'style')} · {f.on} on · {sources}
-                        {f.overridden > 0 && ` · ${f.overridden} overridden`}
-                        {wait && ` · ${wait.n ? `${wait.n} waiting` : 'waiting'}`}
+                        {plural(f.styles, 'style')} · {t('{n} on', { n: f.on })} · {sources}
+                        {f.overridden > 0 && ` · ${t('{n} overridden', { n: f.overridden })}`}
+                        {wait && ` · ${wait.n ? t('{n} waiting', { n: wait.n }) : t('waiting')}`}
                       </span>
                     </span>
-                    <Toggle on={on} mixed={mixed} disabled={!!wait} label={`${on ? 'Turn off' : 'Turn on'} all ${f.family} styles for ${who}`}
+                    <Toggle on={on} mixed={mixed} disabled={!!wait} label={on ? t('Turn off all {family} styles for {name}', { family: f.family, name: who }) : t('Turn on all {family} styles for {name}', { family: f.family, name: who })}
                       onChange={() => void batch(on ? 'off' : 'on', [{ families: [f.family] }], [f.family])} />
-                    <button type="button" className="ifx-chev" aria-expanded={open} aria-controls={open ? `ifx-${i}` : undefined} aria-label={`${open ? 'Hide' : 'Show'} ${f.family} styles`} onClick={() => flip(f.family)}>›</button>
+                    <button type="button" className="ifx-chev" aria-expanded={open} aria-controls={open ? `ifx-${i}` : undefined} aria-label={open ? t('Hide {family} styles', { family: f.family }) : t('Show {family} styles', { family: f.family })} onClick={() => flip(f.family)}>›</button>
                   </div>
                   <AnimatePresence initial={false}>
                     {open && (
@@ -220,24 +224,23 @@ export function InstallFonts({ u, who }: { u: InstallDetail; who: string }) {
             })}
           </AnimatePresence>
         </div>
-        <Pager label="Font pages" page={page} total={total} onPage={setPage} />
+        <Pager label={t('Font pages')} page={page} total={total} onPage={setPage} />
         {(sel.all || sel.families.size + sel.hashes.size > 0) && (
-          <div className="ifx-bar" role="region" aria-label="Selected fonts">
+          <div className="ifx-bar" role="region" aria-label={t('Selected fonts')}>
             <span className="ifx-bar-text">
-              {sel.all ? `All ${num(fonts)} matching fonts` : [
+              {sel.all ? t('All {n} matching fonts', { n: fonts }) : [
                 sel.families.size ? plural(sel.families.size, 'family', 'families') : '',
-                plural([...sel.families.values()].reduce((a, b) => a + b, 0) + sel.hashes.size, 'font') + ' selected',
+                t('{fonts} selected', { fonts: plural([...sel.families.values()].reduce((a, b) => a + b, 0) + sel.hashes.size, 'font') }),
               ].filter(Boolean).join(', ')}
-              {!sel.all && <button type="button" className="link-btn" onClick={() => edit((s) => ({ ...none(s.key), all: true }))}>Select all {num(fonts)} matching</button>}
+              {!sel.all && <button type="button" className="link-btn" onClick={() => edit((s) => ({ ...none(s.key), all: true }))}>{t('Select all {n} matching', { n: fonts })}</button>}
             </span>
-            <button type="button" className="btn btn-sm btn-primary" onClick={() => void fromBar('on')}>Turn on</button>
-            <button type="button" className="btn btn-sm" onClick={() => void fromBar('off')}>Turn off</button>
-            <button type="button" className="btn btn-sm btn-danger" onClick={() => void fromBar('block')}>Block everywhere</button>
-            <button type="button" className="btn btn-sm" onClick={() => setSelState(none(key))}>Clear</button>
+            <button type="button" className="btn btn-sm btn-primary" onClick={() => void fromBar('on')}>{t('Turn on')}</button>
+            <button type="button" className="btn btn-sm" onClick={() => void fromBar('off')}>{t('Turn off')}</button>
+            <button type="button" className="btn btn-sm btn-danger" onClick={() => void fromBar('block')}>{t('Block everywhere')}</button>
+            <button type="button" className="btn btn-sm" onClick={() => setSelState(none(key))}>{t('Clear')}</button>
           </div>
         )}
       </>}</Loaded>
-      <span className="meta">Changes reach {who}’s computer within seconds while online.</span>
       {confirmDialog}
     </motion.section>
   )
@@ -269,21 +272,21 @@ function Styles({ u, who, family, filter, fkey, rev, sel, famSelected, onPick, p
             const lock = sel.all || famSelected
             return (
               <motion.div key={f.hash} className="font-row" {...row(i, shown.length)}>
-                <input type="checkbox" className="check" aria-label={`Select ${name}`} checked={lock || sel.hashes.has(f.hash)} disabled={lock}
+                <input type="checkbox" className="check" aria-label={t('Select {name}', { name })} checked={lock || sel.hashes.has(f.hash)} disabled={lock}
                   onChange={(e) => onPick(f.hash, family, e.target.checked)} />
                 <span className="font-info">
                   <span className="font-name ellipsis" style={famText(f.family)}>{f.style}</span>
                   <span className="meta">
-                    {f.hash in pending ? 'Waiting for this computer' : sourceText(f, who)}{f.blocked && ' · Blocked'} · {ago(f.updated_at)}
+                    {f.hash in pending ? t('Waiting for this computer') : sourceText(f, who)}{f.blocked && ` · ${t('Blocked')}`} · {ago(f.updated_at)}
                   </span>
                 </span>
-                <Toggle on={f.active} label={`${f.active ? 'Turn off' : 'Turn on'} ${name} for ${who}`} disabled={f.hash in pending} shakeKey={shakes[f.hash]}
-                  onChange={() => void set(f.hash, !f.active, `Turning ${name} ${f.active ? 'off' : 'on'} on ${who}’s computer.`)} />
+                <Toggle on={f.active} label={f.active ? t('Turn off {font} for {name}', { font: name, name: who }) : t('Turn on {font} for {name}', { font: name, name: who })} disabled={f.hash in pending} shakeKey={shakes[f.hash]}
+                  onChange={() => void set(f.hash, !f.active, f.active ? t('Turning {font} off on {name}’s computer.', { font: name, name: who }) : t('Turning {font} on on {name}’s computer.', { font: name, name: who }))} />
               </motion.div>
             )
           })}
         </AnimatePresence>
-        {total > STYLE_LIMIT && <span className="meta ifx-more">Showing {STYLE_LIMIT} of {num(total)}</span>}
+        {total > STYLE_LIMIT && <span className="meta ifx-more">{t('Showing {limit} of {total}', { limit: STYLE_LIMIT, total })}</span>}
       </>
     }}</Loaded>
   )

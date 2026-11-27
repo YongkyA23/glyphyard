@@ -2,6 +2,7 @@ import { Link } from 'react-router'
 import { useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { api, type Overview as Data, type TrendDay } from '../api'
+import { locale, t } from '../i18n'
 import '../trend.css'
 import { dropIn, easeOut, fadeRise, lift, row, stagger } from '../motion'
 import { ago, Badge, byLabel, byTone, CountUp, Empty, fmtTime, Loaded, plural, Skel, useLoad } from '../ui'
@@ -27,8 +28,8 @@ export function Overview() {
   return (
     <div className="page">
       <div className="page-head" style={{ alignItems: 'baseline' }}>
-        <h1>Overview</h1>
-        {state.at && <span className="sub small fade-in">Updated live · {fmtTime(state.at)}</span>}
+        <h1>{t('Overview')}</h1>
+        {state.at && <span className="sub small fade-in">{t('Updated live · {time}', { time: fmtTime(state.at) })}</span>}
       </div>
       <Loaded state={state} skeleton={skeleton}>{(o) => <Body o={o} />}</Loaded>
     </div>
@@ -37,21 +38,21 @@ export function Overview() {
 
 function Body({ o }: { o: Data }) {
   const stats = [
-    { label: 'Installs', value: o.installs, note: `${o.os.windows} Windows · ${o.os.macos} macOS`, to: '/users' },
-    { label: 'Online now', value: o.online, note: 'Seen in the last 5 minutes', to: '/users?filter=online', tone: 'ok' },
-    { label: 'Name changes', value: o.name_changes_month, note: 'This month', to: '/names' },
-    { label: 'User overrides', value: o.overrides_week, note: 'Admin fonts turned off this week', to: '/users?filter=overrides', tone: 'accent' },
-    { label: 'Activation failures', value: o.failures_week, note: 'Last 7 days', to: '/users', tone: 'bad' },
+    { label: t('Installs'), value: o.installs, note: t('{windows} Windows · {macos} macOS', { windows: o.os.windows, macos: o.os.macos }), to: '/users' },
+    { label: t('Online now'), value: o.online, note: t('Seen in the last 5 minutes'), to: '/users?filter=online', tone: 'ok' },
+    { label: t('Name changes'), value: o.name_changes_month, note: t('This month'), to: '/names' },
+    { label: t('User overrides'), value: o.overrides_week, note: t('Admin fonts turned off this week'), to: '/users?filter=overrides', tone: 'accent' },
+    { label: t('Activation failures'), value: o.failures_week, note: t('Last 7 days'), to: '/users', tone: 'bad' },
   ]
   const a = o.attention
   const attention = [
-    { n: a.overrides, title: plural(a.overrides, 'user override'), detail: 'Fonts you turned on were turned off by users', to: '/users?filter=overrides', tone: 'admin' },
-    { n: a.failures, title: plural(a.failures, 'activation failure'), detail: 'Fonts that couldn’t be turned on', to: '/users', tone: 'bad' },
-    { n: a.possible_duplicates, title: plural(a.possible_duplicates, 'possible duplicate install'), detail: 'Same name on a new computer · merge?', to: '/users?filter=duplicates', tone: 'warn' },
-    { n: a.requests, title: plural(a.requests, 'open font request'), detail: 'Fonts people asked you for', to: '/requests', tone: 'ok' },
-    { n: a.stale, title:`${plural(a.stale, 'install')} offline for 14+ days`, detail: 'Changes will wait until they reconnect', to: '/users?filter=stale', tone: 'user' },
+    { n: a.overrides, title: plural(a.overrides, 'user override'), detail: t('Fonts you turned on were turned off by users'), to: '/users?filter=overrides', tone: 'admin' },
+    { n: a.failures, title: plural(a.failures, 'activation failure'), detail: t('Fonts that couldn’t be turned on'), to: '/users', tone: 'bad' },
+    { n: a.possible_duplicates, title: plural(a.possible_duplicates, 'possible duplicate install'), detail: t('Same name on a new computer · merge?'), to: '/users?filter=duplicates', tone: 'warn' },
+    { n: a.requests, title: plural(a.requests, 'open font request'), detail: t('Fonts people asked you for'), to: '/requests', tone: 'ok' },
+    { n: a.stale, title: t('{installs} offline for 14+ days', { installs: plural(a.stale, 'install') }), detail: t('Changes will wait until they reconnect'), to: '/users?filter=stale', tone: 'user' },
   ].filter((x) => x.n > 0)
-  const max = Math.max(o.installs, ...o.top_fonts.map((t) => t.users), 1)
+  const max = Math.max(o.installs, ...o.top_fonts.map((f) => f.users), 1)
 
   return (
     <>
@@ -65,44 +66,44 @@ function Body({ o }: { o: Data }) {
         ))}
       </motion.div>
       <motion.section aria-labelledby="trend" className="card pad-20" variants={fadeRise}>
-        <h2 id="trend" className="h2 mb-10">Last 30 days</h2>
+        <h2 id="trend" className="h2 mb-10">{t('Last 30 days')}</h2>
         {o.trend?.length ? <TrendChart days={o.trend} /> : null}
       </motion.section>
       <div className="split">
         <motion.section aria-labelledby="act" className="card pad-20 grow-2" variants={fadeRise}>
-          <h2 id="act" className="h2 mb-10">Recent activity</h2>
-          {o.recent.length === 0 && <Empty title="No activity yet">Events appear here as desktop apps report in.</Empty>}
+          <h2 id="act" className="h2 mb-10">{t('Recent activity')}</h2>
+          {o.recent.length === 0 && <Empty title={t('No activity yet')}>{t('Events appear here as desktop apps report in.')}</Empty>}
           {/* New events from polling mount with "hidden" → slide down in at the top; layout pushes the rest down. */}
           <AnimatePresence>
           {o.recent.map((r, i) => (
             <motion.div key={r.id} className="activity" {...row(i, o.recent.length, dropIn)}>
-              <Badge tone={byTone[r.by]} className="badge-who">{byLabel[r.by]}</Badge>
+              <Badge tone={byTone[r.by]} className="badge-who">{t(byLabel[r.by])}{/* i18n-dynamic */}</Badge>
               <span className="activity-text">
                 <span>{r.text}</span>
                 <span className="meta">{ago(r.at)}</span>
               </span>
-              <Link to={`/users/${encodeURIComponent(r.install_id)}`} className="small nowrap" aria-label={`View ${r.install_name}`}>View</Link>
+              <Link to={`/users/${encodeURIComponent(r.install_id)}`} className="small nowrap" aria-label={t('View {name}', { name: r.install_name })}>{t('View')}</Link>
             </motion.div>
           ))}
           </AnimatePresence>
         </motion.section>
         <motion.section aria-labelledby="att" className="card pad-20 grow-1 stack-10" variants={fadeRise}>
-          <h2 id="att" className="h2 mb-6">Needs attention</h2>
-          {attention.length === 0 && <Empty>Nothing needs attention.</Empty>}
+          <h2 id="att" className="h2 mb-6">{t('Needs attention')}</h2>
+          {attention.length === 0 && <Empty>{t('Nothing needs attention.')}</Empty>}
           {attention.map((x) => (
             <MotionLink key={x.tone} to={x.to} className={`attention tone-${x.tone}`} {...lift}>
               <span className="strong">{x.title}</span>
               <span className="small">{x.detail}</span>
             </MotionLink>
           ))}
-          <h2 className="h2 mt-12">Most used fonts</h2>
-          {o.top_fonts.length === 0 && <Empty>No active fonts reported yet.</Empty>}
-          {o.top_fonts.map((t) => (
-            <div key={t.family} className="stack-4">
-              <span className="bar-label"><span>{t.family}</span><span className="mute">{plural(t.users, 'user')}</span></span>
+          <h2 className="h2 mt-12">{t('Most used fonts')}</h2>
+          {o.top_fonts.length === 0 && <Empty>{t('No active fonts reported yet.')}</Empty>}
+          {o.top_fonts.map((f) => (
+            <div key={f.family} className="stack-4">
+              <span className="bar-label"><span>{f.family}</span><span className="mute">{plural(f.users, 'user')}</span></span>
               <span aria-hidden="true" className="bar">
                 {/* Full-width fill scaled to the value: grows from 0 on load, tweens on each poll. */}
-                <motion.span initial={{ scaleX: 0 }} animate={{ scaleX: t.users / max }} transition={{ duration: 0.7, ease: easeOut, delay: 0.2 }} />
+                <motion.span initial={{ scaleX: 0 }} animate={{ scaleX: f.users / max }} transition={{ duration: 0.7, ease: easeOut, delay: 0.2 }} />
               </span>
             </div>
           ))}
@@ -112,9 +113,11 @@ function Body({ o }: { o: Data }) {
   )
 }
 
-const dayLabel = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+const dayLabel = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString(locale(), { day: 'numeric', month: 'short', timeZone: 'UTC' })
 const dayText = (d: TrendDay) =>
-  `${dayLabel(d.day)}: ${plural(d.activity, 'event')}, ${plural(d.failures, 'failure')}, ${plural(d.new_installs, 'new computer')}`
+  t('{day}: {events}, {failures}, {computers}', {
+    day: dayLabel(d.day), events: plural(d.activity, 'event'), failures: plural(d.failures, 'failure'), computers: plural(d.new_installs, 'new computer'),
+  })
 
 function TrendChart({ days }: { days: TrendDay[] }) {
   const reduce = useReducedMotion()
@@ -125,7 +128,7 @@ function TrendChart({ days }: { days: TrendDay[] }) {
   const mid = days[Math.floor(days.length / 2)]
   return (
     <div onMouseLeave={() => setOn(null)}>
-      <div className="trend-plot" role="group" aria-label="Daily activity for the last 30 days (arrow keys move between days)"
+      <div className="trend-plot" role="group" aria-label={t('Daily activity for the last 30 days (arrow keys move between days)')}
         onKeyDown={(e) => {
           const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
           const to = e.key === 'Home' ? 0 : e.key === 'End' ? days.length - 1 : Math.min(Math.max(tab + step, 0), days.length - 1)
@@ -136,7 +139,7 @@ function TrendChart({ days }: { days: TrendDay[] }) {
         {days.map((d, i) => {
           const h = (d.activity / max) * 100
           const f = (Math.min(d.failures, d.activity) / max) * 100
-          const t = reduce ? { duration: 0 } : { duration: 0.6, ease: easeOut, delay: i * 0.012 }
+          const tween = reduce ? { duration: 0 } : { duration: 0.6, ease: easeOut, delay: i * 0.012 }
           return (
             <div key={d.day} className={`trend-col ${on === i ? 'on' : ''}`} tabIndex={i === tab ? 0 : -1} role="img" aria-label={dayText(d)}
               onMouseEnter={() => setOn(i)} onFocus={() => { setOn(i); setTab(i) }} onBlur={() => setOn(null)}>
@@ -144,14 +147,14 @@ function TrendChart({ days }: { days: TrendDay[] }) {
               <svg className="trend-bar" viewBox="0 0 10 100" preserveAspectRatio="none">
                 <title>{dayText(d)}</title>
                 {/* Keys are dates, so polls tween heights instead of remounting. */}
-                <motion.rect x={0} width={10} fill="var(--accent)" initial={reduce ? false : { y: 100, height: 0 }} animate={{ y: 100 - h, height: h }} transition={t} />
-                <motion.rect x={0} width={10} fill="var(--bad)" initial={reduce ? false : { y: 100, height: 0 }} animate={{ y: 100 - f, height: f }} transition={t} />
+                <motion.rect x={0} width={10} fill="var(--accent)" initial={reduce ? false : { y: 100, height: 0 }} animate={{ y: 100 - h, height: h }} transition={tween} />
+                <motion.rect x={0} width={10} fill="var(--bad)" initial={reduce ? false : { y: 100, height: 0 }} animate={{ y: 100 - f, height: f }} transition={tween} />
               </svg>
             </div>
           )
         })}
       </div>
-      <div className="trend-axis" aria-hidden="true"><span>{dayLabel(days[0].day)}</span><span>{dayLabel(mid.day)}</span><span>Today</span></div>
+      <div className="trend-axis" aria-hidden="true"><span>{dayLabel(days[0].day)}</span><span>{dayLabel(mid.day)}</span><span>{t('Today')}</span></div>
       <p className="trend-tip" aria-hidden="true">{on === null ? '' : dayText(days[on])}</p>
       <div className="trend-legend">
         <span><i />{plural(sum('activity'), 'event')}</span>
