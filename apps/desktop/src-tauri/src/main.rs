@@ -165,18 +165,21 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     if !settings.start_hidden {
         show_main(&handle);
     }
-    let (open_label, quit_label) = commands::tray_labels(settings.language == typeshelf_engine::Language::Id);
+    let (open_label, quit_label, update_label) = commands::tray_labels(settings.language == typeshelf_engine::Language::Id);
     let open = MenuItem::with_id(app, "open", open_label, true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", quit_label, true, None::<&str>)?;
-    app.manage(commands::TrayItems { open: open.clone(), quit: quit.clone() });
+    let update = MenuItem::with_id(app, "update", update_label, true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &quit])?;
+    app.manage(commands::TrayItems { open: open.clone(), quit: quit.clone(), menu: menu.clone(), update, shown: Default::default() });
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().ok_or("no app icon")?)
         .tooltip("Glyphyard")
-        .menu(&Menu::with_items(app, &[&open, &quit])?)
+        .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, e| match e.id().as_ref() {
             "open" => show_main(app),
             "quit" => app.exit(0),
+            "update" => update::request_restart(app),
             _ => {}
         })
         .on_tray_icon_event(|tray, e| {
