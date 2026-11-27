@@ -428,6 +428,18 @@ impl Server {
     }
 }
 
+/// Fails if an `identity` message arrives within half a second; other messages are skipped.
+async fn no_identity(ws: &mut Ws) {
+    let quiet = async {
+        while let Some(Ok(msg)) = ws.next().await {
+            if let Ok(ServerMessage::Identity { name, .. }) = serde_json::from_str(msg.to_text().unwrap_or_default()) {
+                panic!("unexpected identity message: {name}");
+            }
+        }
+    };
+    let _ = tokio::time::timeout(std::time::Duration::from_millis(500), quiet).await;
+}
+
 /// The next `identity` message on the socket, skipping commands.
 async fn next_identity(ws: &mut Ws) -> (String, Option<DateTime<Utc>>) {
     loop {
@@ -445,6 +457,7 @@ async fn merged_computer_renames_the_person() {
     let b = s.register("b", "Budi Mac").await;
     s.merge("a", "b").await;
     let mut ws_a = s.open_ws("a", &a).await;
+    let mut ws_b = s.open_ws("b", &b).await;
 
     let r = s.desktop(Method::PUT, "/me/name", &b, Some(json!({ "name": "Budi Santoso" }))).await;
     assert_eq!(r.status, StatusCode::OK, "{}", String::from_utf8_lossy(&r.body));
@@ -465,21 +478,43 @@ async fn merged_computer_renames_the_person() {
     let (name, next) = next_identity(&mut ws_a).await;
     assert_eq!(name, "Budi Santoso");
     assert!(next.is_some());
+    no_identity(&mut ws_b).await; // the computer that made the change already knows
 }
 
 #[tokio::test]
 async fn merge_tells_the_merged_computer_its_name() {
     let s = Server::new().await;
-    s.register("a", "Budi").await;
+    let a = s.register("a", "Budi").await;
     let b = s.register("b", "Budi Mac").await;
     let mut ws_b = s.open_ws("b", &b).await;
     s.merge("a", "b").await;
     assert_eq!(next_identity(&mut ws_b).await, ("Budi".to_string(), None));
     assert_eq!(s.desktop(Method::GET, "/me", &b, None).await.json()["name"], "Budi");
 
-    // A split hands the computer its own name back.
+    // A split hands the computer its own name back, and tells the primary too.
+    let mut ws_a = s.open_ws("a", &a).await;
     assert_eq!(s.admin(Method::POST, "/installs/b/split", None).await.status, StatusCode::NO_CONTENT);
     assert_eq!(next_identity(&mut ws_b).await.0, "Budi Mac");
+    assert_eq!(next_identity(&mut ws_a).await, ("Budi".to_string(), None));
+}
+
+#[tokio::test]
+async fn split_after_promotion_undoes_the_merge_rename() {
+    let s = Server::new().await;
+    s.register("a", "Budi").await;
+    let b = s.register("b", "Budi Mac").await;
+    let c = s.register("c", "Citra").await;
+    s.merge("a", "b").await;
+    // Keeps c's name: the merge renames a from "Budi" to "Citra".
+    let r = s.admin(Method::POST, "/installs/merge", Some(json!({ "primary": "a", "secondary": "c", "keep_name": "secondary" }))).await;
+    assert_eq!(r.json()["name"], "Citra");
+    assert_eq!(s.admin(Method::DELETE, "/installs/a/computers/a", None).await.json(), json!({ "person": "b" }));
+    assert_eq!(s.desktop(Method::GET, "/me", &b, None).await.json()["name"], "Citra");
+
+    // The rename lives on the removed install a; splitting c still undoes it on the person, now b.
+    assert_eq!(s.admin(Method::POST, "/installs/c/split", None).await.status, StatusCode::NO_CONTENT);
+    assert_eq!(s.admin(Method::GET, "/installs/b", None).await.json()["name"], "Budi");
+    assert_eq!(s.desktop(Method::GET, "/me", &c, None).await.json()["name"], "Citra");
 }
 
 #[tokio::test]
@@ -509,6 +544,8 @@ async fn removing_a_merged_computer_keeps_the_person() {
     assert_eq!(computers, ["a"]);
     let audit = s.audit("?action=computer_removed").await;
     assert_eq!((audit["items"][0]["target"].as_str(), audit["items"][0]["detail"].as_str()), (Some("a"), Some("b")));
+    let timeline = s.admin(Method::GET, "/installs/a/timeline", None).await.json();
+    assert_eq!(timeline["items"][0]["text"], "Removed computer b", "the person's timeline says a computer went, not the person");
 }
 
 #[tokio::test]
@@ -548,6 +585,12 @@ async fn removing_the_primary_promotes_the_next() {
     let csv = String::from_utf8(s.admin(Method::GET, "/name-changes.csv", None).await.body).unwrap();
     assert!(csv.lines().any(|l| l.contains(",b;a;c,,Budi,first,")), "{csv}");
     assert!(csv.lines().any(|l| l.contains(",b;a;c,Budi Mac,Budi,merge,")), "{csv}");
+    // The audit row opens the person under its new id; the timeline says what happened to the person.
+    let audit = s.audit("?action=computer_removed").await;
+    assert_eq!((audit["items"][0]["target"].as_str(), audit["items"][0]["detail"].as_str()), (Some("b"), Some("a, promoted b")));
+    let timeline = s.admin(Method::GET, "/installs/b/timeline", None).await.json();
+    let texts: Vec<&str> = timeline["items"].as_array().unwrap().iter().map(|e| e["text"].as_str().unwrap()).collect();
+    assert!(texts.contains(&"Removed computer a") && texts.contains(&"Now listed under this computer (was a)"), "{texts:?}");
 }
 
 #[tokio::test]

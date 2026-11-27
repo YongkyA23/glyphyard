@@ -667,10 +667,11 @@ async fn split(State(s): State<AppState>, admin: Admin, Path(id): Path<String>) 
     if merged_at < ago(Duration::days(SPLIT_DAYS)) {
         return Err(ApiError::new(StatusCode::CONFLICT, "split_expired", "merges can only be undone within 30 days"));
     }
-    // Undo the rename the merge made, if any.
+    // Undo the rename the merge made, if any. It is on the person's group, not always on the primary itself: after a
+    // removed primary handed the person over (`remove_computer`), it stays on that removed install.
     let renamed: Option<(i64, String)> = tx
         .query_row(
-            "SELECT id, old_name FROM name_changes WHERE install_id = ?1 AND by = 'merge' AND at = ?2",
+            &format!("SELECT id, old_name FROM name_changes WHERE install_id IN {GROUP} AND by = 'merge' AND at = ?2"),
             params![primary, merged_at],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
@@ -761,11 +762,19 @@ async fn remove_computer(State(s): State<AppState>, admin: Admin, Path((id, comp
                 tx.execute("UPDATE OR IGNORE deliveries SET target = ?1 WHERE target = ?2", params![next, id])?;
                 revoke_one(&tx, &id, &now)?;
                 tx.execute("UPDATE installs SET merged_into = ?1 WHERE id = ?2", params![next, id])?;
+                db::insert_event(&tx, next, "system", "admin", &format!("Removed computer {id}"), "{}", &now)?;
+                db::insert_event(&tx, next, "system", "admin", &format!("Now listed under this computer (was {id})"), "{}", &now)?;
                 person = next.clone();
             }
-            _ => revoke_one(&tx, &computer, &now)?,
+            Some(_) => {
+                revoke_one(&tx, &computer, &now)?;
+                db::insert_event(&tx, &id, "system", "admin", &format!("Removed computer {computer}"), "{}", &now)?;
+            }
+            None => revoke_one(&tx, &computer, &now)?,
         }
-        audit::record(&tx, &admin.email, "computer_removed", &id, &computer)?;
+        // Targets the id the person is listed under now, so the audit page's link still opens them.
+        let detail = if person == id { computer.clone() } else { format!("{computer}, promoted {person}") };
+        audit::record(&tx, &admin.email, "computer_removed", &person, &detail)?;
         tx.commit()?;
         person
     };
