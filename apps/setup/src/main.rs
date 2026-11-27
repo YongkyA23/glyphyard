@@ -226,11 +226,13 @@ fn silent(args: &Args, uninstall_dir: Option<PathBuf>) -> i32 {
         log("closing Glyphyard");
         process::close_app();
     }
+    let is_install = uninstall_dir.is_none();
+    let install_dir = args.dir.clone().unwrap_or_else(install::default_dir);
     let result = match uninstall_dir {
         Some(dir) => uninstall::uninstall(&dir, args.wipe_data, &progress).map(|_| None),
         None => {
             let opts = install::Options {
-                dir: args.dir.clone().unwrap_or_else(install::default_dir),
+                dir: install_dir.clone(),
                 start_menu: !args.no_start_menu,
                 desktop: args.desktop,
                 start_at_login: !args.no_start_at_login,
@@ -251,9 +253,23 @@ fn silent(args: &Args, uninstall_dir: Option<PathBuf>) -> i32 {
         }
         Err(e) => {
             log(format!("failed: {e}"));
+            // The previous version is left intact on a failure, so a restart still gets an app back.
+            let exe_exists = install_dir.join(process::APP_EXE).is_file();
+            if launch_after(false, args.launch, is_install, exe_exists, process::app_running()) {
+                match process::launch_app(&install_dir) {
+                    Ok(()) => log("launched the previous Glyphyard"),
+                    Err(e) => log(format!("couldn't launch Glyphyard: {e}")),
+                }
+            }
             1
         }
     }
+}
+
+/// Whether `--launch` should start the app: after a good install, or after a failed one that left a previous
+/// version that is not already running.
+fn launch_after(ok: bool, launch: bool, is_install: bool, exe_exists: bool, running: bool) -> bool {
+    launch && is_install && (ok || (exe_exists && !running))
 }
 
 fn gui(args: Args, uninstall_dir: Option<PathBuf>) {
@@ -365,6 +381,16 @@ fn message_box(text: &str, ask: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launch_after_cases() {
+        assert!(launch_after(true, true, true, false, false));
+        assert!(launch_after(false, true, true, true, false));
+        assert!(!launch_after(false, true, false, true, false));
+        assert!(!launch_after(false, false, true, true, false));
+        assert!(!launch_after(false, true, true, true, true));
+        assert!(!launch_after(false, true, true, false, false));
+    }
 
     #[test]
     fn parse_reads_launch() {

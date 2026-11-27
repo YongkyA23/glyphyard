@@ -74,7 +74,7 @@ pub const FIRST_CHECK: Duration = Duration::from_secs(15);
 pub const CHECK_EVERY: Duration = Duration::from_secs(60 * 60);
 
 /// Shown in Settings when the server offered a release that failed verification.
-const PROBLEM: &str = "The update from your server could not be verified and was not installed. Tell your admin: the update may be signed with a different key than this app was built with.";
+pub(crate) const PROBLEM: &str = "The update from your server could not be verified and was not installed. Tell your admin: the update may be signed with a different key than this app was built with.";
 
 /// Why a check stopped.
 #[derive(Debug)]
@@ -143,7 +143,7 @@ pub async fn run(app: AppHandle) {
     if key().is_none() {
         tracing::info!("this build has no update key, so it never checks for updates");
         return;
-    };
+    }
     let ctx = app.state::<Ctx>();
     let dir = dir(&ctx.data_dir);
     // An interrupted download is never resumed. A finished installer is kept: `check` reuses it when it is still
@@ -330,6 +330,11 @@ fn io(e: std::io::Error) -> UpdateError {
 /// "Restart to update": `on_quit` installs the waiting release whatever the switch says, then brings the app back.
 pub fn request_restart(app: &AppHandle) {
     app.state::<Pending>().relaunch.store(true, Ordering::SeqCst);
+    // A start-in-tray user gets the window back: `setup` shows it when this marker exists.
+    let d = dir(&app.state::<Ctx>().data_dir);
+    if let Err(e) = std::fs::create_dir_all(&d).and_then(|()| std::fs::write(d.join("show"), b"")) {
+        tracing::warn!("restart: could not leave the show marker: {e}");
+    }
     app.exit(0);
 }
 
@@ -416,10 +421,10 @@ fn relaunch_after_exit(target: &Path) {
         cmd = std::process::Command::new("sh");
         cmd.args(["-c", r#"while kill -0 "$0" 2>/dev/null; do sleep 0.2; done; open "$1""#]).arg(&pid).arg(target);
     } else {
-        let quoted = target.to_string_lossy().replace('\'', "''");
         cmd = std::process::Command::new("powershell");
-        cmd.args(["-NoProfile", "-WindowStyle", "Hidden", "-Command"])
-            .arg(format!("Wait-Process -Id {pid} -ErrorAction SilentlyContinue; Start-Process -FilePath '{quoted}'"));
+        cmd.env("GLYPHYARD_RELAUNCH", target)
+            .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command"])
+            .arg(format!("Wait-Process -Id {pid} -ErrorAction SilentlyContinue; Start-Process -FilePath $env:GLYPHYARD_RELAUNCH"));
     }
     #[cfg(windows)]
     {

@@ -269,15 +269,16 @@ function AppSection() {
     document.getElementById('s-language')?.focus()
   }, [s])
   const [checkMsg, setCheckMsg] = useState<{ text: string; bad?: boolean } | null>(null)
-  const checking = checkMsg?.text === t('Checking…')
+  const [checking, setChecking] = useState(false)
   const checkNow = () => {
+    setChecking(true)
     setCheckMsg({ text: t('Checking…') })
     api.checkUpdate().then(
       (r) => r.status === 'upToDate'
         ? setCheckMsg({ text: t('Glyphyard is up to date ({v})', { v: r.version }) })
         : (setCheckMsg(null), api.getSettings().then(setS, (e) => toast(errMsg(e)))),
       (e) => setCheckMsg({ text: errMsg(e), bad: true }),
-    )
+    ).finally(() => setChecking(false))
   }
   const flip = async (k: keyof Settings) => {
     if (!s) return
@@ -310,7 +311,7 @@ function AppSection() {
             <span style={titleRow}>{t(label) /* i18n-dynamic: APP_TOGGLES */}<Hint text={t(hint) /* i18n-dynamic */} /></span>
             {k === 'autoUpdate' && s?.updateReady && (
               <span style={{ fontSize: 12, color: 'var(--accent-ink)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                {t('Version {v} will be installed when you quit Glyphyard.', { v: s.updateReady })}
+                {s.autoUpdate ? t('Version {v} will be installed when you quit Glyphyard.', { v: s.updateReady }) : t('Version {v} is ready', { v: s.updateReady })}
                 <button type="button" className="btn small" onClick={() => api.restartToUpdate().catch((e) => toast(errMsg(e)))}>{t('Restart now')}</button>
               </span>
             )}

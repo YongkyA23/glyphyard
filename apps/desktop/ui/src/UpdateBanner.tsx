@@ -17,7 +17,7 @@ export function UpdateBanner() {
   return (
     <div role="status" className="update-banner">
       <span>{t('Glyphyard {v} is ready to install', { v })}</span>
-      <button type="button" className="btn small primary" onClick={() => api.restartToUpdate().catch((e) => toast(errMsg(e)))}>{t('Restart now')}</button>
+      <button type="button" className="btn small" onClick={() => api.restartToUpdate().catch((e) => toast(errMsg(e)))}>{t('Restart now')}</button>
       <button type="button" className="btn small" aria-label={t('Dismiss')} onClick={() => setHidden(true)}>✕</button>
     </div>
   )

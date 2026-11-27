@@ -162,7 +162,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         log_guard: Mutex::new(log_guard),
     });
 
-    if !settings.start_hidden {
+    // After "Restart now" the window comes back even for a start-in-tray user.
+    let marker = data_dir.join("update").join("show");
+    let show = !settings.start_hidden || std::fs::remove_file(&marker).is_ok();
+    if show {
         show_main(&handle);
     }
     let (open_label, quit_label, update_label) = commands::tray_labels(settings.language == typeshelf_engine::Language::Id);

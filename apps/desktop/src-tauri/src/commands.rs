@@ -619,7 +619,10 @@ pub async fn check_update(app: AppHandle, ctx: St<'_>) -> R<CheckView> {
     if !server || !token {
         return Err(err("connect to your team server first"));
     }
-    match crate::update::check_now(&app).await.map_err(|e| err(&e.to_string()))? {
+    match crate::update::check_now(&app).await.map_err(|e| match e {
+        crate::update::CheckError::Refused(_) => err(crate::update::PROBLEM),
+        e => err(&e.to_string()),
+    })? {
         Some(v) => Ok(CheckView { status: "ready", version: v.to_string() }),
         None => Ok(CheckView { status: "upToDate", version: env!("CARGO_PKG_VERSION").into() }),
     }
