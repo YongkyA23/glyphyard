@@ -4,6 +4,8 @@ import { AnimatePresence, motion } from 'motion/react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { api, inTauri, type Face, type PdfFont } from '../api'
 import { faceStyle } from '../fonts'
+import { Hint } from '../Hint'
+import { t, tk } from '../i18n'
 import { cssStagger, dur, easeOut, rise } from '../motion'
 import { useApp } from '../state'
 import { RequestFontButton } from '../RequestFont'
@@ -11,7 +13,7 @@ import { Badge, basename, errMsg, plural, Spinner, type Tone } from '../ui'
 
 const DOC_TYPES = ['pdf', 'psd', 'ai', 'indd']
 const STATUS: Record<PdfFont['status'], [string, Tone]> = {
-  active: ['Active', 'ok'], inactive: ['In library · off', 'accent'], version: ['Different version', 'warn'], missing: ['Not in library', 'bad'],
+  active: [tk('Active'), 'ok'], inactive: [tk('In library · off'), 'accent'], version: [tk('Different version'), 'warn'], missing: [tk('Not in library'), 'bad'],
 }
 
 export function PdfFonts() {
@@ -44,7 +46,7 @@ export function PdfFonts() {
     }
   }
   const choose = async () => {
-    const p = await api.pickFile([{ name: 'Documents', extensions: DOC_TYPES }]).catch((e) => (toast(errMsg(e)), null))
+    const p = await api.pickFile([{ name: t('Documents'), extensions: DOC_TYPES }]).catch((e) => (toast(errMsg(e)), null))
     if (p) open(p)
   }
 
@@ -52,14 +54,14 @@ export function PdfFonts() {
   useEffect(() => {
     if (!inTauri) return
     const un = getCurrentWebview().onDragDropEvent((e) => {
-      const t = e.payload.type
-      if (t === 'over' || t === 'enter') setDragging(true)
-      else if (t === 'leave') setDragging(false)
-      else if (t === 'drop') {
+      const kind = e.payload.type
+      if (kind === 'over' || kind === 'enter') setDragging(true)
+      else if (kind === 'leave') setDragging(false)
+      else if (kind === 'drop') {
         setDragging(false)
-        const doc = e.payload.paths.find((p) => DOC_TYPES.some((t) => p.toLowerCase().endsWith('.' + t)))
+        const doc = e.payload.paths.find((p) => DOC_TYPES.some((ext) => p.toLowerCase().endsWith('.' + ext)))
         if (doc) open(doc)
-        else toast('Drop a .pdf, .psd, .ai or .indd file.')
+        else toast(t('Drop a .pdf, .psd, .ai or .indd file.'))
       }
     })
     return () => void un.then((f) => f())
@@ -80,33 +82,33 @@ export function PdfFonts() {
 
   return (
     <div className="page" style={{ gap: 20 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <h1 className="h-page">Fonts in a document</h1>
-        <span className="muted">Find out which fonts a PDF, Photoshop, Illustrator or InDesign file uses and switch on the ones you have.</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <h1 className="h-page">{t('Fonts in a document')}</h1>
+        <Hint text={t('Find out which fonts a PDF, Photoshop, Illustrator or InDesign file uses and switch on the ones you have.')} />
       </div>
       <button type="button" className={dragging ? 'dropzone over' : 'dropzone'} onClick={choose} disabled={busy}>
         <span style={{ fontWeight: 500, fontSize: 15, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          {busy && <Spinner />}{busy ? 'Reading the file…' : 'Drop a file here, or choose one'}
+          {busy && <Spinner />}{busy ? t('Reading the file…') : t('Drop a file here, or choose one')}
         </span>
-        <span className="faint" style={{ fontSize: 13 }}>PDF, .psd, .ai and .indd files</span>
+        <span className="faint" style={{ fontSize: 13 }}>{t('PDF, .psd, .ai and .indd files')}</span>
       </button>
       {error && <p role="alert" style={{ margin: 0, color: 'var(--bad)' }}>{error}</p>}
 
       {rows && path && (
-        <motion.section key={path} aria-label="Results" style={{ display: 'flex', flexDirection: 'column', gap: 12 }} {...rise} transition={{ duration: dur.slow, ease: easeOut }}>
+        <motion.section key={path} aria-label={t('Results')} style={{ display: 'flex', flexDirection: 'column', gap: 12 }} {...rise} transition={{ duration: dur.slow, ease: easeOut }}>
           <div className="row-between">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{basename(path)}</h2>
               <span className="muted" style={{ fontSize: 13 }}>
-                {plural(rows.length, 'font')} found · {n('active')} already active · {pending.length} can be turned on · {n('missing')} missing
+                {t('{fonts} found · {active} already active · {pending} can be turned on · {missing} missing', { fonts: plural(rows.length, 'font'), active: n('active'), pending: pending.length, missing: n('missing') })}
               </span>
             </div>
             <button type="button" className="btn primary" onClick={() => turnOn(pending)} disabled={!pending.length}>
-              {pending.length ? `Turn on ${pending.length} available ${pending.length === 1 ? 'font' : 'fonts'}` : 'All available fonts are on'}
+              {pending.length === 0 ? t('All available fonts are on') : pending.length === 1 ? t('Turn on 1 available font') : t('Turn on {n} available fonts', { n: pending.length })}
             </button>
           </div>
-          {partial && <p role="status" className="muted" style={{ margin: 0 }}>{partial} The list below may be incomplete.</p>}
-          {!rows.length && <p className="muted" style={{ margin: 0 }}>{partial ? 'No fonts were found in the part that was read.' : "This file doesn't list its fonts."}</p>}
+          {partial && <p role="status" className="muted" style={{ margin: 0 }}>{partial} {t('The list below may be incomplete.')}</p>}
+          {!rows.length && <p className="muted" style={{ margin: 0 }}>{partial ? t('No fonts were found in the part that was read.') : t('This file doesn’t list its fonts.')}</p>}
           <div className="card" style={{ padding: 0, gap: 0 }}>
             {rows.map((r, i) => (
               <div key={r.psName} className="pdf-row enter" style={cssStagger(i)}>
@@ -116,14 +118,14 @@ export function PdfFonts() {
                 </span>
                 <AnimatePresence mode="popLayout" initial={false}>
                   <motion.span key={r.status} initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }} transition={{ duration: dur.base, ease: easeOut }}>
-                    <Badge tone={STATUS[r.status][1]}>{STATUS[r.status][0]}</Badge>
+                    <Badge tone={STATUS[r.status][1]}>{t(STATUS[r.status][0] /* i18n-dynamic */)}</Badge>
                   </motion.span>
                 </AnimatePresence>
                 <span style={{ width: 170, display: 'flex', justifyContent: 'flex-end' }}>
-                  {canActivate(r) && <button type="button" className="btn small outline-accent" onClick={() => turnOn([r])}>Turn on</button>}
+                  {canActivate(r) && <button type="button" className="btn small outline-accent" onClick={() => turnOn([r])}>{t('Turn on')}</button>}
                   {r.status === 'missing' && r.google && (
                     <Link to={`/google?q=${encodeURIComponent(r.display.split(' ').slice(0, -1).join(' ') || r.display)}`} style={{ fontSize: 13 }}>
-                      Search Google Fonts
+                      {t('Search Google Fonts')}
                     </Link>
                   )}
                   {r.status === 'missing' && app.serverConfigured && <RequestFontButton name={r.display} />}
@@ -131,9 +133,9 @@ export function PdfFonts() {
               </div>
             ))}
           </div>
-          <p className="faint" style={{ margin: 0, fontSize: 12, lineHeight: 1.5 }}>
-            Fonts are matched by their internal name. Only PDFs record which version of a font they used, so “Different version” appears for PDFs only.
-          </p>
+          <span className="faint" style={{ fontSize: 12 }}>
+            {t('How fonts are matched')} <Hint text={t('Fonts are matched by their internal name. Only PDFs record which version of a font they used, so “Different version” appears for PDFs only.')} />
+          </span>
         </motion.section>
       )}
     </div>
