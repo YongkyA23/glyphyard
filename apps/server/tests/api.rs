@@ -1649,37 +1649,38 @@ impl Server {
 }
 
 /// A setup program, its manifest and signature, signed with a key made here; returns the public key too.
-fn signed_release(version: &str, file: &[u8]) -> (String, String, [u8; 32]) {
-    use typeshelf_core::update::{self, Manifest, Platform, Version};
+fn signed_release(version: &str, platform: typeshelf_core::update::Platform, file: &[u8]) -> (String, String, [u8; 32]) {
+    use typeshelf_core::update::{self, Manifest, Version};
     let (private, public) = update::generate_key().unwrap();
-    let manifest = Manifest::for_bytes(Version::parse(version).unwrap(), Platform::Windows, file).to_text();
+    let manifest = Manifest::for_bytes(Version::parse(version).unwrap(), platform, file).to_text();
     let (signature, _) = update::sign(&private, manifest.as_bytes()).unwrap();
     (manifest, signature, update::public_key(Some(&public)).unwrap())
 }
 
 #[tokio::test]
 async fn update_release_is_stored_as_uploaded_and_served_to_installs() {
+    use typeshelf_core::update::Platform;
     let s = Server::new().await;
     let token = s.register("a", "Ana").await;
-    assert_eq!(s.admin(Method::GET, "/update", None).await.json(), Value::Null);
+    assert_eq!(s.admin(Method::GET, "/update", None).await.json(), json!({ "windows": null, "macos": null }));
     assert_eq!(s.desktop(Method::GET, "/update", &token, None).await.status, StatusCode::NOT_FOUND);
 
     let file = b"MZ pretend setup program".repeat(1000);
-    let (manifest, signature, key) = signed_release("0.2.0", &file);
+    let (manifest, signature, key) = signed_release("0.2.0", Platform::Windows, &file);
     let fields: [(&str, &[u8]); 3] = [("file", &file), ("manifest", manifest.as_bytes()), ("signature", signature.as_bytes())];
     assert_eq!(s.upload_update(&fields, "").await.status, StatusCode::UNAUTHORIZED);
     // Only an owner uploads; a plain admin can still see the current release.
     let (_, plain) = s.plain_admin("two@example.com").await;
     let r = s.upload_update(&fields, &plain).await;
     assert_eq!((r.status, r.json()["error"].as_str()), (StatusCode::FORBIDDEN, Some("owner_only")));
-    assert_eq!(s.as_admin(&plain, Method::GET, "/update", None).await.json(), Value::Null);
+    assert_eq!(s.as_admin(&plain, Method::GET, "/update", None).await.json(), json!({ "windows": null, "macos": null }));
     let r = s.upload_update(&fields, &s.cookie).await;
     assert_eq!(r.status, StatusCode::OK, "{}", String::from_utf8_lossy(&r.body));
-    assert_eq!(r.json(), json!({ "version": "0.2.0", "size": file.len() }));
-    assert_eq!(s.admin(Method::GET, "/update", None).await.json(), json!({ "version": "0.2.0", "size": file.len() }));
+    assert_eq!(r.json(), json!({ "version": "0.2.0", "size": file.len(), "platform": "windows" }));
+    assert_eq!(s.admin(Method::GET, "/update", None).await.json(), json!({ "windows": { "version": "0.2.0", "size": file.len() }, "macos": null }));
     let logged = s.audit("?action=release_uploaded").await;
     assert_eq!(logged["total"], 1);
-    assert_eq!((logged["items"][0]["admin"].as_str(), logged["items"][0]["target"].as_str(), logged["items"][0]["detail"].as_str()), (Some("admin@example.com"), Some("0.2.0"), Some("")));
+    assert_eq!((logged["items"][0]["admin"].as_str(), logged["items"][0]["target"].as_str(), logged["items"][0]["detail"].as_str()), (Some("admin@example.com"), Some("0.2.0"), Some("windows")));
 
     // Installs get the manifest and signature byte for byte, and they verify with the key.
     let got = s.desktop(Method::GET, "/update", &token, None).await;
@@ -1699,7 +1700,7 @@ async fn update_release_is_stored_as_uploaded_and_served_to_installs() {
 
     // A newer upload replaces the current release.
     let newer = b"MZ newer".to_vec();
-    let (manifest, signature, _) = signed_release("0.3.0", &newer);
+    let (manifest, signature, _) = signed_release("0.3.0", Platform::Windows, &newer);
     let r = s.upload_update(&[("file", &newer), ("manifest", manifest.as_bytes()), ("signature", signature.as_bytes())], &s.cookie).await;
     assert_eq!(r.status, StatusCode::OK);
     assert_eq!(s.desktop(Method::GET, "/update/file", &token, None).await.body, newer);
@@ -1708,10 +1709,11 @@ async fn update_release_is_stored_as_uploaded_and_served_to_installs() {
 
 #[tokio::test]
 async fn update_upload_refuses_a_file_that_does_not_match_its_manifest() {
+    use typeshelf_core::update::Platform;
     let s = Server::new().await;
     let token = s.register("a", "Ana").await;
     let file = b"MZ pretend setup program".to_vec();
-    let (manifest, signature, _) = signed_release("0.2.0", &file);
+    let (manifest, signature, _) = signed_release("0.2.0", Platform::Windows, &file);
     let mut other = file.clone();
     other[3] ^= 1;
     let longer = [&file[..], b"!"].concat();
@@ -1726,9 +1728,33 @@ async fn update_upload_refuses_a_file_that_does_not_match_its_manifest() {
         let r = s.upload_update(&fields, &s.cookie).await;
         assert_eq!((r.status, r.json()["error"].as_str()), (StatusCode::BAD_REQUEST, Some(code)), "{}", String::from_utf8_lossy(&r.body));
     }
-    assert_eq!(s.admin(Method::GET, "/update", None).await.json(), Value::Null);
+    assert_eq!(s.admin(Method::GET, "/update", None).await.json(), json!({ "windows": null, "macos": null }));
     assert_eq!(s.desktop(Method::GET, "/update", &token, None).await.status, StatusCode::NOT_FOUND);
     assert_eq!(s.desktop(Method::GET, "/update/file", &token, None).await.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn mac_release_has_its_own_slot_and_old_clients_still_get_windows() {
+    let s = Server::new().await;
+    let token = s.register("a", "Ana").await;
+    use typeshelf_core::update::Platform;
+    let win = b"MZ windows".repeat(100);
+    let (wm, ws, _) = signed_release("0.3.0", Platform::Windows, &win);
+    let mac = b"\x1f\x8b mac".repeat(100);
+    let (mm, ms, _) = signed_release("0.4.0", Platform::Macos, &mac);
+    assert_eq!(s.upload_update(&[("file", &win), ("manifest", wm.as_bytes()), ("signature", ws.as_bytes())], &s.cookie).await.status, StatusCode::OK);
+    let r = s.upload_update(&[("file", &mac), ("manifest", mm.as_bytes()), ("signature", ms.as_bytes())], &s.cookie).await;
+    assert_eq!(r.json()["platform"], "macos");
+    // Old clients: no query, Windows release unchanged.
+    assert_eq!(s.desktop(Method::GET, "/update", &token, None).await.json()["manifest"], wm.as_str());
+    assert_eq!(s.desktop(Method::GET, "/update/file", &token, None).await.body, win);
+    assert_eq!(s.desktop(Method::GET, "/update?platform=windows", &token, None).await.json()["manifest"], wm.as_str());
+    // Mac clients.
+    assert_eq!(s.desktop(Method::GET, "/update?platform=macos", &token, None).await.json()["manifest"], mm.as_str());
+    assert_eq!(s.desktop(Method::GET, "/update/file?platform=macos", &token, None).await.body, mac);
+    assert_eq!(s.desktop(Method::GET, "/update?platform=linux", &token, None).await.status, StatusCode::NOT_FOUND);
+    assert_eq!(s.admin(Method::GET, "/update", None).await.json(),
+        json!({ "windows": {"version":"0.3.0","size":win.len()}, "macos": {"version":"0.4.0","size":mac.len()} }));
 }
 
 #[tokio::test]
