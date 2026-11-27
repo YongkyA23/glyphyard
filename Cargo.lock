@@ -5795,6 +5795,7 @@ dependencies = [
 name = "typeshelf-engine"
 version = "0.2.0"
 dependencies = [
+ "argon2",
  "chrono",
  "lopdf",
  "notify-debouncer-full",

@@ -168,8 +168,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     if !settings.start_hidden {
         show_main(&handle);
     }
-    let open = MenuItem::with_id(app, "open", "Open Glyphyard", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let (open_label, quit_label) = commands::tray_labels(settings.language == typeshelf_engine::Language::Id);
+    let open = MenuItem::with_id(app, "open", open_label, true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", quit_label, true, None::<&str>)?;
+    app.manage(commands::TrayItems { open: open.clone(), quit: quit.clone() });
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().ok_or("no app icon")?)
         .tooltip("Glyphyard")

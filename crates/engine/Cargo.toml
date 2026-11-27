@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+argon2 = "0.6.0"
 chrono = { version = "0.4.45", features = ["serde"] }
 lopdf = { version = "0.46.0", default-features = false }
 notify-debouncer-full = "0.7.0"

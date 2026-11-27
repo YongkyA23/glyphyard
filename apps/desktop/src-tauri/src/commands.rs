@@ -37,7 +37,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         google_catalog, google_install, google_remove,
         backup_create, backup_restore,
         get_settings, update_settings,
-        get_connection, test_connection, save_connection, reset_connection,
+        get_connection, test_connection, save_connection, reset_connection, unlock_connection, set_tray_language,
         quick_search, show_in_folder, open_url,
         adobe_status, adobe_install, adobe_remove, adobe_pair_respond, indesign_running,
         pick_folder, pick_file, pick_files, pick_save_file,
@@ -521,14 +521,12 @@ pub async fn test_connection(ctx: St<'_>, server_url: String, install_key: Strin
 
 /// A different server/key means a different registration: the token is dropped and `sync::restart`
 /// registers again with the stored name. So does saving the same values once the admin removed this computer.
-async fn change_connection(app: &AppHandle, ctx: &Ctx, server_url: &str, install_key: &str) -> R<Connection> {
+async fn change_connection(app: &AppHandle, ctx: &Ctx, server_url: &str, install_key: &str, password: Option<String>) -> R<Connection> {
     let (url, key) = (server_url.trim().to_string(), install_key.trim().to_string());
     let cleared = url.is_empty();
     let changed = ctx
         .run(move |e| {
-            if !e.policy()?.allow_connection_edit {
-                return Err(EngineError::new("connection_locked", "Your admin has locked the connection settings."));
-            }
+            e.authorize_connection_change(password.as_deref())?;
             let c = e.get_connection()?;
             if c.server_url == url && c.install_key == key && c.error.as_deref() != Some(sync::REVOKED) {
                 return Ok(false);
@@ -550,13 +548,37 @@ async fn change_connection(app: &AppHandle, ctx: &Ctx, server_url: &str, install
 }
 
 #[tauri::command]
-pub async fn save_connection(app: AppHandle, ctx: St<'_>, server_url: String, install_key: String) -> R<Connection> {
-    change_connection(&app, &ctx, &server_url, &install_key).await
+pub async fn save_connection(app: AppHandle, ctx: St<'_>, server_url: String, install_key: String, password: Option<String>) -> R<Connection> {
+    change_connection(&app, &ctx, &server_url, &install_key, password).await
 }
 
 #[tauri::command]
-pub async fn reset_connection(app: AppHandle, ctx: St<'_>) -> R<Connection> {
-    change_connection(&app, &ctx, DEFAULT_SERVER_URL, DEFAULT_INSTALL_KEY).await
+pub async fn reset_connection(app: AppHandle, ctx: St<'_>, password: Option<String>) -> R<Connection> {
+    change_connection(&app, &ctx, DEFAULT_SERVER_URL, DEFAULT_INSTALL_KEY, password).await
+}
+
+/// Checks the admin's unlock password without changing anything (the UI then shows the editable form).
+#[tauri::command]
+pub async fn unlock_connection(ctx: St<'_>, password: String) -> R<()> {
+    ctx.run(move |e| e.verify_connection_password(&password)).await
+}
+
+pub struct TrayItems {
+    pub open: tauri::menu::MenuItem<tauri::Wry>,
+    pub quit: tauri::menu::MenuItem<tauri::Wry>,
+}
+
+pub fn tray_labels(indonesian: bool) -> (&'static str, &'static str) {
+    if indonesian { ("Buka Glyphyard", "Keluar") } else { ("Open Glyphyard", "Quit") }
+}
+
+#[tauri::command]
+pub fn set_tray_language(app: AppHandle, lang: String) -> R<()> {
+    let items = app.state::<TrayItems>();
+    let (open, quit) = tray_labels(lang == "id");
+    items.open.set_text(open).map_err(|e| EngineError::new("tray", e.to_string()))?;
+    items.quit.set_text(quit).map_err(|e| EngineError::new("tray", e.to_string()))?;
+    Ok(())
 }
 
 // ---- OS integration ----
