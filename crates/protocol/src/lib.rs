@@ -46,6 +46,10 @@ pub struct Policy {
     /// `data:image/...;base64,...` (PNG, JPEG, WebP or SVG) or empty.
     #[serde(default)]
     pub brand_logo: String,
+    /// Argon2 PHC string of the admin's connection unlock password, or empty when none is set. The desktop app keeps
+    /// it so an admin can unlock Settings › Connection on a locked computer even when the server can't be reached.
+    #[serde(default)]
+    pub connection_password_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

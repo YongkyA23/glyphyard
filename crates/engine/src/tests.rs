@@ -535,7 +535,7 @@ fn delivery_saves_into_shared_library() {
     fx.engine.apply_command(&cmd).unwrap();
 
     fx.engine.apply_command(&CommandKind::OrganizeRequest).unwrap();
-    let policy = typeshelf_protocol::Policy { name_change_days: 7, allow_connection_edit: false, notify_admin_changes: true, brand_name: "Northwind".into(), brand_color: "#c2410c".into(), brand_logo: "data:image/png;base64,AAAA".into() };
+    let policy = typeshelf_protocol::Policy { name_change_days: 7, allow_connection_edit: false, notify_admin_changes: true, brand_name: "Northwind".into(), brand_color: "#c2410c".into(), brand_logo: "data:image/png;base64,AAAA".into(), connection_password_hash: String::new() };
     fx.engine.apply_command(&CommandKind::PolicyChanged { policy }).unwrap();
     let state = fx.engine.get_app_state().unwrap();
     assert_eq!(state.name_change_days, 7);

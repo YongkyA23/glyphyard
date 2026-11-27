@@ -106,6 +106,7 @@ impl Settings {
             brand_name: self.brand_name.clone(),
             brand_color: self.brand_color.clone(),
             brand_logo: self.brand_logo.clone(),
+            connection_password_hash: String::new(), // replaced by the server task: Settings::connection_password_hash
         }
     }
 }

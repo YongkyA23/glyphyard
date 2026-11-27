@@ -6,7 +6,7 @@ use serde_json::Value;
 use typeshelf_protocol::Policy;
 
 fn default_policy() -> Policy {
-    Policy { name_change_days: 30, allow_connection_edit: true, notify_admin_changes: true, brand_name: String::new(), brand_color: String::new(), brand_logo: String::new() }
+    Policy { name_change_days: 30, allow_connection_edit: true, notify_admin_changes: true, brand_name: String::new(), brand_color: String::new(), brand_logo: String::new(), connection_password_hash: String::new() }
 }
 
 impl Engine {
