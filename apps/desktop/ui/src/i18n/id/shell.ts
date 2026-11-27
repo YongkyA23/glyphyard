@@ -12,8 +12,8 @@ export default {
   'All on': 'Semua aktif',
   'None on': 'Tidak ada yang aktif',
   '{on} of {total} on': '{on} dari {total} aktif',
-  'Collapse {name}': 'Ciutkan {name}',
-  'Expand {name}': 'Bentangkan {name}',
+  'Collapse {name}': 'Tutup {name}',
+  'Expand {name}': 'Buka {name}',
   'Its fonts are left out of the library': 'Font di dalamnya tidak dimasukkan ke pustaka',
   'New fonts here are turned on automatically': 'Font baru di sini diaktifkan otomatis',
   'HIDDEN': 'TERSEMBUNYI',
@@ -171,7 +171,7 @@ export default {
 
   // Shared UI
   'Licensed': 'Berlisensi',
-  'Personal use': 'Penggunaan pribadi',
+  'Personal use': 'Pemakaian pribadi',
   'Client-provided': 'Dari klien',
   'Unknown license': 'Lisensi tidak diketahui',
   'Serif': 'Serif',
@@ -187,7 +187,7 @@ export default {
   'Next ›': 'Berikutnya ›',
   'Search fonts': 'Cari font',
   'No fonts match': 'Tidak ada font yang cocok',
-  'Weight': 'Bobot',
+  'Weight': 'Ketebalan',
   'Width': 'Lebar',
   'Optical size': 'Ukuran optik',
   'Italic': 'Miring',

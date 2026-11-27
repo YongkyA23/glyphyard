@@ -42,7 +42,8 @@ const FILTERS: [FamilyFilter, string][] = [
   ['all', tk('All')], ['active', tk('Active')], ['inactive', tk('Inactive')], ['admin', tk('Set by admin')], ['unknown_license', tk('Unknown license')], ['duplicates', tk('Duplicates')],
 ]
 const SORTS: [FamilySort, string][] = [['name', tk('Name A–Z')], ['name_desc', tk('Name Z–A')], ['date', tk('Recently added')], ['foundry', tk('Foundry')], ['random', tk('Random')]]
-const CATEGORIES = Object.entries(CATEGORY_LABEL) as [FontCategory, string][]
+// Keys only: the labels are read at render time (CATEGORY_LABEL has language-aware getters).
+const CATEGORIES = Object.keys(CATEGORY_LABEL).map((k) => [k, k] as [FontCategory, string])
 const newSeed = () => Math.floor(Math.random() * 2 ** 31)
 /** A URL value if it is one of `list`'s keys, else null. */
 const known = <K extends string>(v: string | null, list: readonly (readonly [K, string])[]): K | null => list.find(([k]) => k === v)?.[0] ?? null
@@ -606,8 +607,8 @@ export function Library() {
         <span className="chip-divider" aria-hidden="true" />
         <span role="group" aria-label={t('Category')} className="chips">
           <Chip pressed={category === null} onClick={() => setCategory(null)}>{t('Any type')}</Chip>
-          {CATEGORIES.map(([k, label]) => (
-            <Chip key={k} pressed={category === k} onClick={() => setCategory(category === k ? null : k)}>{t(label) /* i18n-dynamic */}</Chip>
+          {CATEGORIES.map(([k]) => (
+            <Chip key={k} pressed={category === k} onClick={() => setCategory(category === k ? null : k)}>{t(CATEGORY_LABEL[k]) /* i18n-dynamic */}</Chip>
           ))}
         </span>
         {scope && (

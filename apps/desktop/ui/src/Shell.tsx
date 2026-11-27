@@ -20,7 +20,9 @@ import { ago, basename, collectionTree, Dialog, errMsg, initials, keysBusy, LICE
 const Hi = ({ id }: { id: string }) => <motion.span layoutId={id} className="side-hi" transition={spring.glide} />
 
 const LIC_DOT: Record<License, string> = { licensed: 'var(--ok-dot)', personal: 'var(--accent)', client: 'var(--violet-dot)', unknown: 'var(--amber)' }
-const LIC_NAME: Record<License, string> = { ...LICENSE_LABEL, get unknown() { return t('Unknown') } }
+const LIC_KEYS = Object.keys(LICENSE_LABEL) as License[]
+/** Read at render time, so the label follows the language. */
+const licName = (l: License) => (l === 'unknown' ? t('Unknown') : LICENSE_LABEL[l])
 
 /** Inside `dir` (not `dir` itself), for either path separator. */
 const isUnder = (path: string | null, dir: string) => !!path && (path.startsWith(dir + '\\') || path.startsWith(dir + '/'))
@@ -389,11 +391,11 @@ function Sidebar() {
       )}
       <div className="side-group">
         <span className="side-head">{t('Licenses')}</span>
-        {(Object.keys(LIC_NAME) as License[]).map((l) => (
+        {LIC_KEYS.map((l) => (
           <Link key={l} to={`/?license=${l}`} className="side-item" aria-current={sel('license', l) ? 'true' : undefined}>
             {sel('license', l) && <Hi id="side-item-hi" />}
             <span aria-hidden="true" className="lic-dot" style={{ background: LIC_DOT[l] }} />
-            <span style={{ flex: 1 }}>{LIC_NAME[l]}</span>
+            <span style={{ flex: 1 }}>{licName(l)}</span>
             <span className="side-count"><Num value={licCount(l)} /></span>
           </Link>
         ))}
