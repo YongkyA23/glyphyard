@@ -83,8 +83,9 @@ pub fn normalize(doc: &OrganizerDoc, now: DateTime<Utc>) -> Result<OrganizerDoc,
 /// - Families merge per key: the newer `at` wins, a tie goes to `removed`.
 /// - Live items of one kind with the same name and parent collapse into the smallest uid: the others are
 ///   tombstoned at their own `updated_at` (so a later edit revives them), and their families, and those of
-///   tombstones that still match it, are unioned into it, so a family a stale copy adds to an already collapsed
-///   duplicate still shows. Children pointing at any of them are re-pointed to it. Parent loops stay as they
+///   collapse tombstones (`deleted_at == updated_at`) that still match it, are unioned into it, so a family a
+///   stale copy adds to an already collapsed duplicate still shows. A user delete must therefore leave the
+///   item's real `updated_at` and set a later `deleted_at`; such a tombstone keeps its families. Children pointing at any of them are re-pointed to it. Parent loops stay as they
 ///   are; see [`loop_cuts`]. Favorites never collapses and is never deleted.
 ///
 /// Pure, deterministic, commutative and idempotent, and associative except when a rename or delete races a
@@ -274,11 +275,15 @@ fn collapse<E: Entry>(by_uid: &mut BTreeMap<String, E>) {
         let mut changed = false;
         for (from, to) in &alias {
             let e = by_uid.get_mut(from).expect("alias of an entry");
+            let collapse_stamp = Some(e.updated_at().to_string());
             if !e.deleted() {
-                *e.deleted_at() = Some(e.updated_at().to_string());
+                *e.deleted_at() = collapse_stamp;
                 changed = true;
+            } else if *e.deleted_at() != collapse_stamp {
+                // A user delete (`deleted_at > updated_at`) keeps its families to itself.
+                continue;
             }
-            // From tombstones too: a family a stale copy added to an already collapsed duplicate.
+            // From collapse tombstones too: a family a stale copy added to an already collapsed duplicate.
             let moved = e.items().clone();
             let t = by_uid.get_mut(to).expect("alias target");
             let items = merge_items(t.items().iter().chain(&moved));
@@ -556,6 +561,18 @@ mod tests {
         for m in [merge(&server, &laptop), merge(&laptop, &server)] {
             assert_eq!(keys(&find(&m, "aaa").items), ["Inter", "Lora"], "{m:?}");
             assert_eq!(merge(&m, &m), m);
+        }
+    }
+
+    #[test]
+    fn a_deleted_collection_does_not_hand_its_families_to_a_new_namesake() {
+        // "Client X" (bbb) is deleted, then a new "Client X" (aaa) is made in the same place.
+        let mut gone = col("bbb", "Client X", None, 1, vec![item("Inter", 1, false)]);
+        gone.deleted_at = Some(ts(3));
+        let (old, new) = (doc(vec![gone], vec![]), doc(vec![col("aaa", "Client X", None, 4, vec![])], vec![]));
+        for m in [merge(&old, &new), merge(&new, &old)] {
+            assert!(find(&m, "aaa").items.is_empty(), "{m:?}");
+            assert!(deleted(find(&m, "bbb")));
         }
     }
 
