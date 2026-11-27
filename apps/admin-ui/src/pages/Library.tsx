@@ -1,26 +1,36 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { api, sortAria, ApiError, errorText, type BulkAction, type LibraryFile, type LibrarySort, type License, type Page, type Sort } from '../api'
-import { base, fadeRise, fast, row, spring } from '../motion'
+import { api, sortAria, ApiError, type BulkAction, type LibraryFile, type LibrarySort, type License, type Page, type Sort } from '../api'
+import { base, fast, row, spring } from '../motion'
 import { toast } from '../toast'
+import { Hint } from '../Hint'
+import { t, tk } from '../i18n'
 import {
-  Badge, Chips, Dialog, Empty, ErrorBox, Loaded, PageHeader, Pager, plural, Skel, SortHead, Spin, Swap, Table, TableSkeleton, useConfirm, useDebounced, useLoad, usePage,
+  Badge, Chips, Dialog, Empty, ErrorBox, errMsg, Loaded, PageHeader, Pager, plural, Skel, SortHead, Spin, Swap, Table, TableSkeleton, useConfirm, useDebounced, useLoad, usePage,
 } from '../ui'
 
-const HEAD = ['Family', 'License', 'Delivered to', 'Active on', 'Status', <span className="sr-only">Actions</span>]
-const SKELETON_HEAD = [<span key="sel" className="sr-only">Select</span>, ...HEAD]
+// The two columns that need an explanation carry a Hint; the rest are plain labels.
+const head = () => [
+  t('Family'), t('License'),
+  <>{t('Delivered to')} <Hint text={t('Pick everyone or specific users. The file is downloaded to their app and appears in their library. Choose whether it’s also turned on.')} /></>,
+  t('Active on'),
+  <>{t('Status')} <Hint text={t('A blocked font is turned off on every computer and can’t be turned on again, even if a user has their own copy.')} /></>,
+  <span key="act" className="sr-only">{t('Actions')}</span>,
+]
 type Upload = { name: string; state: 'busy' | 'done' | 'error' }
 /** Picked files for this search: hashes on any page, or `all` = every result of the search. */
 type Selection = { query: string; hashes: string[]; all: boolean }
-const DONE: Record<BulkAction, string> = { deliver: 'Delivered', block: 'Blocked', unblock: 'Unblocked', delete: 'Deleted' }
+const doneText = (a: BulkAction, files: string) =>
+  a === 'deliver' ? t('Delivered {files}.', { files }) : a === 'block' ? t('Blocked {files}.', { files })
+    : a === 'unblock' ? t('Unblocked {files}.', { files }) : t('Deleted {files}.', { files })
 
-const LICENSES: [License, string][] = [['licensed', 'Licensed'], ['personal', 'Personal use'], ['client', 'Client-provided'], ['unknown', 'Unknown']]
+const LICENSES: [License, string][] = [['licensed', tk('Licensed')], ['personal', tk('Personal use')], ['client', tk('Client-provided')], ['unknown', tk('Unknown')]]
 const ACCEPT = '.otf,.ttf,.ttc,.otc,.woff,.woff2'
 
-const SORTS: [LibrarySort, string][] = [['family', 'Family A–Z'], ['uploaded', 'Newest'], ['size', 'Largest']]
-const deliveredText = (t: LibraryFile['delivered_to']) =>
-  t === 'all' ? 'Everyone' : t === 'none' || t.length === 0 ? 'Nobody' : plural(t.length, 'user')
+const SORTS: [LibrarySort, string][] = [['family', tk('Family A–Z')], ['uploaded', tk('Newest')], ['size', tk('Largest')]]
+const deliveredText = (to: LibraryFile['delivered_to']) =>
+  to === 'all' ? t('Everyone') : to === 'none' || to.length === 0 ? t('Nobody') : plural(to.length, 'user')
 const kb = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`)
 
 export function Library() {
@@ -40,6 +50,8 @@ export function Library() {
   const [confirmDialog, confirm] = useConfirm()
   const [delivering, setDelivering] = useState<LibraryFile | 'selected'>()
   const fileInput = useRef<HTMLInputElement>(null)
+  const HEAD = head()
+  const SKELETON_HEAD = [<span key="sel" className="sr-only">{t('Select')}</span>, ...HEAD]
   // A new search starts with nothing selected.
   const [sel, setSel] = useState<Selection>({ query, hashes: [], all: false })
   const selection = sel.query === query ? sel : { query, hashes: [], all: false }
@@ -63,12 +75,12 @@ export function Library() {
     setError('')
     try {
       const r = await api.bulk(action, selection.all ? { q: query } : { hashes: selection.hashes }, target, activate)
-      const done = action === 'deliver' && Array.isArray(target) && target.length === 0 ? 'Removed delivery of' : DONE[action]
-      toast(`${done} ${plural(r.changed, 'file')}.`
-        + (r.skipped ? ` Skipped ${r.skipped} that ${r.skipped === 1 ? 'was' : 'were'} already done, blocked or gone.` : ''))
-      if (r.failed) setError(`${plural(r.failed, 'file')} couldn’t be deleted. Check the server log, then try again.`)
+      const files = plural(r.changed, 'file')
+      const done = action === 'deliver' && Array.isArray(target) && target.length === 0 ? t('Removed delivery of {files}.', { files }) : doneText(action, files)
+      toast(done + (r.skipped ? ' ' + (r.skipped === 1 ? t('Skipped 1 that was already done, blocked or gone.') : t('Skipped {n} that were already done, blocked or gone.', { n: r.skipped })) : ''))
+      if (r.failed) setError(t('{files} couldn’t be deleted. Check the server log, then try again.', { files: plural(r.failed, 'file') }))
     } catch (e) {
-      setError(errorText(e))
+      setError(errMsg(e))
     } finally {
       // Some files may have changed even when the request failed part way.
       clearSelection()
@@ -78,23 +90,23 @@ export function Library() {
   const bulkAsk = async (action: 'block' | 'delete') => {
     const n = plural(selectedCount, 'file')
     const text = action === 'block'
-      ? `Block ${n}? They will be turned off on every computer.`
-      : `Delete ${n} from the library? The files move to the server’s quarantine folder. Blocked files are skipped: unblock them first. Computers that already have them keep their copies.`
-    if (await confirm(text, action === 'block' ? 'Block' : 'Delete', true)) await bulk(action)
+      ? t('Block {files}? They will be turned off on every computer.', { files: n })
+      : t('Delete {files} from the library? The files move to the server’s quarantine folder. Blocked files are skipped: unblock them first. Computers that already have them keep their copies.', { files: n })
+    if (await confirm(text, action === 'block' ? t('Block') : t('Delete'), true)) await bulk(action)
   }
   const remove = async (f: LibraryFile) => {
-    const blockedText = `${f.family} ${f.style} is blocked. Unblock it first, then delete it.`
+    const blockedText = t('{name} is blocked. Unblock it first, then delete it.', { name: `${f.family} ${f.style}` })
     if (f.blocked) return setError(blockedText)
-    const text = `Delete ${f.family} ${f.style} from the library? The file moves to the server’s quarantine folder. Computers that already have it keep their copy.`
-    if (!(await confirm(text, 'Delete', true))) return
+    const text = t('Delete {name} from the library? The file moves to the server’s quarantine folder. Computers that already have it keep their copy.', { name: `${f.family} ${f.style}` })
+    if (!(await confirm(text, t('Delete'), true))) return
     setError('')
     try {
       await api.deleteFile(f.hash)
-      toast(`Deleted ${f.family} ${f.style}.`)
+      toast(t('Deleted {name}.', { name: `${f.family} ${f.style}` }))
       setSel({ ...selection, hashes: selection.hashes.filter((h) => h !== f.hash) })
       await state.reload(true)
     } catch (e) {
-      setError(e instanceof ApiError && e.code === 'blocked' ? blockedText : errorText(e))
+      setError(e instanceof ApiError && e.code === 'blocked' ? blockedText : errMsg(e))
     }
   }
 
@@ -105,7 +117,7 @@ export function Library() {
       const f = await fn()
       replace(f)
       done?.(f)
-    } catch (e) { setError(errorText(e)) }
+    } catch (e) { setError(errMsg(e)) }
   }
 
   const upload = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -120,11 +132,11 @@ export function Library() {
     try {
       const added = await api.upload(files)
       mark('done')
-      toast(added.length ? `Added ${plural(added.length, 'font file')}.` : 'Those files are already in the library.')
+      toast(added.length ? t('Added {files}.', { files: plural(added.length, 'font file') }) : t('Those files are already in the library.'))
       await state.reload(true)
     } catch (err) {
       mark('error')
-      setError(errorText(err))
+      setError(errMsg(err))
     } finally {
       setUploading(false)
       e.target.value = ''
@@ -133,31 +145,31 @@ export function Library() {
   }
 
   const block = async (f: LibraryFile) => {
-    if (!f.blocked && !(await confirm(`Block ${f.family} ${f.style}? It will be turned off on every computer.`, 'Block', true))) return
+    if (!f.blocked && !(await confirm(t('Block {name}? It will be turned off on every computer.', { name: `${f.family} ${f.style}` }), t('Block'), true))) return
     const blocked = !f.blocked
     void run(() => api.block(f.hash, blocked), () =>
-      toast(`${blocked ? 'Blocked' : 'Unblocked'} ${f.family} ${f.style}.`, { undo: () => api.block(f.hash, !blocked).then(replace) }))
+      toast(blocked ? t('Blocked {name}.', { name: `${f.family} ${f.style}` }) : t('Unblocked {name}.', { name: `${f.family} ${f.style}` }), { undo: () => api.block(f.hash, !blocked).then(replace) }))
   }
 
   return (
     <div className="page gap-18">
-      <PageHeader title="Shared library"
-        sub="Approved fonts you deliver to users’ apps."
+      <PageHeader title={t('Shared library')}
+        sub={t('Approved fonts you deliver to users’ apps.')}
         actions={
           <span className="row-8">
-            <Link className="btn" to="/organize">Auto-organize</Link>
+            <Link className="btn" to="/organize">{t('Auto-organize')}</Link>
             <button type="button" className="btn btn-primary" disabled={uploading} onClick={() => fileInput.current?.click()}>
-              {uploading && <Spin />}{uploading ? 'Uploading…' : 'Upload fonts'}
+              {uploading && <Spin />}{uploading ? t('Uploading…') : t('Upload fonts')}
             </button>
-            <input ref={fileInput} type="file" multiple accept={ACCEPT} hidden onChange={upload} aria-label="Font files to upload" />
+            <input ref={fileInput} type="file" multiple accept={ACCEPT} hidden onChange={upload} aria-label={t('Font files to upload')} />
           </span>
         }>
         {state.data && !query && <span className="sub">{plural(state.data.total, 'file')}</span>}
       </PageHeader>
       <div className="toolbar">
-        <label htmlFor="lsearch" className="sr-only">Search the shared library</label>
-        <input id="lsearch" type="search" className="input grow" placeholder="Search family, style or file name" value={q} onChange={(e) => setQ(e.target.value)} />
-        <Chips label="Sort" options={SORTS} value={sort?.key ?? 'family'}
+        <label htmlFor="lsearch" className="sr-only">{t('Search the shared library')}</label>
+        <input id="lsearch" type="search" className="input grow" placeholder={t('Search family, style or file name')} value={q} onChange={(e) => setQ(e.target.value)} />
+        <Chips label={t('Sort')} options={SORTS.map(([k, label]) => [k, t(label /* i18n-dynamic */)] as [LibrarySort, string])} value={sort?.key ?? 'family'}
           onChange={(k) => setSort({ key: k, dir: k === 'family' ? 'asc' : 'desc' })} />
       </div>
       <AnimatePresence>
@@ -167,7 +179,7 @@ export function Library() {
               <motion.span key={u.name + i} className={`upload-chip is-${u.state}`}
                 initial={{ opacity: 0, y: 6, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1, transition: { ...spring, delay: Math.min(i, 8) * 0.04 } }}>
                 <span className="row-between"><span className="ellipsis">{u.name}</span>
-                  <Swap>{u.state === 'done' ? '✓' : u.state === 'error' ? 'Failed' : ''}</Swap>
+                  <Swap>{u.state === 'done' ? '✓' : u.state === 'error' ? t('Failed') : ''}</Swap>
                 </span>
                 <span className={u.state === 'busy' ? 'progress progress-run' : 'progress'}>
                   {u.state === 'busy' ? <span /> : <motion.span initial={{ scaleX: 0.4 }} animate={{ scaleX: 1 }} transition={base} />}
@@ -179,35 +191,35 @@ export function Library() {
       </AnimatePresence>
       {error && <ErrorBox message={error} />}
       {selectedCount > 0 && (
-        <div className="toolbar" role="group" aria-label="Selected files">
+        <div className="toolbar" role="group" aria-label={t('Selected files')}>
           <span className="meta">
-            {selection.all ? `All ${plural(total, 'result')} selected` : `${plural(selectedCount, 'file')} selected`}
+            {selection.all ? t('All {results} selected', { results: plural(total, 'result') }) : t('{files} selected', { files: plural(selectedCount, 'file') })}
           </span>
           {!selection.all && state.data && total > state.data.items.length && state.data.items.every((f) => isSelected(f.hash)) && (
-            <button type="button" className="link-btn small" onClick={() => setSel({ query, hashes: [], all: true })}>Select all {total} results</button>
+            <button type="button" className="link-btn small" onClick={() => setSel({ query, hashes: [], all: true })}>{t('Select all {total} results', { total })}</button>
           )}
-          <button type="button" className="link-btn small" onClick={clearSelection}>Clear selection</button>
+          <button type="button" className="link-btn small" onClick={clearSelection}>{t('Clear selection')}</button>
           <span className="row-6">
-            <button type="button" className="btn btn-xs" onClick={() => setDelivering('selected')}>Deliver…</button>
-            <button type="button" className="btn btn-xs" onClick={() => void bulkAsk('block')}>Block</button>
-            <button type="button" className="btn btn-xs" onClick={() => void bulk('unblock')}>Unblock</button>
-            <button type="button" className="btn btn-xs btn-danger" onClick={() => void bulkAsk('delete')}>Delete</button>
+            <button type="button" className="btn btn-xs" onClick={() => setDelivering('selected')}>{t('Deliver…')}</button>
+            <button type="button" className="btn btn-xs" onClick={() => void bulkAsk('block')}>{t('Block')}</button>
+            <button type="button" className="btn btn-xs" onClick={() => void bulk('unblock')}>{t('Unblock')}</button>
+            <button type="button" className="btn btn-xs btn-danger" onClick={() => void bulkAsk('delete')}>{t('Delete')}</button>
           </span>
         </div>
       )}
       <Loaded state={state} skeleton={<TableSkeleton head={SKELETON_HEAD} minWidth={1020} rows={3} />}>{({ items: shown, total }) => (
           <>
-            <Table caption="Font files in the shared library" minWidth={1020} head={[
-              <input key="sel" type="checkbox" className="check" aria-label="Select every file on this page"
+            <Table caption={t('Font files in the shared library')} minWidth={1020} head={[
+              <input key="sel" type="checkbox" className="check" aria-label={t('Select every file on this page')}
                 checked={shown.length > 0 && shown.every((f) => isSelected(f.hash))} onChange={() => togglePage(shown)} />,
-              { node: <SortHead label="Family" k="family" sort={sort} onSort={setSort} defaultDir="asc" />, sort: sortAria(sort, 'family') },
+              { node: <SortHead label={t('Family')} k="family" sort={sort} onSort={setSort} defaultDir="asc" />, sort: sortAria(sort, 'family') },
               ...HEAD.slice(1, 4),
               ...HEAD.slice(4),
             ]}>
               {shown.map((f, i) => (
                 <motion.tr key={f.hash} {...row(i, shown.length)}>
                   <td>
-                    <input type="checkbox" className="check" aria-label={`Select ${f.family} ${f.style}`} checked={isSelected(f.hash)} onChange={() => toggle(f.hash)} />
+                    <input type="checkbox" className="check" aria-label={t('Select {name}', { name: `${f.family} ${f.style}` })} checked={isSelected(f.hash)} onChange={() => toggle(f.hash)} />
                   </td>
                   <td>
                     <span className="stack-2">
@@ -216,10 +228,10 @@ export function Library() {
                     </span>
                   </td>
                   <td>
-                    <select className={`license tone-lic-${f.license}`} value={f.license} aria-label={`License for ${f.family} ${f.style}`}
+                    <select className={`license tone-lic-${f.license}`} value={f.license} aria-label={t('License for {name}', { name: `${f.family} ${f.style}` })}
                       onChange={(e) => void run(() => api.setLicense(f.hash, e.target.value as License),
-                        (u) => toast(`License set to ${LICENSES.find(([k]) => k === u.license)?.[1] ?? u.license} for ${u.family} ${u.style}.`))}>
-                      {LICENSES.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+                        (u) => toast(t('License set to {license} for {name}.', { license: t(LICENSES.find(([k]) => k === u.license)?.[1] ?? u.license /* i18n-dynamic */), name: `${u.family} ${u.style}` })))}>
+                      {LICENSES.map(([k, label]) => <option key={k} value={k}>{t(label /* i18n-dynamic */)}</option>)}
                     </select>
                   </td>
                   <td>{deliveredText(f.delivered_to)}</td>
@@ -229,52 +241,42 @@ export function Library() {
                     <AnimatePresence mode="popLayout" initial={false}>
                       <motion.span key={String(f.blocked)} className="swap" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1, transition: spring }}
                         exit={{ opacity: 0, scale: 0.9, transition: fast }}>
-                        {f.blocked ? <Badge tone="bad">Blocked</Badge> : <Badge tone="ok">Published</Badge>}
+                        {f.blocked ? <Badge tone="bad">{t('Blocked')}</Badge> : <Badge tone="ok">{t('Published')}</Badge>}
                       </motion.span>
                     </AnimatePresence>
                   </td>
                   <td className="nowrap">
                     <span className="row-6 end">
-                      <button type="button" className="btn btn-xs" disabled={f.blocked} onClick={() => setDelivering(f)}>Deliver…</button>
+                      <button type="button" className="btn btn-xs" disabled={f.blocked} onClick={() => setDelivering(f)}>{t('Deliver…')}</button>
                       <button type="button" className={f.blocked ? 'btn btn-xs' : 'btn btn-xs btn-danger'} onClick={() => void block(f)}>
-                        <Swap>{f.blocked ? 'Unblock' : 'Block'}</Swap>
+                        <Swap>{f.blocked ? t('Unblock') : t('Block')}</Swap>
                       </button>
-                      <button type="button" className="btn btn-xs btn-danger" aria-label={`Delete ${f.family} ${f.style}`} onClick={() => void remove(f)}>Delete</button>
+                      <button type="button" className="btn btn-xs btn-danger" aria-label={t('Delete {name}', { name: `${f.family} ${f.style}` })} onClick={() => void remove(f)}>{t('Delete')}</button>
                     </span>
                   </td>
                 </motion.tr>
               ))}
             </Table>
             {total === 0 && (query
-              ? <Empty>No fonts match.</Empty>
-              : <Empty title="Your shared library is empty"
-                  action={<button type="button" className="btn btn-primary" disabled={uploading} onClick={() => fileInput.current?.click()}>Upload fonts</button>}>
-                  Upload the fonts your team should have.
+              ? <Empty>{t('No fonts match.')}</Empty>
+              : <Empty title={t('Your shared library is empty')}
+                  action={<button type="button" className="btn btn-primary" disabled={uploading} onClick={() => fileInput.current?.click()}>{t('Upload fonts')}</button>}>
+                  {t('Upload the fonts your team should have.')}
                 </Empty>)}
-            <Pager label="Library pages" page={page} total={total} onPage={setPage} />
+            <Pager label={t('Library pages')} page={page} total={total} onPage={setPage} />
           </>
       )}</Loaded>
-      <motion.div className="info-cards" variants={fadeRise} initial="hidden" animate="show">
-        <div className="card pad-16 stack-6">
-          <span className="strong">Delivering a font</span>
-          <span className="small mute lh">Pick everyone or specific users. The file is downloaded to their app and appears in their library. Choose whether it’s also turned on.</span>
-        </div>
-        <div className="card card-bad pad-16 stack-6">
-          <span className="strong">Blocking a font</span>
-          <span className="small lh">A blocked font is turned off on every computer and can’t be turned on again, even if a user has their own copy.</span>
-        </div>
-      </motion.div>
       <AnimatePresence>
         {delivering === 'selected' && (
-          <DeliverDialog key="selected" title={`Deliver ${plural(selectedCount, 'file')}`} onClose={() => setDelivering(undefined)}
+          <DeliverDialog key="selected" title={t('Deliver {files}', { files: plural(selectedCount, 'file') })} onClose={() => setDelivering(undefined)}
             onSubmit={async (target, activate) => { setDelivering(undefined); await bulk('deliver', target, activate) }} />
         )}
         {delivering && delivering !== 'selected' && (
-          <DeliverDialog key={delivering.hash} title={`Deliver ${delivering.family} ${delivering.style}`} current={delivering.delivered_to}
+          <DeliverDialog key={delivering.hash} title={t('Deliver {name}', { name: `${delivering.family} ${delivering.style}` })} current={delivering.delivered_to}
             onClose={() => setDelivering(undefined)}
             onSubmit={async (target, activate) => {
               replace(await api.deliver(delivering.hash, target, activate))
-              toast(`Delivering ${delivering.family} ${delivering.style} to ${target === 'all' ? 'everyone' : plural(target.length, 'user')}.`)
+              toast(target === 'all' ? t('Delivering {name} to everyone.', { name: `${delivering.family} ${delivering.style}` }) : t('Delivering {name} to {users}.', { name: `${delivering.family} ${delivering.style}`, users: plural(target.length, 'user') }))
               setDelivering(undefined)
             }} />
         )}
@@ -309,7 +311,7 @@ function DeliverDialog({ title, current, onClose, onSubmit }: {
     try {
       await onSubmit(mode === 'all' ? 'all' : picked, activate)
     } catch (err) {
-      setError(errorText(err))
+      setError(errMsg(err))
       setBusy(false)
     }
   }
@@ -319,18 +321,18 @@ function DeliverDialog({ title, current, onClose, onSubmit }: {
       <form className="stack-12" onSubmit={submit} noValidate>
         <h2 id="dlg-title" className="h2">{title}</h2>
         <fieldset className="fieldset-plain stack-6">
-          <legend className="sr-only">Who gets it</legend>
-          <label className="radio"><input type="radio" name="target" checked={mode === 'all'} onChange={() => setMode('all')} /><span>Everyone, including new installs</span></label>
-          <label className="radio"><input type="radio" name="target" checked={mode === 'pick'} onChange={() => setMode('pick')} /><span>Only the users I pick</span></label>
+          <legend className="sr-only">{t('Who gets it')}</legend>
+          <label className="radio"><input type="radio" name="target" checked={mode === 'all'} onChange={() => setMode('all')} /><span>{t('Everyone, including new installs')}</span></label>
+          <label className="radio"><input type="radio" name="target" checked={mode === 'pick'} onChange={() => setMode('pick')} /><span>{t('Only the users I pick')}</span></label>
         </fieldset>
         <AnimatePresence initial={false}>
         {mode === 'pick' && (
           <motion.div className="stack-6" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0, transition: base }} exit={{ opacity: 0, transition: fast }}>
-            <label htmlFor="dsearch" className="sr-only">Search users</label>
-            <input id="dsearch" type="search" className="input input-38" placeholder="Search users" value={q} onChange={(e) => setQ(e.target.value)} />
+            <label htmlFor="dsearch" className="sr-only">{t('Search users')}</label>
+            <input id="dsearch" type="search" className="input input-38" placeholder={t('Search users')} value={q} onChange={(e) => setQ(e.target.value)} />
             <div className="pick-list">
-              <Loaded state={installs} label="Loading users…" skeleton={pickSkeleton}>{({ items: shown }) => {
-                if (shown.length === 0) return <Empty>No users match.</Empty>
+              <Loaded state={installs} label={t('Loading users…')} skeleton={pickSkeleton}>{({ items: shown }) => {
+                if (shown.length === 0) return <Empty>{t('No users match.')}</Empty>
                 return shown.map((u) => (
                   <label key={u.id} className="radio">
                     <input type="checkbox" className="check" checked={picked.includes(u.id)}
@@ -340,20 +342,20 @@ function DeliverDialog({ title, current, onClose, onSubmit }: {
                 ))
               }}</Loaded>
             </div>
-            {installs.data && <Pager label="User pages" page={page} total={installs.data.total} onPage={setPage} />}
-            <span className="meta">{picked.length ? `${plural(picked.length, 'user')} selected` : 'Nobody selected: it stays in the library but goes to no one.'}</span>
+            {installs.data && <Pager label={t('User pages')} page={page} total={installs.data.total} onPage={setPage} />}
+            <span className="meta">{picked.length ? t('{users} selected', { users: plural(picked.length, 'user') }) : t('Nobody selected: it stays in the library but goes to no one.')}</span>
           </motion.div>
         )}
         </AnimatePresence>
         <label className="radio">
           <input type="checkbox" className="check" checked={activate} onChange={(e) => setActivate(e.target.checked)} />
-          <span>Also turn it on for them</span>
+          <span>{t('Also turn it on for them')}</span>
         </label>
-        <span className="small mute lh">These users replace the current list. People you leave out stop getting it, including on new installs, but computers that already have the file keep it.</span>
+        <span className="small mute lh">{t('These users replace the current list. People you leave out stop getting it, including on new installs, but computers that already have the file keep it.')}</span>
         {error && <span role="alert" className="form-error">{error}</span>}
         <div className="row-8 end">
-          <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn btn-primary" disabled={busy || !mode}>{busy && <Spin />}{busy ? 'Delivering…' : 'Deliver'}</button>
+          <button type="button" className="btn" onClick={onClose}>{t('Cancel')}</button>
+          <button type="submit" className="btn btn-primary" disabled={busy || !mode}>{busy && <Spin />}{busy ? t('Delivering…') : t('Deliver')}</button>
         </div>
       </form>
     </Dialog>
